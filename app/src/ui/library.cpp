@@ -164,7 +164,7 @@ Action Library::input(uint32_t p)
         }
         return a;
     }
-    if ((p & NUVIO_BTN_TRIANGLE) && !m_in_pills) {
+    if ((p & NUVIO_BTN_OPTIONS) && !m_in_pills) {
         std::lock_guard<std::mutex> g(m_data->lock);
         if (m_index < (int)m_data->items.size())
             m_menu.open(m_data->items[m_index], false);

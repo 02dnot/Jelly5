@@ -93,7 +93,7 @@ private:
     Anim m_info_alpha;
     double m_focus_changed = 0;
 
-    ItemMenu m_menu;                    /* Triangle on a title */
+    ItemMenu m_menu;                    /* Options on a title */
     Card m_card;                        /* the focused card as drawn (for the page it opens) */
     bool m_has_card = false;
 

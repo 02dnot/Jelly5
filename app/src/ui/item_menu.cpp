@@ -48,7 +48,7 @@ void ItemMenu::open(const jf::Item &item, bool in_resume_row)
 
 void ItemMenu::input(uint32_t p, Action *action)
 {
-    if (p & (NUVIO_BTN_CIRCLE | NUVIO_BTN_TRIANGLE)) {
+    if (p & (NUVIO_BTN_CIRCLE | NUVIO_BTN_OPTIONS)) {
         m_open = false;
         m_alpha.to(0.f);
         return;

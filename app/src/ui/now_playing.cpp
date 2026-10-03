@@ -108,9 +108,9 @@ void draw_mini_player(double now, float a)
     const float tx = cover.x + cover.w + 20, tw = r.x + r.w - tx - 20;
     gfx::text(tx, r.y + 44, req.title, {gfx::SemiBold, 24, tw - 130}, kText);
     gfx::text(tx, r.y + 76, req.artist, {gfx::Medium, 20, tw - 130}, kText2);
-    /* Options opens the page: the button, then what it does. */
-    const float hint_w = 30 * 1.5f + 10 + gfx::text_width(T("Åpne"), {gfx::Medium, 30 * 0.72f});
-    draw_pad_hint(r.x + r.w - 20 - hint_w, r.y + 36, PadButton::Options, T("Åpne"), 30);
+    /* The touchpad opens the page: the button, then what it does. */
+    const float hint_w = pad_hint_width(PadButton::Touchpad, T("Åpne"), 30);
+    draw_pad_hint(r.x + r.w - 20 - hint_w, r.y + 36, PadButton::Touchpad, T("Åpne"), 30);
     if (st.paused) {   /* paused: two bars over the cover */
         gfx::fill(cover, 0x8c000000u, 12);
         gfx::fill({cover.x + cover.w / 2 - 12, cover.y + cover.h / 2 - 14, 8, 28}, kText, 2);

@@ -92,7 +92,9 @@ console.
 | D-pad | Move | Show the controls; left/right seek in 10 s steps (faster when held) |
 | L2 / R2 | | Rewind / fast forward |
 | L1 / R1 | | Previous / next chapter |
-| Options, touchpad | Open *Now playing* while music plays | Audio, subtitles, versions and more |
+| △ | Search | |
+| Options | Options for the selected title (watched, favourite, …) | Audio, subtitles, versions and more |
+| Touchpad | Open *Now playing* while music plays | Audio, subtitles, versions and more |
 
 ## Known limits
 

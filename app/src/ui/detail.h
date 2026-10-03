@@ -7,7 +7,7 @@
  * series, the season picker and the season's episodes; cast and crew; more
  * like this. A collection (BoxSet) lists its titles instead. The page slides
  * up as focus moves down and the backdrop dims. Circle goes back to the
- * buttons, then off the page. Triangle on an episode marks it watched.
+ * buttons, then off the page. Options on an episode marks it watched.
  */
 #pragma once
 

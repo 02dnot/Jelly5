@@ -156,7 +156,7 @@ Action Home::input(uint32_t p)
             apply(action.change);
         return action;
     }
-    if (p & NUVIO_BTN_TRIANGLE) {
+    if (p & NUVIO_BTN_OPTIONS) {
         if (const jf::Item *f = focused_item())
             m_menu.open(*f, m_row >= 0 && m_model.rows[m_row].kind == HomeRow::Resume);
         return action;

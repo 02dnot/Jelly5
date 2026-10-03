@@ -736,13 +736,13 @@ void open_tab(int tab)
 /* Top-level input once signed in: the tab bar, or the active screen. */
 void shell_input(uint32_t p, jf::Item *play, bool *chose, bool *from_start, bool *shuffle)
 {
-    if ((p & NUVIO_BTN_OPTIONS) && s_music_on) {   /* the mini player's ☰: the now-playing page */
+    if ((p & NUVIO_BTN_TOUCHPAD) && s_music_on) {   /* the mini player: the now-playing page */
         s_nav_focus = false;
         open_now_playing();
         return;
     }
-    if ((p & NUVIO_BTN_SQUARE) && s_stack.empty() && s_tab != ui::Nav::Search) {
-        s_nav_focus = false;   /* □ from any tab: straight to search (in search it erases) */
+    if ((p & NUVIO_BTN_TRIANGLE) && s_stack.empty() && s_tab != ui::Nav::Search) {
+        s_nav_focus = false;   /* △ from any tab: straight to search, as in YouTube on PS5 */
         s_nav_tab = ui::Nav::Search;
         open_tab(ui::Nav::Search);
         return;

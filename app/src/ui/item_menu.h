@@ -2,7 +2,7 @@
  * Jelly5 — Jellyfin for PS5
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * Triangle on a title: a small glass sheet of what can be done with it, as
+ * Options on a title (the PS5's own convention): a small glass sheet of what can be done with it, as
  * Netflix's options on a card. Mer info, Legg til i / Fjern fra Min liste,
  * Merk som sett / usett, and in Fortsett å se: Fjern fra Fortsett å se.
  * The choice comes back as an Action::Changed: the screen updates its copy

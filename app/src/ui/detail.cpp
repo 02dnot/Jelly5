@@ -378,7 +378,7 @@ Action Detail::input(uint32_t p)
         case Similar: move(m_similar, (int)m_view.similar.size()); break;
         default: break;
         }
-    } else if ((p & NUVIO_BTN_TRIANGLE) && m_zone == Episodes && m_episode < (int)m_eps.size()) {
+    } else if ((p & NUVIO_BTN_OPTIONS) && m_zone == Episodes && m_episode < (int)m_eps.size()) {
         const jf::Item &e = m_eps[m_episode];
         a.change.id = e.id;
         a.change.played_set = true;

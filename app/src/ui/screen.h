@@ -146,7 +146,7 @@ void glass_panel(const gfx::Rect &r, float radius, float opacity = 1.f, bool sha
  * Sony's artwork): the button on a dark disc (Options and the shoulder buttons
  * as a pill), then the label. x is the left edge, cy the vertical centre, size
  * the disc's height. Returns the width drawn. */
-enum class PadButton { Cross, Circle, Triangle, Square, Options, L1, R1 };
+enum class PadButton { Cross, Circle, Triangle, Square, Options, Touchpad, L1, R1 };
 float draw_pad_hint(float x, float cy, PadButton b, const std::string &label, float size = 30.f,
                     float opacity = 1.f);
 float pad_hint_width(PadButton b, const std::string &label, float size = 30.f);
