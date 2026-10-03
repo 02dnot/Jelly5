@@ -9,6 +9,7 @@
 #include "ui_assets.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace ui {
 
@@ -42,6 +43,61 @@ std::string poster_url(jf::Client &c, const jf::Item &it, int width)
     if (it.type == "Episode" && !it.series_primary_tag.empty())   /* its series' poster */
         return c.image_url(it.series_id, "Primary", it.series_primary_tag, width);
     return c.image_url(it.id, "Primary", it.primary_tag, width);
+}
+
+void Drop::to(const gfx::Rect &r, int key)
+{
+    if (!m_shown || !m_placed) {   /* appearing: in place, popping in */
+        m_x = r.x, m_y = r.y, m_w = r.w, m_h = r.h;
+        m_vx = m_vy = m_vw = m_vh = 0;
+        m_pop = -0.35f, m_vpop = 0;
+        m_placed = true;
+    } else if (key != m_key) {
+        m_vpop += 2.2f;   /* a nudge: it swells as it leaves */
+    }
+    m_key = key;
+    m_target = r;
+    m_shown = true;
+}
+
+void Drop::draw(float dt, float a, bool *animating, float radius)
+{
+    if (!m_shown) {
+        m_placed = false;
+        return;
+    }
+    for (float left = std::min(dt, 0.05f); left > 0; left -= 1.f / 240) {   /* small steps: stable */
+        const float h = std::min(left, 1.f / 240);
+        auto spring = [h](float &v, float &x, float to) {
+            v += (260.f * (to - x) - 19.f * v) * h;
+            x += v * h;
+        };
+        spring(m_vx, m_x, m_target.x);
+        spring(m_vy, m_y, m_target.y);
+        spring(m_vw, m_w, m_target.w);
+        spring(m_vh, m_h, m_target.h);
+        m_vpop += (300.f * -m_pop - 14.f * m_vpop) * h;
+        m_pop += m_vpop * h;
+    }
+    const bool moving = std::fabs(m_target.x - m_x) + std::fabs(m_target.y - m_y) + std::fabs(m_target.w - m_w) +
+                                std::fabs(m_target.h - m_h) > 0.4f ||
+                        std::fabs(m_vx) + std::fabs(m_vy) > 3.f || std::fabs(m_pop) > 0.003f ||
+                        std::fabs(m_vpop) > 0.05f;
+    if (moving) {
+        if (animating)
+            *animating = true;
+    } else {
+        m_x = m_target.x, m_y = m_target.y, m_w = m_target.w, m_h = m_target.h;
+        m_vx = m_vy = m_vw = m_vh = m_pop = m_vpop = 0;
+    }
+    /* Stretch along the way it moves, thin across it; swell with the pop. */
+    const float sx = std::min(1.f, std::fabs(m_vx) / 1600.f), sy = std::min(1.f, std::fabs(m_vy) / 1600.f);
+    const float grow = 1.f + 0.08f * m_pop;
+    const float w = m_w * grow * (1.f + 0.30f * sx) * (1.f - 0.10f * sy);
+    const float hh = m_h * grow * (1.f + 0.30f * sy) * (1.f - 0.14f * sx);
+    const float cx = m_x + m_w / 2, cy = m_y + m_h / 2;
+    m_drawn = {cx - w / 2, cy - hh / 2, w, hh};
+    glass_panel(m_drawn, radius < 0 ? std::min(w, hh) / 2 : radius * grow, a, false, 1.f);
 }
 
 void glass_panel(const gfx::Rect &r, float radius, float a, bool shadow, float lift)

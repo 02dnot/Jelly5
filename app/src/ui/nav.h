@@ -8,6 +8,7 @@
 #pragma once
 
 #include "ui/anim.h"
+#include "ui/screen.h"
 
 #include <string>
 #include <vector>
@@ -36,10 +37,8 @@ public:
 private:
     std::string m_user, m_avatar;
     std::vector<int> m_tabs{Home, Movies, Shows, Search};
-    Anim m_focus_x, m_focus_w;          /* targets; the drop follows them on springs */
-    float m_dx = 0, m_dvx = 0, m_dw = 0, m_dvw = 0;   /* the drop: position, width and their speeds */
-    float m_pop = 0, m_vpop = 0;                       /* its swell: pressed in, then springs back */
-    int m_last_focus = -2;
+    Anim m_focus_x, m_focus_w;          /* the drop's target tab (only .target is used) */
+    Drop m_drop;                        /* the focus, a liquid glass drop */
 };
 
 const char *tab_label(int tab);

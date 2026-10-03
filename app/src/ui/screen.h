@@ -102,6 +102,30 @@ private:
     std::map<std::string, Lift> m_lift;
 };
 
+/* The focus drop: the one focus marker for controls everywhere (buttons, pills,
+ * rows, keys), a drop of brighter liquid glass. One per group of controls: give
+ * it the focused control's rect every frame and draw it over the controls, then
+ * the focused label crisp on top. It follows on an underdamped spring - it
+ * overshoots and settles back - stretches along its speed, thins as it does,
+ * and swells when it sets off for a new control. */
+class Drop {
+public:
+    /* key: identifies the focused control; a new key nudges the swell. */
+    void to(const gfx::Rect &r, int key);
+    void hide() { m_shown = false; }
+    /* Steps the springs (sets *animating while it moves) and draws the drop. */
+    void draw(float dt, float opacity, bool *animating, float radius = -1.f);
+    /* Where it is drawn now, for a label that rides on it. */
+    gfx::Rect rect() const { return m_drawn; }
+
+private:
+    float m_x = 0, m_y = 0, m_w = 0, m_h = 0, m_vx = 0, m_vy = 0, m_vw = 0, m_vh = 0;
+    float m_pop = 0, m_vpop = 0;
+    gfx::Rect m_target{0, 0, 0, 0}, m_drawn{0, 0, 0, 0};
+    int m_key = -1;
+    bool m_shown = false, m_placed = false;
+};
+
 /* A check mark drawn from small squares along its two strokes, centred on (cx, cy). */
 void draw_check(float cx, float cy, float size, uint32_t color);
 
