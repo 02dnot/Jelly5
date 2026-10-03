@@ -287,7 +287,12 @@ fi
 if (( RELEASE )); then
     VER="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["contentVersion"])' "${PARAM}")"
     rm -f -- "${BUILD}/app/Jelly5-${VER}.zip"
-    (cd "${BUILD}/app" && zip -qr "Jelly5-${VER}.zip" "${TITLE_ID}" "${TITLE_ID}.ffpfsc")
+    # The licences travel with the binaries (GPL, and the fonts' OFL).
+    LIC="${BUILD}/app/licenses"
+    rm -rf -- "${LIC}" && mkdir -p "${LIC}"
+    cp "${NUVIO_ROOT}/LICENSE" "${NUVIO_ROOT}/THIRD_PARTY_NOTICES.md" "${LIC}/"
+    cp "${APP_ROOT}"/assets/fonts/*.txt "${LIC}/"
+    (cd "${BUILD}/app" && zip -qr "Jelly5-${VER}.zip" "${TITLE_ID}" "${TITLE_ID}.ffpfsc" licenses)
     ok "release: ${BUILD#"${NUVIO_ROOT}/"}/app/Jelly5-${VER}.zip"
 fi
 ok "app: ${APPDIR#"${NUVIO_ROOT}/"}/"

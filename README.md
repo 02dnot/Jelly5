@@ -211,16 +211,33 @@ Jelly5 stands on the work of others in the PS5 scene and beyond:
 - [FFmpeg](https://ffmpeg.org), [libass](https://github.com/libass/libass), FreeType, HarfBuzz, [cJSON](https://github.com/DaveGamble/cJSON), [NanoSVG](https://github.com/memononen/nanosvg), [QR Code generator](https://www.nayuki.io/page/qr-code-generator-library) by Project Nayuki, and the Inter, Roboto and Noto typefaces
 - The [Jellyfin](https://jellyfin.org) project
 
-Third-party licences are listed in
-[`toolkit/NUVIO_THIRD_PARTY_NOTICES.md`](toolkit/NUVIO_THIRD_PARTY_NOTICES.md) and
-next to the bundled fonts in `app/assets/fonts/`.
+Every component, its licence and where it is used are listed in
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
 ## License
 
 Jelly5 is free software under the **GNU General Public License v3.0 or later**
 (see [`LICENSE`](LICENSE)). Code taken from Nuvio PS5, EVO Player and other
-projects keeps its original notices.
+projects keeps its original notices; see [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
-Jelly5 is not affiliated with Sony Interactive Entertainment or the Jellyfin
-project. *PlayStation* and *PS5* are trademarks of Sony Interactive
-Entertainment. Use it only with media you are entitled to play.
+## Disclaimer
+
+Jelly5 is an unofficial homebrew project, provided **as is, without any
+warranty** of any kind, express or implied, as set out in sections 15 and 16 of
+the GPL. **You use it entirely at your own risk.** The authors and contributors
+are not responsible or liable for any damage, data loss, malfunction, account
+or online-service consequences, or any other harm, to your console, your
+devices, your data or anything else, arising from installing, using or being
+unable to use it.
+
+Running homebrew requires a jailbroken console, which may break Sony's terms
+of service and void your warranty. Whether you do so is your choice and your
+responsibility.
+
+Jelly5 contains no media and gives access to no content of its own: it plays
+what is on your own Jellyfin server. Use it only with media you have the right
+to watch.
+
+Jelly5 is not affiliated with or endorsed by Sony Interactive Entertainment or
+the Jellyfin project. *PlayStation*, *PS5* and *DualSense* are trademarks of
+Sony Interactive Entertainment Inc.
