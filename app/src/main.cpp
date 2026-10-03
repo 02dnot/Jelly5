@@ -741,6 +741,12 @@ void shell_input(uint32_t p, jf::Item *play, bool *chose, bool *from_start, bool
         open_now_playing();
         return;
     }
+    if ((p & NUVIO_BTN_SQUARE) && s_stack.empty() && s_tab != ui::Nav::Search) {
+        s_nav_focus = false;   /* □ from any tab: straight to search (in search it erases) */
+        s_nav_tab = ui::Nav::Search;
+        open_tab(ui::Nav::Search);
+        return;
+    }
     if (s_nav_focus && s_stack.empty()) {
         const int before = s_nav_tab;
         std::vector<int> order = s_nav.tabs();
