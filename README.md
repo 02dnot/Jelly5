@@ -155,9 +155,8 @@ A plain `scripts/build.sh` is the development build. It reads the git-ignored
 and sends a debug log over UDP to your Mac (`scripts/log.sh`). `scripts/deploy.py`
 uploads it to the console over FTP. `--release` leaves all of that out.
 
-The project's layout and its hard-won rules are in [`CLAUDE.md`](CLAUDE.md), and
-the decisions and design plan are in [`PLAN.md`](PLAN.md). `concept/` holds the
-interactive HTML prototype the interface is built from.
+The decisions and design plan are in [`PLAN.md`](PLAN.md) (Norwegian), and
+`concept/` holds the interactive HTML prototype the interface is built from.
 
 ## Credits
 
