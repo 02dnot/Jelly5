@@ -8,6 +8,8 @@
  */
 #pragma once
 
+#include "jf/jf_discovery.h"
+
 #include "app/accounts.h"
 #include "ui/screen.h"
 
@@ -47,7 +49,13 @@ private:
         accounts::Account result;
         std::string qc_code;
         bool qc_alive = false;
+        std::vector<jf::FoundServer> found;   /* servers on the local network */
+        bool scanning = false;
     };
+    void scan(double now);
+    double m_scanned_at = -100;
+    bool m_found_focused = false;     /* focus moved to the first found server once */
+    int m_found_col = 0;
     void check_server();
     void sign_in();
     void start_quick_connect();

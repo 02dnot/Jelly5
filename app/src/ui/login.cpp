@@ -83,6 +83,26 @@ bool Login::take_result(accounts::Account *out)
     return true;
 }
 
+/* Asks the network for Jellyfin servers (again every 8 s while the server step shows). */
+void Login::scan(double now)
+{
+    std::shared_ptr<Shared> sh = m_shared;
+    {
+        std::lock_guard<std::mutex> g(sh->lock);
+        if (sh->scanning || now - m_scanned_at < 8.0)
+            return;
+        sh->scanning = true;
+    }
+    m_scanned_at = now;
+    std::thread([sh] {
+        std::vector<jf::FoundServer> f = jf::discover(1500);
+        std::lock_guard<std::mutex> g(sh->lock);
+        if (!f.empty() || sh->found.empty())
+            sh->found = std::move(f);
+        sh->scanning = false;
+    }).detach();
+}
+
 void Login::check_server()
 {
     m_client.set_server(m_server);
@@ -217,11 +237,27 @@ Action Login::input(uint32_t p)
         return a;
     }
     if (m_step == ServerStep) {
+        /* The address (0), Fortsett (1), then the servers found on the network (2). */
+        std::vector<jf::FoundServer> found;
+        {
+            std::lock_guard<std::mutex> g(m_shared->lock);
+            found = m_shared->found;
+        }
+        const int nf = std::min(3, (int)found.size());
         if (p & NUVIO_BTN_DOWN)
-            m_focus = 1;
+            m_focus = std::min(nf > 0 ? 2 : 1, m_focus + 1);
         else if (p & NUVIO_BTN_UP)
-            m_focus = 0;
-        else if ((p & NUVIO_BTN_CIRCLE) && m_can_cancel)
+            m_focus = std::max(0, m_focus - 1);
+        else if ((p & NUVIO_BTN_LEFT) && m_focus == 2)
+            m_found_col = std::max(0, m_found_col - 1);
+        else if ((p & NUVIO_BTN_RIGHT) && m_focus == 2)
+            m_found_col = std::min(nf - 1, m_found_col + 1);
+        else if ((p & NUVIO_BTN_CROSS) && m_focus == 2 && m_found_col < nf) {
+            if (!busy) {
+                m_server = found[m_found_col].address;
+                check_server();
+            }
+        } else if ((p & NUVIO_BTN_CIRCLE) && m_can_cancel)
             a.kind = Action::Back;
         else if (p & NUVIO_BTN_CROSS) {
             if (m_focus == 0)
@@ -322,6 +358,33 @@ void Login::draw(double now, float dt)
                   {gfx::Medium, 28, 1200}, kText2);
         field({kX, 500, kW, 84}, "SERVER", m_server, "http://", m_focus == 0, lift("srv", m_focus == 0));
         button({kX, 640, 260, 76}, busy ? T("Kobler til \xE2\x80\xA6") : T("Fortsett"), m_focus == 1, lift("go", m_focus == 1));
+        /* Servers on the network, found by asking (Jellyfin's discovery). */
+        scan(now);
+        std::vector<jf::FoundServer> found;
+        bool scanning;
+        {
+            std::lock_guard<std::mutex> g(m_shared->lock);
+            found = m_shared->found;
+            scanning = m_shared->scanning;
+        }
+        const int nf = std::min(3, (int)found.size());
+        if (nf > 0 && !m_found_focused) {   /* found one: offer it first */
+            m_found_focused = true;
+            if (m_focus == 0)
+                m_focus = 2, m_found_col = 0;
+        }
+        m_found_col = std::min(m_found_col, std::max(0, nf - 1));
+        gfx::text(kX, 800, nf > 0 ? T("FUNNET P\xC3\x85 NETTVERKET") : scanning ? T("S\xC3\x98KER P\xC3\x85 NETTVERKET \xE2\x80\xA6") : "",
+                  {gfx::SemiBold, 20}, kText3);
+        float fx = kX;
+        for (int i = 0; i < nf; i++) {
+            const std::string label = (found[i].name.empty() ? std::string("Jellyfin") : found[i].name) + "  \xC2\xB7  " +
+                                      found[i].address.substr(found[i].address.find("//") == std::string::npos
+                                                                  ? 0 : found[i].address.find("//") + 2);
+            const float w = std::min(620.f, gfx::text_width(label, {gfx::SemiBold, 26}) + 64);
+            button({fx, 822, w, 76}, label, m_focus == 2 && m_found_col == i, 0);
+            fx += w + 20;
+        }
     } else if (m_step == UserStep) {
         gfx::text(kX, 340, T("Logg inn"), {gfx::Bold, 64}, kText);
         gfx::text(kX, 396, server_name + "  \xC2\xB7  Jellyfin " + version + "  \xC2\xB7  " + m_server,
