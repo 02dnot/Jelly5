@@ -1004,18 +1004,19 @@ bool draw_frame(double t, float dt)
                                                            : s_tab == ui::Nav::Search ? (ui::Screen *)s_search.get()
                                                                                       : (ui::Screen *)s_home.get());
                 below->draw(t, dt);
-                /* The card it was opened from grows to fill the screen as the page comes in
-                 * (Apple TV, Netflix): its picture, losing its corners, under the page. */
+                /* The card it was opened from lifts a little toward the viewer and fades as
+                 * the page comes in: a hint of where the page came from, easy on the eye. */
                 if (s_origin.page == scr) {
                     const ui::Screen::Card &c = s_origin.card;
-                    const float e = ui::smoothstep(std::min(1.f, enter * 1.25f));
-                    const gfx::Rect r{c.rect.x * (1 - e), c.rect.y * (1 - e), c.rect.w + (gfx::W - c.rect.w) * e,
-                                      c.rect.h + (gfx::H - c.rect.h) * e};
-                    gfx::fill({0, 0, gfx::W, gfx::H}, ui::alpha(0xff000000u, 0.5f * e));
+                    const float e = ui::smoothstep(std::min(1.f, enter * 1.4f));
+                    const float k = 1.f + 0.12f * e;
+                    const gfx::Rect r{c.rect.x - c.rect.w * (k - 1) / 2, c.rect.y - c.rect.h * (k - 1) / 2, c.rect.w * k,
+                                      c.rect.h * k};
+                    const float fade = 1.f - e;
                     if (const gfx::Texture *tex = art::get(c.url, 640, 720))
-                        gfx::image(r, tex, 1.f, c.radius * (1 - e), true);
+                        gfx::image(r, tex, fade, c.radius * k, true);
                     else if (const gfx::Texture *bh = art::blurhash(c.blurhash))
-                        gfx::image(r, bh, 1.f, c.radius * (1 - e), true);
+                        gfx::image(r, bh, fade, c.radius * k, true);
                 }
                 gfx::push_opacity(enter);
             }
