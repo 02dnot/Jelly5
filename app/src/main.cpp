@@ -1344,12 +1344,6 @@ int main()
             animating = true;
         }
 #endif
-        {   /* the glass's light follows the controller's tilt */
-            float tx, ty;
-            nuvio_input_tilt(&tx, &ty);
-            if (gfx::set_glass_light(-0.55f + 0.9f * tx, -0.83f + 0.9f * ty))
-                animating = true;
-        }
         ime::poll();
         if (ime::active())
             in.pressed = 0;   /* the system keyboard has the controller */

@@ -52,9 +52,6 @@ typedef struct nuvio_input_state {
 /* Opens the user's controller. Presses already down are ignored until they
  * are released, so the button that started playback does not act twice. */
 void nuvio_input_open(int user_id);
-/* Jelly5: how far the pad is tilted from its usual pose, -1..1 left/right (x)
- * and toward/away (y); 0, 0 without motion data. */
-void nuvio_input_tilt(float *x, float *y);
 /* Jelly5: the DualSense's adaptive triggers on L2 and R2: on, a resistance that
  * stiffens the further they are pressed (scrubbing); off, free again. */
 void nuvio_input_trigger_resistance(int on);
