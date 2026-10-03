@@ -4,6 +4,7 @@
  */
 #include "app/remote.h"
 
+#include "app/syncplay.h"
 #include "jf/jf_ws.h"
 
 #include "evo_boot_trace.h"
@@ -79,6 +80,10 @@ void handle(const std::string &text)
         else if (cmd == "FastForward") c.kind = Command::FastForward;
         else have = false;
         c.seek_ticks = num(d, "SeekPositionTicks");
+    } else if (type == "SyncPlayGroupUpdate") {
+        syncplay::on_group_update(d);
+    } else if (type == "SyncPlayCommand") {
+        syncplay::on_command(d);
     } else if (type == "GeneralCommand" && str(d, "Name") == "DisplayMessage") {
         const cJSON *args = cJSON_GetObjectItemCaseSensitive(d, "Arguments");
         c.kind = Command::Message;

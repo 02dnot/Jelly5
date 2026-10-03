@@ -32,6 +32,10 @@ struct Command {
     int64_t seek_ticks = 0;
     /* Message */
     std::string header, text;
+    /* SyncPlay: when to carry it out (monotonic seconds, 0 = now), and that the
+     * group sent it (the player does it as told, without asking the group back). */
+    double at = 0;
+    bool syncplay = false;
 };
 
 /* Starts listening for this client's session (the last session's listener

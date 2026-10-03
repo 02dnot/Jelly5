@@ -13,6 +13,7 @@
 #include "app/accounts.h"
 #include "app/i18n.h"
 #include "app/remote.h"
+#include "app/syncplay.h"
 #include "app/settings.h"
 #include "platform/ime.h"
 #include "jf/jf_client.h"
@@ -32,6 +33,7 @@
 #include "ui/profiles.h"
 #include "ui/search.h"
 #include "ui/settings_screen.h"
+#include "ui/syncplay_screen.h"
 #include "ui_image.h"
 #include "ui_text.h"
 
@@ -500,6 +502,7 @@ void use_account(jf::Client &c, unsigned session, accounts::Account a)
             load_home(c, session);
             /* Controllable from Jellyfin's apps ("Spill på PS5") while this session lasts. */
             remote::start(&c, [session] { return session == s_session; });
+            syncplay::attach(&c);
             load_extras(c, session);
             return;
         }
@@ -551,6 +554,7 @@ int s_nav_tab = ui::Nav::Home;     /* focused tab while s_nav_focus */
 
 /* ---- music behind the menus ------------------------------------------------------------ */
 std::atomic<bool> s_music_on{false};      /* a track (and its queue) plays headless */
+bool s_group_play = false;              /* this Play came from the SyncPlay group: play it here */
 
 /* Ends the music and waits for its thread to let go of the player. */
 void stop_music()
@@ -630,6 +634,8 @@ void open_gate(const GateRequest &r)
 void switch_to(const accounts::Account &a)
 {
     stop_music();
+    if (syncplay::active())
+        syncplay::leave();
     const unsigned session = ++s_session;
     jf::Client *c = client_for(a);
     s_client = c;
@@ -763,7 +769,9 @@ void shell_input(uint32_t p, jf::Item *play, bool *chose, bool *from_start, bool
             target.logo_owner = a.item.logo_owner;
             target.logo_tag = a.item.logo_tag;
         }
-        if (target.type == "Person")
+        if (target.type == "SyncPlay")
+            s_stack.emplace_back(new ui::SyncPlayScreen(s_client->user_name()));
+        else if (target.type == "Person")
             s_stack.emplace_back(new ui::Person(*s_client, target));
         else if (target.type == "MusicAlbum" || target.type == "Playlist")
             s_stack.emplace_back(new ui::Album(*s_client, target));
@@ -1032,6 +1040,12 @@ void play(jf::Item item, bool from_start, bool shuffle = false, const std::vecto
         notify(T("Jelly5: fant ingenting å spille av her"));
         return;
     }
+    if (syncplay::active() && !s_group_play) {   /* in a group: everyone plays it */
+        syncplay::play(item);
+        notify(T("Jelly5: startes for hele gruppen"));
+        return;
+    }
+    s_group_play = false;
     if (item.type == "Audio") {   /* music: behind the menus */
         start_music(item, shuffle, queue, start);
         return;
@@ -1096,6 +1110,7 @@ void remote_idle(const remote::Command &rc)
     if (rc.kind != remote::Command::Play)
         return;
     std::vector<jf::Item> q;
+    s_group_play = rc.play_command == "SyncPlay";
     if (rc.play_command == "PlayInstantMix") {
         q = s_client->instant_mix(rc.item_ids.front(), 60);
     } else {

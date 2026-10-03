@@ -5,6 +5,7 @@
 #include "ui/settings_screen.h"
 
 #include "app/settings.h"
+#include "app/syncplay.h"
 #include "app/i18n.h"
 #include "nuvio_input.h"
 
@@ -56,6 +57,7 @@ const char *label_of(int row)
                                          T("Spill neste episode automatisk"),
                                          T("Hopp over intro automatisk"),
                                          T("Språk"),
+                                         T("Se sammen"),
                                          "Server",
                                          T("Om Jelly5")};
     return labels[row];
@@ -98,6 +100,7 @@ std::string SettingsScreen::value(Row r) const
                                               : std::to_string((int)(s.local.sub_background * 100 + 0.5f)) + " %";
     case Autoplay: return s.server.autoplay_next ? T("På") : T("Av");
     case AutoSkip: return s.local.auto_skip_intro ? T("På") : T("Av");
+    case Together: return syncplay::active() ? syncplay::group_name() : std::string(T("Av"));
     case ServerInfo: return m_server_name.empty() ? m_client.server() : m_server_name + "  \xC2\xB7  " + m_server_version;
     case About: return std::string(T("Versjon ")) + JELLY5_VERSION;
     default: return std::string();
@@ -177,6 +180,10 @@ Action SettingsScreen::input(uint32_t p)
             a.kind = Action::SwitchUser;
         else if (m_row == SignOut)
             a.kind = Action::SignOut;
+        else if (m_row == Together) {   /* the groups page */
+            a.kind = Action::Open;
+            a.item.type = "SyncPlay";
+        }
         else
             change((Row)m_row, 1);
     }

@@ -259,9 +259,11 @@ public:
     /* Jellyfin's Instant Mix: songs like this one (or album, artist, genre). */
     std::vector<Item> instant_mix(const std::string &id, int limit);
 
-private:
+    /* A GET / POST of the API, for modules with their own endpoints (app/syncplay). */
     bool get_json(const std::string &path, std::string *body);
     bool post_json(const std::string &path, const std::string &json, std::string *body);
+
+private:
     std::vector<Item> items_of(const std::string &body);
 
     std::string server_, device_id_, device_name_;

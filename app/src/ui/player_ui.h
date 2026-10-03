@@ -26,6 +26,7 @@
 
 #include "gfx/gfx.h"
 #include "nuvio_osd.h"   /* NuvioStatus, OsdCommand */
+#include "app/remote.h"
 #include "ui/anim.h"
 
 #include <string>
@@ -38,6 +39,8 @@ public:
     void begin(const NuvioRequest *req, double now);
     void end() { m_req = nullptr; }
 
+    /* The controller. In a SyncPlay group, pause, seek and next go to the group
+     * (which then tells everyone, this player included). */
     void input(const nuvio_input_state &in, const NuvioStatus &st, std::vector<OsdCommand> &out);
     /* poll_remote: take the phone's commands (the player does; a copy drawn by the
      * app for music behind the menus must not). */
@@ -83,6 +86,10 @@ private:
     void previous_track(const NuvioStatus &st, std::vector<OsdCommand> &out);
     /* Commands from a phone controlling the PS5 (app/remote). */
     void remote_poll(const NuvioStatus &st, std::vector<OsdCommand> &out);
+    void remote_do(const remote::Command &c, const NuvioStatus &st, std::vector<OsdCommand> &out);
+    void input_local(const nuvio_input_state &in, const NuvioStatus &st, std::vector<OsdCommand> &out);
+    std::vector<remote::Command> m_scheduled;   /* SyncPlay: commands for a set moment */
+    bool m_group_ready = false;                  /* SyncPlay: Ready sent for this playback */
     void draw_music(const NuvioStatus &st);
     void draw_lyrics(const NuvioStatus &st, float x, float w, float top, float bottom);
 

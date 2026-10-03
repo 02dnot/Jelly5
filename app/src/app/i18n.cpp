@@ -113,6 +113,13 @@ const std::unordered_map<std::string, const char *> &english_table()
         {"✕ velg   ·   △ fjern konto", "✕ choose   ·   △ remove account"},
         /* settings */
         {"Ingen preferanse", "No preference"}, {"Alltid", "Always"}, {"Bare tvungne", "Forced only"},
+        {"Åpne", "Open"}, {"Se sammen", "Watch Together"}, {"Forlat gruppe", "Leave group"}, {"Lag ny gruppe", "Create group"},
+        {"Ingen andre grupper akkurat nå.", "No other groups right now."}, {"○ tilbake", "○ back"},
+        {"Jelly5: startes for hele gruppen", "Jelly5: starting for the whole group"},
+        {"Du er med i en gruppe. Det noen i gruppen starter, spilles for alle, i takt.",
+         "You're in a group. Whatever anyone in it starts plays for everyone, in step."},
+        {"Se det samme samtidig som andre på denne Jellyfin-serveren, i takt. Den som starter noe, starter det for alle.",
+         "Watch the same thing as others on this Jellyfin server, in step. Whoever starts something starts it for everyone."},
         {"Konto", "Account"}, {"Generelt", "General"}, {"BRUKERNAVN", "USERNAME"}, {"PASSORD", "PASSWORD"}, {"Avspilling", "Playback"}, {"Bytt bruker", "Switch User"}, {"Logg ut", "Sign Out"},
         {"Maks kvalitet", "Maximum quality"}, {"Foretrukket lydspråk", "Preferred audio language"},
         {"Undertekstspråk", "Subtitle language"}, {"Undertekststørrelse", "Subtitle size"},

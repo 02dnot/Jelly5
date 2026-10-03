@@ -8,6 +8,7 @@
 
 #include "app/remote.h"
 #include "app/settings.h"
+#include "app/syncplay.h"
 #include "app/i18n.h"
 #include "jelly5_playback.h"
 #include "gfx/art.h"
@@ -448,6 +449,29 @@ void PlayerUi::episodes_input(uint32_t p, std::vector<OsdCommand> &out)
 }
 
 void PlayerUi::input(const nuvio_input_state &in, const NuvioStatus &st, std::vector<OsdCommand> &out)
+{
+    const size_t first = out.size();
+    input_local(in, st, out);
+    if (!syncplay::active())
+        return;
+    /* In a group: what the viewer did here is asked of the group instead. */
+    for (size_t i = first; i < out.size();) {
+        const OsdCommand &c = out[i];
+        if (c.cmd == OsdCmd::TogglePause) {
+            syncplay::request_pause(!st.paused, st.position);
+        } else if (c.cmd == OsdCmd::SeekTo) {
+            syncplay::request_seek(c.value);
+        } else if (c.cmd == OsdCmd::PlayNext) {
+            syncplay::request_next();
+        } else {
+            i++;
+            continue;
+        }
+        out.erase(out.begin() + i);
+    }
+}
+
+void PlayerUi::input_local(const nuvio_input_state &in, const NuvioStatus &st, std::vector<OsdCommand> &out)
 {
     const uint32_t p = in.pressed;
     if (!p || !m_req)
@@ -1107,10 +1131,67 @@ void PlayerUi::previous_track(const NuvioStatus &st, std::vector<OsdCommand> &ou
 
 void PlayerUi::remote_poll(const NuvioStatus &st, std::vector<OsdCommand> &out)
 {
+    /* SyncPlay: an opened group item waits paused until the group says go. */
+    if (syncplay::active() && st.started && !m_group_ready) {
+        m_group_ready = true;
+        if (!st.paused)
+            out.push_back({OsdCmd::TogglePause});
+        syncplay::player_started(st.position, false);
+    }
+    /* Commands due now (the group's carry a moment). */
+    for (size_t i = 0; i < m_scheduled.size();) {
+        if (m_scheduled[i].at <= st.now) {
+            const remote::Command due = m_scheduled[i];
+            m_scheduled.erase(m_scheduled.begin() + i);
+            remote_do(due, st, out);
+        } else {
+            i++;
+        }
+    }
     remote::Command c;
     while (remote::take(&c)) {
         m_dirty = true;
-        const double d = st.duration > 0 ? st.duration - 1 : 1e9;
+        if (c.at > st.now + 0.005) {
+            m_scheduled.push_back(c);
+            continue;
+        }
+        if (c.kind == remote::Command::Play || c.kind == remote::Command::Stop) {
+            remote_do(c, st, out);
+            return;
+        }
+        remote_do(c, st, out);
+    }
+}
+
+void PlayerUi::remote_do(const remote::Command &c, const NuvioStatus &st, std::vector<OsdCommand> &out)
+{
+    m_dirty = true;
+    const double d = st.duration > 0 ? st.duration - 1 : 1e9;
+    if (c.syncplay) {
+        /* The group's command, as told: position first (where it should be by now), then state. */
+        double target = c.seek_ticks >= 0 ? c.seek_ticks / 10000000.0 : st.position;
+        if (c.kind == remote::Command::Unpause && c.at > 0)
+            target += std::max(0.0, st.now - c.at);   /* late: catch up */
+        const bool off = c.seek_ticks >= 0 && std::fabs(st.position - target) > 0.4;
+        switch (c.kind) {
+        case remote::Command::Unpause:
+            if (off) out.push_back({OsdCmd::SeekTo, std::max(0.0, std::min(d, target))});
+            if (st.paused) out.push_back({OsdCmd::TogglePause});
+            return;
+        case remote::Command::Pause:
+            if (!st.paused) out.push_back({OsdCmd::TogglePause});
+            if (off) out.push_back({OsdCmd::SeekTo, std::max(0.0, std::min(d, target))});
+            return;
+        case remote::Command::Seek:
+            out.push_back({OsdCmd::SeekTo, std::max(0.0, std::min(d, target))});
+            if (!st.paused) out.push_back({OsdCmd::TogglePause});
+            syncplay::seeked(target);   /* ready at the new place */
+            return;
+        case remote::Command::Stop: out.push_back({OsdCmd::Stop}); return;
+        default: return;
+        }
+    }
+    {
         switch (c.kind) {
         case remote::Command::Play:   /* something else to play: stop, the app starts it */
             remote::put_back(c);

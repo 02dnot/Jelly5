@@ -103,6 +103,14 @@ std::string poster_url(jf::Client &c, const jf::Item &it, int width);
  * "Jelly5" wordmark, with its left edge at x and the text on baseline.
  * size is the wordmark's font size. Returns the total width. */
 float draw_brand(float x, float baseline, float size, float opacity = 1.f, bool glow = false);
+
+/* A controller hint, drawn the way the PS5's own hints look (our shapes, not
+ * Sony's artwork): the button on a dark disc (Options and the shoulder buttons
+ * as a pill), then the label. x is the left edge, cy the vertical centre, size
+ * the disc's height. Returns the width drawn. */
+enum class PadButton { Cross, Circle, Triangle, Square, Options, L1, R1 };
+float draw_pad_hint(float x, float cy, PadButton b, const std::string &label, float size = 30.f,
+                    float opacity = 1.f);
 float brand_width(float size);
 
 /* Landscape art for an item: an episode's still, else a thumb, else a backdrop. */
