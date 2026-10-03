@@ -21,6 +21,7 @@ constexpr int64_t kTicksPerSecond = 10000000;
 struct Item {
     std::string id, name, type;               /* Movie, Series, Episode, ... */
     std::string overview, official_rating;
+    std::string video3d;                      /* Video3DFormat: HalfSideBySide, MVC ... (empty: 2D) */
     std::string series_id, series_name, season_id, season_name;
     int index = -1, parent_index = -1;        /* episode / season numbers */
     int year = 0;

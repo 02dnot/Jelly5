@@ -1207,6 +1207,12 @@ void play(jf::Item item, bool from_start, bool shuffle = false, const std::vecto
         item = (*queue)[std::min(start, queue->size() - 1)];
     if (from_start)
         item.position_ticks = 0;
+    /* Side-by-side and top-and-bottom 3D: the PS5 has no 3D output, and the two
+     * squeezed pictures are no way to watch. MVC (3D Blu-ray) plays its 2D view. */
+    if (item.video3d.find("SideBySide") != std::string::npos || item.video3d.find("TopAndBottom") != std::string::npos) {
+        notify(T("Jelly5: 3D-filer st\xC3\xB8ttes ikke p\xC3\xA5 PS5"));
+        return;
+    }
     if (!resolve_playable(&item)) {
         notify(T("Jelly5: fant ingenting å spille av her"));
         return;

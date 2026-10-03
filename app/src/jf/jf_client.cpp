@@ -113,6 +113,7 @@ Item item_of(const cJSON *o)
     it.type = str_of(o, "Type");
     it.overview = str_of(o, "Overview");
     it.official_rating = str_of(o, "OfficialRating");
+    it.video3d = str_of(o, "Video3DFormat");
     it.series_id = str_of(o, "SeriesId");
     it.series_name = str_of(o, "SeriesName");
     it.season_id = str_of(o, "SeasonId");
