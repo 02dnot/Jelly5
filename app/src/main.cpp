@@ -343,6 +343,12 @@ void load_home(jf::Client &c, unsigned session, bool keep_hero = false)
             movies += v.collection_type == "movies";
             shows += v.collection_type == "tvshows";
         }
+    {   /* recommendations and genres from the last time they loaded (load_extras) */
+        std::lock_guard<std::mutex> g(s_state.lock);
+        for (const Row &r : s_state.model.rows)
+            if (r.kind == Row::Recommended || r.kind == Row::Genre)
+                m.rows.push_back(r);
+    }
     if ((int)libs.size() > std::min(movies, 1) + std::min(shows, 1))
         m.rows.push_back({"Biblioteker", std::move(libs), false, Row::Libraries});
     std::lock_guard<std::mutex> g(s_state.lock);
@@ -352,6 +358,98 @@ void load_home(jf::Client &c, unsigned session, bool keep_hero = false)
     s_model_version++;
     s_state.phase = Phase::Home;
     s_state.message.clear();
+}
+
+/* Jellyfin's recommendations ("Fordi du så ...") and a few genres, under the
+ * rows. The server takes seconds over recommendations, so the home screen
+ * never waits for them: they are added when they arrive. Genres are picked
+ * once per session (rows should not reshuffle while browsing). */
+/* TMDB's genre names (what Jellyfin's metadata carries) in Norwegian. */
+std::string genre_title(const std::string &g)
+{
+    static const std::map<std::string, std::string> no = {
+        {"Action", "Action"}, {"Adventure", "Eventyr"}, {"Action & Adventure", "Action og eventyr"},
+        {"Animation", "Animasjon"}, {"Comedy", "Komedie"}, {"Crime", "Krim"}, {"Documentary", "Dokumentar"},
+        {"Drama", "Drama"}, {"Family", "Familie"}, {"Fantasy", "Fantasy"}, {"History", "Historie"},
+        {"Horror", "Skrekk"}, {"Kids", "Barn"}, {"Music", "Musikk"}, {"Mystery", "Mysterier"},
+        {"Reality", "Reality"}, {"Romance", "Romantikk"}, {"Science Fiction", "Science fiction"},
+        {"Sci-Fi & Fantasy", "Science fiction og fantasy"}, {"Talk", "Talkshow"}, {"Thriller", "Thriller"},
+        {"TV Movie", "TV-film"}, {"War", "Krig"}, {"War & Politics", "Krig og politikk"}, {"Western", "Western"},
+        {"Soap", "SÃ¥pe"}, {"News", "Nyheter"}};
+    const auto it = no.find(g);
+    return it == no.end() ? g : it->second;
+}
+
+void load_extras(jf::Client &c, unsigned session)
+{
+    using Row = ui::HomeRow;
+    static std::mutex s_lock;   /* sign-in and a return from playback can both ask */
+    std::lock_guard<std::mutex> once(s_lock);
+    static std::vector<std::string> s_genres;
+    static unsigned s_genres_for = ~0u;
+    std::vector<jf::Client::Recommendation> recs;
+    std::thread rt([&] { recs = c.recommendations(4, 16); });
+    std::vector<Row> genre_rows;
+    {
+        std::lock_guard<std::mutex> g(s_state.lock);
+        for (const Row &r : s_state.model.rows)
+            if (r.kind == Row::Genre)
+                genre_rows.push_back(r);
+    }
+    if (s_genres_for != session) {
+        s_genres_for = session;
+        s_genres = c.genres();
+        std::srand((unsigned)time(nullptr));
+        for (size_t i = s_genres.size(); i > 1; i--)
+            std::swap(s_genres[i - 1], s_genres[std::rand() % i]);
+        if (s_genres.size() > 4)
+            s_genres.resize(4);
+        genre_rows.clear();
+        std::vector<std::vector<jf::Item>> items(s_genres.size());
+        std::vector<std::thread> jobs;
+        for (size_t i = 0; i < s_genres.size(); i++)
+            jobs.emplace_back([&, i] { items[i] = c.genre_items(s_genres[i], 20); });
+        for (auto &j : jobs)
+            j.join();
+        for (size_t i = 0; i < s_genres.size(); i++)
+            if (items[i].size() >= 6)
+                genre_rows.push_back({genre_title(s_genres[i]), std::move(items[i]), false, Row::Genre});
+    }
+    rt.join();
+
+    std::vector<Row> rows;
+    for (auto &r : recs) {
+        if (r.items.size() < 4 || r.baseline.empty())
+            continue;
+        std::string title;
+        if (r.type == "SimilarToRecentlyPlayed") title = "Fordi du sÃ¥ " + r.baseline;
+        else if (r.type == "SimilarToLikedItem") title = "Fordi du likte " + r.baseline;
+        else if (r.type.find("Director") != std::string::npos) title = "Regissert av " + r.baseline;
+        else if (r.type.find("Actor") != std::string::npos) title = "Med " + r.baseline;
+        else continue;
+        rows.push_back({title, std::move(r.items), false, Row::Recommended});
+    }
+    /* A recommendation, a genre, a recommendation ...: variety down the page. */
+    std::vector<Row> mixed;
+    for (size_t i = 0; i < std::max(rows.size(), genre_rows.size()); i++) {
+        if (i < rows.size()) mixed.push_back(std::move(rows[i]));
+        if (i < genre_rows.size()) mixed.push_back(genre_rows[i]);
+    }
+
+    std::lock_guard<std::mutex> g(s_state.lock);
+    if (session != s_session || s_state.phase != Phase::Home)
+        return;
+    ui::HomeModel m = s_state.model;
+    std::vector<Row> base, libraries;
+    for (Row &r : m.rows) {
+        if (r.kind == Row::Libraries) libraries.push_back(std::move(r));
+        else if (r.kind != Row::Recommended && r.kind != Row::Genre) base.push_back(std::move(r));
+    }
+    m.rows = std::move(base);
+    for (Row &r : mixed) m.rows.push_back(std::move(r));
+    for (Row &r : libraries) m.rows.push_back(std::move(r));
+    s_state.model = std::move(m);
+    s_model_version++;
 }
 
 /* Signs in with a saved account (off the main thread): check the token, then
@@ -378,6 +476,7 @@ void use_account(jf::Client &c, unsigned session, accounts::Account a)
             }
             evo_bt("jelly5: signed in as %s on %s %s", c.user_name().c_str(), name.c_str(), version.c_str());
             load_home(c, session);
+            load_extras(c, session);
             return;
         }
         const std::string err = c.last_error();
@@ -814,7 +913,10 @@ void play(jf::Item item, bool from_start, bool shuffle = false)
         s_stack.back()->activate();   /* a detail page reloads its progress */
     jf::Client *c = s_client;
     const unsigned session = s_session;
-    std::thread([c, session] { load_home(*c, session, true); }).detach();
+    std::thread([c, session] {
+        load_home(*c, session, true);
+        load_extras(*c, session);   /* what was just watched shapes "Fordi du så" */
+    }).detach();
 }
 
 } // namespace

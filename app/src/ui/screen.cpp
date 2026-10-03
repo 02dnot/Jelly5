@@ -27,6 +27,8 @@ float Lifts::step(const std::string &key, bool focused, float dt, bool *animatin
 
 std::string poster_url(jf::Client &c, const jf::Item &it, int width)
 {
+    if (it.type == "Episode" && !it.series_primary_tag.empty())   /* its series' poster */
+        return c.image_url(it.series_id, "Primary", it.series_primary_tag, width);
     return c.image_url(it.id, "Primary", it.primary_tag, width);
 }
 

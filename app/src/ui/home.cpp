@@ -42,13 +42,30 @@ std::string runtime_label(int64_t ticks)
 void Home::set_model(HomeModel model)
 {
     /* Keep focus on the same title where it survived the refresh. */
-    std::string focused_id;
+    std::string focused_id, focused_row;
     if (const jf::Item *f = focused_item())
         focused_id = f->id;
+    if (m_row >= 0 && m_row < (int)m_model.rows.size())
+        focused_row = m_model.rows[m_row].title;
+    /* Rows keep where they were left (by title: rows come and go between refreshes). */
+    std::map<std::string, std::pair<int, Anim>> kept;
+    for (size_t r = 0; r < m_model.rows.size() && r < m_cols.size() && r < m_scroll.size(); r++)
+        kept[m_model.rows[r].title] = {m_cols[r], m_scroll[r]};
+    bool hero_changed = model.hero.size() != m_model.hero.size();
+    for (size_t i = 0; !hero_changed && i < model.hero.size(); i++)
+        hero_changed = model.hero[i].id != m_model.hero[i].id;
     m_model = std::move(model);
     m_cols.assign(m_model.rows.size(), 0);
-    if (m_scroll.size() != m_model.rows.size())
-        m_scroll.assign(m_model.rows.size(), Anim());
+    m_scroll.assign(m_model.rows.size(), Anim());
+    for (size_t r = 0; r < m_model.rows.size(); r++) {
+        auto k = kept.find(m_model.rows[r].title);
+        if (k != kept.end()) {
+            m_cols[r] = std::min(k->second.first, std::max(0, (int)m_model.rows[r].items.size() - 1));
+            m_scroll[r] = k->second.second;
+        }
+        if (!focused_row.empty() && m_model.rows[r].title == focused_row && m_row >= 0)
+            m_row = (int)r;   /* the focused row moved: stay on it */
+    }
     if (m_row >= (int)m_model.rows.size())
         m_row = (int)m_model.rows.size() - 1;
     if (m_row >= 0 && !focused_id.empty()) {
@@ -59,8 +76,10 @@ void Home::set_model(HomeModel model)
     }
     if (m_model.hero.empty() && m_row < 0 && !m_model.rows.empty())
         m_row = 0;
-    m_hero = 0;
-    m_hero_since = m_now;
+    if (m_hero >= (int)m_model.hero.size() || hero_changed) {   /* the same titles keep their turn */
+        m_hero = 0;
+        m_hero_since = m_now;
+    }
     m_hero_mode.snap(m_row < 0 ? 1.f : 0.f);
     m_rows_y.snap((float)std::max(m_row, 0));
 }

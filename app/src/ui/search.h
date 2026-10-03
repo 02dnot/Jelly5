@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * Search (concept: .search): an on-screen keyboard on the left, results as
- * posters on the right, updated as the viewer types (300 ms debounce).
+ * posters on the right (titles, then people, albums and episodes), updated as the viewer types (300 ms debounce).
  * Suggestions fill the results while the query is empty. Square deletes.
  */
 #pragma once

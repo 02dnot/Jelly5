@@ -23,7 +23,7 @@
 namespace ui {
 
 struct HomeRow {
-    enum Kind { Resume, NextUp, MyList, Latest, Libraries };
+    enum Kind { Resume, NextUp, MyList, Latest, Recommended, Genre, Libraries };
     std::string title;
     std::vector<jf::Item> items;
     bool plays = false;     /* continue watching / next up: Cross plays; else it opens */

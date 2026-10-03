@@ -21,7 +21,8 @@ namespace {
 constexpr int kTimeout = 15;
 constexpr const char *kVersion = "0.0.1";
 constexpr const char *kFields = "Overview,Genres";            /* rows: what the UI shows */
-constexpr const char *kItemFields = "Overview,Genres,MediaStreams,Taglines,People,Studios,ChildCount,ProductionLocations";
+constexpr const char *kItemFields =
+    "Overview,Genres,MediaStreams,Taglines,People,Studios,ChildCount,ProductionLocations,SpecialFeatureCount";
 
 std::string str_of(const cJSON *o, const char *key)
 {
@@ -110,6 +111,7 @@ Item item_of(const cJSON *o)
     it.played = bool_of(ud, "Played");
     it.favorite = bool_of(ud, "IsFavorite");
     it.local_trailers = (int)num_of(o, "LocalTrailerCount", 0);
+    it.special_features = (int)num_of(o, "SpecialFeatureCount", 0);
     const cJSON *g;
     cJSON_ArrayForEach(g, cJSON_GetObjectItemCaseSensitive(o, "Genres"))
         if (cJSON_IsString(g))
@@ -140,6 +142,7 @@ Item item_of(const cJSON *o)
     if (it.type == "Episode" && !it.primary_tag.empty())
         it.thumb_blurhash = it.primary_blurhash;
     it.collection_type = str_of(o, "CollectionType");
+    it.series_primary_tag = str_of(o, "SeriesPrimaryImageTag");
     it.album_id = str_of(o, "AlbumId");
     it.album = str_of(o, "Album");
     it.album_artist = str_of(o, "AlbumArtist");
@@ -500,14 +503,66 @@ Page Client::library(const std::string &parent_id, const std::string &types, con
     return page;
 }
 
-std::vector<Item> Client::search(const std::string &term, int limit)
+std::vector<Item> Client::search(const std::string &term, const std::string &types, int limit)
 {
     std::string body;
-    if (!get_json("/Items?userId=" + user_id_ + "&searchTerm=" + url_escape(term) +
-                      "&IncludeItemTypes=Movie,Series&Recursive=true&EnableTotalRecordCount=false&Limit=" +
-                      std::to_string(limit) + "&fields=" + kFields, &body))
+    if (!get_json("/Items?userId=" + user_id_ + "&searchTerm=" + url_escape(term) + "&IncludeItemTypes=" + types +
+                      "&Recursive=true&EnableTotalRecordCount=false&Limit=" + std::to_string(limit) +
+                      "&fields=" + kFields, &body))
         return {};
     return items_of(body);
+}
+
+std::vector<Client::Recommendation> Client::recommendations(int categories, int items)
+{
+    std::vector<Recommendation> out;
+    std::string body;
+    if (!get_json("/Movies/Recommendations?userId=" + user_id_ + "&categoryLimit=" + std::to_string(categories) +
+                      "&itemLimit=" + std::to_string(items) + "&fields=" + kFields, &body))
+        return out;
+    cJSON *j = cJSON_Parse(body.c_str());
+    const cJSON *c;
+    cJSON_ArrayForEach(c, j) {
+        Recommendation r;
+        r.type = str_of(c, "RecommendationType");
+        r.baseline = str_of(c, "BaselineItemName");
+        const cJSON *it;
+        cJSON_ArrayForEach(it, cJSON_GetObjectItemCaseSensitive(c, "Items"))
+            r.items.push_back(item_of(it));
+        out.push_back(std::move(r));
+    }
+    cJSON_Delete(j);
+    return out;
+}
+
+std::vector<std::string> Client::genres()
+{
+    std::vector<std::string> out;
+    std::string body;
+    if (!get_json("/Genres?userId=" + user_id_ + "&IncludeItemTypes=Movie,Series&Recursive=true"
+                  "&EnableTotalRecordCount=false", &body))
+        return out;
+    for (const Item &g : items_of(body))
+        out.push_back(g.name);
+    return out;
+}
+
+std::vector<Item> Client::genre_items(const std::string &genre, int limit)
+{
+    std::string body;
+    if (!get_json("/Items?userId=" + user_id_ + "&Genres=" + url_escape(genre) +
+                      "&IncludeItemTypes=Movie,Series&Recursive=true&SortBy=Random&EnableTotalRecordCount=false"
+                      "&Limit=" + std::to_string(limit) + "&fields=" + kFields, &body))
+        return {};
+    return items_of(body);
+}
+
+std::vector<Item> Client::special_features(const std::string &id)
+{
+    std::string body;
+    if (!get_json("/Items/" + id + "/SpecialFeatures?userId=" + user_id_, &body))
+        return {};
+    return items_of(body);   /* a bare array */
 }
 
 bool Client::item(const std::string &id, Item *out, Detail *detail)

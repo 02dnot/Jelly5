@@ -95,8 +95,23 @@ void Search::start_search()
         seq = ++d->seq;
     }
     std::thread([d, c, q, seq] {
-        std::vector<jf::Item> r = q.empty() ? c->library("", "Movie,Series", "Random", false, 0, 16).items
-                                            : c->search(q, 24);
+        std::vector<jf::Item> r;
+        if (q.empty()) {
+            r = c->library("", "Movie,Series", "Random", false, 0, 16).items;
+        } else {
+            /* Titles and people side by side (people take the server longer); shown
+             * titles first, then people, albums and episodes. */
+            std::vector<jf::Item> people;
+            std::thread pt([&] { people = c->search(q, "Person", 12); });
+            std::vector<jf::Item> found = c->search(q, "Movie,Series,MusicAlbum,Episode", 36);
+            pt.join();
+            for (const char *type : {"Movie|Series", "Person", "MusicAlbum", "Episode"}) {
+                const std::string t = type;
+                for (const jf::Item &it : t == "Person" ? people : found)
+                    if (t.find(it.type) != std::string::npos)
+                        r.push_back(it);
+            }
+        }
         std::lock_guard<std::mutex> g(d->lock);
         if (seq != d->seq)
             return;   /* the query moved on */
@@ -209,7 +224,7 @@ void Search::draw(double now, float dt)
     const float qy = 236;
     float qx = kKbX;
     if (m_query.empty())
-        gfx::text(kKbX, qy, "Søk etter filmer og serier", {gfx::Medium, 40, 640}, kText3);
+        gfx::text(kKbX, qy, "Filmer, serier, personer, musikk", {gfx::Medium, 36, 640}, kText3);
     else
         qx += gfx::text(kKbX, qy, m_query, {gfx::Bold, 52, 600}, kText);
     if (std::fmod(now, 1.0) < 0.55)

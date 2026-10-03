@@ -30,10 +30,12 @@ struct Item {
     double played_percent = 0;
     bool played = false, favorite = false;
     int local_trailers = 0;                   /* trailer files next to the title */
+    int special_features = 0;                 /* extras: behind the scenes, deleted scenes ... */
     std::vector<std::string> genres;
 
     /* Image owners and tags (an episode's logo/backdrop belong to its series). */
     std::string primary_tag, thumb_tag, logo_tag, backdrop_tag;
+    std::string series_primary_tag;           /* an episode's series poster */
     std::string logo_owner, backdrop_owner, thumb_owner;
     std::string primary_blurhash, backdrop_blurhash, thumb_blurhash;
     std::string collection_type;              /* views: movies, tvshows, music ... */
@@ -162,7 +164,22 @@ public:
     /* A library page: types e.g. "Movie" or "Series"; sort_by e.g. "DateCreated,SortName". */
     Page library(const std::string &parent_id, const std::string &types, const std::string &sort_by,
                  bool descending, int start, int limit);
-    std::vector<Item> search(const std::string &term, int limit);
+    /* types e.g. "Movie,Series" or "Person" (Jellyfin's own matching and order). */
+    std::vector<Item> search(const std::string &term, const std::string &types, int limit);
+
+    /* Jellyfin's recommendations: "because you watched X" and the like. */
+    struct Recommendation {
+        std::string type;                     /* SimilarToRecentlyPlayed, HasActorFromRecentlyPlayed, ... */
+        std::string baseline;                 /* the title or person it is built on */
+        std::vector<Item> items;
+    };
+    std::vector<Recommendation> recommendations(int categories, int items);
+    /* Genre names in the library (movies and series). */
+    std::vector<std::string> genres();
+    /* Titles in a genre, in random order. */
+    std::vector<Item> genre_items(const std::string &genre, int limit);
+    /* A title's extras: behind the scenes, deleted scenes, featurettes. */
+    std::vector<Item> special_features(const std::string &id);
     bool item(const std::string &id, Item *out, Detail *detail = nullptr);
     std::vector<Item> seasons(const std::string &series_id);
     std::vector<Item> similar(const std::string &id, int limit);

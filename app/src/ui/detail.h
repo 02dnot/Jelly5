@@ -32,6 +32,7 @@ public:
         std::vector<jf::Item> seasons;
         std::vector<jf::Item> all_episodes;   /* every season's, fetched with the page */
         std::vector<jf::Item> similar;
+        std::vector<jf::Item> extras; /* behind the scenes, deleted scenes, featurettes */
         jf::Item trailer;             /* its first local trailer, when it has one */
         bool have_trailer = false;
     };
@@ -49,7 +50,7 @@ public:
     float enter() const override { return m_enter.value; }
 
 private:
-    enum Zone { Buttons, Seasons, Episodes, Cast, Similar, ZoneCount };
+    enum Zone { Buttons, Seasons, Episodes, Extras, Cast, Similar, ZoneCount };
     enum Button { PlayButton, RestartButton, TrailerButton, WatchedButton, FavouriteButton };
 
     struct Data {
@@ -75,7 +76,7 @@ private:
 
     Zone m_zone = Buttons;
     int m_button = 0;
-    int m_season = 0, m_episode = 0, m_cast = 0, m_similar = 0;
+    int m_season = 0, m_episode = 0, m_extra = 0, m_cast = 0, m_similar = 0;
     double m_now = 0;
     bool m_season_picked = false;      /* the viewer moved the picker (else follow the target) */
     std::vector<jf::Item> m_eps;       /* the focused season's episodes */

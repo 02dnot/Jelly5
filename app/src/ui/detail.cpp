@@ -27,7 +27,7 @@ constexpr float kTopH = 880;                    /* the info block before the sec
 constexpr float kEpW = 480, kEpH = 270, kEpGap = 32;
 constexpr float kCastD = 170, kCastGap = 32;
 constexpr float kSimW = 400, kSimH = 225, kSimGap = 32;
-constexpr float kSeasonsH = 84, kEpisodesH = 470, kCastH = 330, kSimilarH = 340;
+constexpr float kSeasonsH = 84, kEpisodesH = 470, kExtrasH = 340, kCastH = 330, kSimilarH = 340;
 
 std::string runtime_label(int64_t ticks)
 {
@@ -141,6 +141,8 @@ Detail::Content Detail::fetch(jf::Client &c, const jf::Item &base)
     }
     for (auto &j : jobs)
         j.join();
+    if (got && item.special_features > 0)
+        out.extras = c.special_features(base.id);
     if (got && item.local_trailers > 0) {
         const std::vector<jf::Item> trailers = c.local_trailers(base.id);
         if (!trailers.empty()) {
@@ -277,6 +279,8 @@ std::vector<Detail::Zone> Detail::zones() const
         if (!m_eps.empty())
             z.push_back(Episodes);
     }
+    if (!m_view.extras.empty())
+        z.push_back(Extras);
     if (!cast_of(m_view.detail).empty())
         z.push_back(Cast);
     if (!m_view.similar.empty())
@@ -307,7 +311,7 @@ float Detail::zone_top(Zone z) const
             continue;
         if (k == z)
             return y;
-        y += k == Seasons ? kSeasonsH : k == Episodes ? kEpisodesH : k == Cast ? kCastH : kSimilarH;
+        y += k == Seasons ? kSeasonsH : k == Episodes ? kEpisodesH : k == Extras ? kExtrasH : k == Cast ? kCastH : kSimilarH;
     }
     return y;
 }
@@ -368,6 +372,7 @@ Action Detail::input(uint32_t p)
             move(m_episode, (int)m_eps.size());
             m_season_picked = true;
             break;
+        case Extras: move(m_extra, (int)m_view.extras.size()); break;
         case Cast: move(m_cast, (int)cast_of(m_view.detail).size()); break;
         case Similar: move(m_similar, (int)m_view.similar.size()); break;
         default: break;
@@ -412,6 +417,12 @@ Action Detail::input(uint32_t p)
             if (m_episode < (int)m_eps.size()) {
                 a.kind = Action::Play;
                 a.item = m_eps[m_episode];
+            }
+            break;
+        case Extras:
+            if (m_extra < (int)m_view.extras.size()) {
+                a.kind = Action::PlayFromStart;
+                a.item = m_view.extras[m_extra];
             }
             break;
         case Cast: {
@@ -682,6 +693,41 @@ void Detail::draw_sections(float dt)
                     gfx::text(x, ty, title, {gfx::SemiBold, 22, kEpW}, focus ? kText : kText2);
                     gfx::text(x, ty + 30, runtime_label(e.runtime_ticks), {gfx::Medium, 19}, kText3);
                     gfx::text(x, ty + 62, e.overview, {gfx::Regular, 19, kEpW, 3, 27}, kText3);
+                }
+        }
+    }
+
+    /* Extras: landscape cards, Cross plays. */
+    if (!m_view.extras.empty()) {
+        const float y = zone_top(Extras) - off;
+        m_scroll[Extras].to(row_target(m_extra, (int)m_view.extras.size(), kSimW, kSimGap));
+        if (m_scroll[Extras].step(dt, 12.f))
+            m_animating = true;
+        if (vis(y, kExtrasH)) {
+            gfx::text(kPad, y + 30, "Ekstramateriale", {gfx::Bold, 30}, 0xebffffffu);
+            for (int pass = 0; pass < 2; pass++)
+                for (size_t i = 0; i < m_view.extras.size(); i++) {
+                    const jf::Item &e = m_view.extras[i];
+                    const bool focus = m_zone == Extras && (int)i == m_extra;
+                    if ((pass == 0) == focus)
+                        continue;
+                    const float x = kPad + i * (kSimW + kSimGap) - m_scroll[Extras].value;
+                    if (x > gfx::W || x + kSimW < -40)
+                        continue;
+                    const float lift = m_lifts.step("x" + e.id, focus, dt, &m_animating);
+                    const float k = 1.f + 0.1f * lift, cy = y + 60;
+                    const gfx::Rect r{x - kSimW * (k - 1) / 2, cy - kSimH * (k - 1) / 2, kSimW * k, kSimH * k};
+                    if (lift > 0.01f)
+                        gfx::shadow(r, 14 * k, 30, 0.75f * lift, 22 * lift);
+                    /* Its own still, else the title's backdrop. */
+                    const jf::Item &it = m_view.item;
+                    if (!e.primary_tag.empty())
+                        art::draw(r, m_client.image_url(e.id, "Primary", e.primary_tag, 640), e.primary_blurhash, 640,
+                                  360, 14 * k);
+                    else
+                        art::draw(r, m_client.image_url(it.backdrop_owner, "Backdrop", it.backdrop_tag, 640),
+                                  it.backdrop_blurhash, 640, 360, 14 * k);
+                    gfx::text(x, cy + kSimH + 40, e.name, {gfx::SemiBold, 21, kSimW}, focus ? kText : kText2);
                 }
         }
     }
