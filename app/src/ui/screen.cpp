@@ -255,16 +255,24 @@ void draw_poster(jf::Client &c, const jf::Item &it, const gfx::Rect &base, float
     if (lift > 0.01f)
         gfx::shadow(r, 14 * k, 30, 0.75f * lift * opacity, 22 * lift);
     art::draw(r, poster_url(c, it, 480), it.primary_blurhash, 480, 720, 14 * k, opacity);
-    if (it.played) {   /* watched: a check in a disc, as Jellyfin marks it */
-        gfx::fill({r.x + r.w - 46, r.y + 12, 34, 34}, alpha(0xd900a4dcu, opacity), 17);
-        draw_check(r.x + r.w - 29, r.y + 30, 18, alpha(kText, opacity));
+    /* Watched: a check; a series with episodes left: how many. Both on a small piece
+     * of glass (tint, sheen, lit rim - no blur: there are dozens on screen). */
+    auto chip = [&](const gfx::Rect &b) {
+        gfx::fill(b, alpha(0x66101014u, opacity), b.h / 2);
+        gfx::fill_vgradient({b.x, b.y, b.w, b.h * 0.55f}, alpha(0x2effffffu, opacity), 0x00000000u, b.h / 2);
+        gfx::rim(b, b.h / 2, 0.8f * opacity);
+    };
+    if (it.played) {
+        const gfx::Rect b{r.x + r.w - 44, r.y + 10, 34, 34};
+        chip(b);
+        draw_check(b.x + b.w / 2 + 1, b.y + b.h / 2 + 1, 15, alpha(0xf2ffffffu, opacity));
     } else if (it.unplayed > 0 && (it.type == "Series" || it.type == "Season")) {
-        /* episodes not yet watched, counted in a pill */
         const std::string n = it.unplayed > 99 ? "99+" : std::to_string(it.unplayed);
-        const gfx::TextStyle ns{gfx::Bold, 18};
-        const float w = std::max(34.f, gfx::text_width(n, ns) + 20);
-        gfx::fill({r.x + r.w - 12 - w, r.y + 12, w, 34}, alpha(0xd900a4dcu, opacity), 17);
-        gfx::text(r.x + r.w - 12 - w / 2, r.y + 35, n, ns, alpha(kText, opacity), 1);
+        const gfx::TextStyle ns{gfx::SemiBold, 17};
+        const float w = std::max(34.f, gfx::text_width(n, ns) + 22);
+        const gfx::Rect b{r.x + r.w - 10 - w, r.y + 10, w, 34};
+        chip(b);
+        gfx::text(b.x + b.w / 2, b.y + 23, n, ns, alpha(0xf2ffffffu, opacity), 1);
     }
     if (it.played_percent > 0 && it.played_percent < 100) {
         gfx::fill({r.x + 14, r.y + r.h - 20, r.w - 28, 6}, alpha(0x47ffffffu, opacity), 3);
