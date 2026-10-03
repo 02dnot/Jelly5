@@ -181,6 +181,8 @@ std::string request_json(jf::Client &c, const jf::Item &it, const jf::Playback &
         cJSON_AddNumberToObject(o, "episode", it.index);
     }
     cJSON_AddStringToObject(o, "url", pb.url.c_str());
+    cJSON_AddStringToObject(o, "playMethod", pb.play_method.c_str());
+    cJSON_AddStringToObject(o, "transcodeReasons", pb.transcode_reasons.c_str());
     cJSON_AddStringToObject(o, "title", (episode ? it.series_name : it.name).c_str());
     if (episode) {
         cJSON_AddStringToObject(o, "episodeTitle", it.name.c_str());

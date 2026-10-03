@@ -152,6 +152,8 @@ bool nuvio_request_parse(const char *json, NuvioRequest &r)
     r = NuvioRequest();
     r.id = str_of(root, "id");
     r.url = str_of(root, "url");
+    r.play_method = str_of(root, "playMethod");
+    r.transcode_reasons = str_of(root, "transcodeReasons");
     r.headers = nuvio_headers_from_json(cJSON_GetObjectItemCaseSensitive(root, "headers"), &r.user_agent);
     r.title = str_of(root, "title");
     r.episode_title = str_of(root, "episodeTitle");

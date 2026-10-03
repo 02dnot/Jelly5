@@ -490,6 +490,11 @@ void PlayerUi::input_local(const nuvio_input_state &in, const NuvioStatus &st, s
             out.push_back({OsdCmd::Stop});
         return;
     }
+    if ((p & NUVIO_BTN_L3) && !m_music) {   /* the playback info panel, on and off */
+        m_stats = !m_stats;
+        a_stats.to(m_stats ? 1.f : 0.f);
+        return;
+    }
     if (m_music) {
         music_input(p, st, out);
         return;
@@ -616,12 +621,14 @@ bool PlayerUi::wants_frame(const NuvioStatus &st)
                         a_overlay.value != a_overlay.target || a_skip.value != a_skip.target ||
                         a_next.value != a_next.target || a_spinner.value != a_spinner.target ||
                         a_toast.value != a_toast.target || a_error.value != a_error.target ||
-                        a_flash.value > 0.f || m_ep_scroll.value != m_ep_scroll.target;
+                        a_flash.value > 0.f || m_ep_scroll.value != m_ep_scroll.target ||
+                        a_stats.value != a_stats.target;
     static double last_second = 0;
     const bool second = std::floor(st.now) != std::floor(last_second);
     last_second = st.now;
     /* art::animating(): an image still loading or fading in (the episode stills). */
-    return moving || m_seeking || m_music || (second && (m_controls || m_card_since >= 0)) || a_loading.value > 0.f ||
+    return moving || m_seeking || m_music || (second && (m_controls || m_card_since >= 0 || m_stats)) ||
+           a_loading.value > 0.f ||
            st.buffering || ((m_overlay != Overlay::None || a_next.value > 0.f || m_music) && art::animating());
 }
 
@@ -1339,6 +1346,44 @@ void PlayerUi::draw_music(const NuvioStatus &st)
         gfx::text(x, H - 90, T("Neste: ") + r.next.title, {gfx::Medium, 24, w}, kText3);
 }
 
+/* L3: Jellyfin's "Playback Info" for this player, top right over the picture:
+ * how Jellyfin serves it, then the stream, video, and audio as the player sees them. */
+void PlayerUi::draw_stats(const NuvioStatus &st)
+{
+    const float a = a_stats.value;
+    if (a <= 0.01f)
+        return;
+    std::vector<std::pair<std::string, std::string>> rows;
+    rows.push_back({"#" + std::string(T("Avspilling")), ""});
+    const std::string &m = m_req->play_method;
+    rows.push_back({T("Metode"), m == "DirectPlay" ? T("Direktespilling")
+                                 : m == "DirectStream" ? T("Direktestrøm")
+                                 : m == "Transcode" ? T("Transkodet av serveren") : m});
+    if (!m_req->transcode_reasons.empty())
+        rows.push_back({T("Hvorfor"), m_req->transcode_reasons});
+    rows.insert(rows.end(), st.stats.begin(), st.stats.end());
+
+    const float w = 640, lh = 34, head = 46;
+    float h = 40;
+    for (const auto &r : rows)
+        h += r.first[0] == '#' ? head : lh;
+    const gfx::Rect pr{W - kPad - w + (1.f - a) * 40, 90, w, h};
+    gfx::push_opacity(a);
+    glass_panel(pr, 24, 1.f);
+    float y = pr.y + 20;
+    for (const auto &r : rows) {
+        if (r.first[0] == '#') {
+            y += head;
+            gfx::text(pr.x + 32, y - 10, r.first.substr(1), {gfx::Bold, 22}, kText);
+            continue;
+        }
+        y += lh;
+        gfx::text(pr.x + 32, y - 8, r.first, {gfx::Medium, 20, 170}, kText3);
+        gfx::text(pr.x + 210, y - 8, r.second, {gfx::Medium, 20, w - 242}, kText2);
+    }
+    gfx::pop_opacity();
+}
+
 /* Lyrics in a column between top and bottom: timed lines follow the song with the
  * one being sung bright and large, the rest dim; untimed lyrics are simply shown. */
 void PlayerUi::draw_lyrics(const NuvioStatus &st, float x, float w, float top, float bottom)
@@ -1460,6 +1505,9 @@ void PlayerUi::draw(const NuvioStatus &st)
             draw_episodes(oa, dt);
         gfx::pop_opacity();
     }
+
+    a_stats.step(dt, 12.f);
+    draw_stats(st);
 
     if (a_toast.value > 0.01f && !m_toast.empty()) {
         const gfx::TextStyle ts{gfx::SemiBold, 22};

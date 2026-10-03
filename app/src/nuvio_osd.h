@@ -40,6 +40,9 @@ struct NuvioStatus {
     std::string quality_line;     /* "2160p · HDR10 · HEVC · TrueHD 7.1" */
     std::string error;            /* non-empty: the stream failed */
     bool switching = false;       /* reopening for an audio / source change */
+    /* Jelly5: the L3 playback info panel, refreshed once a second while it is up.
+     * Rows of label and value; a label starting with '#' is a section heading. */
+    std::vector<std::pair<std::string, std::string>> stats;
 };
 
 enum class OsdCmd {

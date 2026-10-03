@@ -39,6 +39,7 @@ class PlayerUi {
 public:
     void begin(const NuvioRequest *req, double now);
     void end() { m_req = nullptr; }
+    bool stats_shown() const { return m_stats; }   /* L3: the playback info panel */
 
     /* The controller. In a SyncPlay group, pause, seek and next go to the group
      * (which then tells everyone, this player included). */
@@ -103,7 +104,9 @@ private:
     double m_hide_at = 0;
     Zone m_zone = Zone::Buttons;
     int m_button = 0;
-    Anim a_controls, a_loading, a_overlay, a_skip, a_next, a_spinner, a_toast, a_error, a_flash;
+    Anim a_controls, a_loading, a_overlay, a_skip, a_next, a_spinner, a_toast, a_error, a_flash, a_stats;
+    bool m_stats = false;
+    void draw_stats(const NuvioStatus &st);
     std::string m_flash_icon;           /* "play" / "pause", flashed in the centre */
 
     bool m_seeking = false;

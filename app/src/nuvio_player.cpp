@@ -17,6 +17,7 @@
  * tracks chosen) before it reopens.
  */
 #include "nuvio_player.h"
+#include "app/i18n.h"
 #include "app/perf.h"
 
 #include "nuvio_bridge.h"
@@ -63,6 +64,7 @@ extern "C" {
 #include <libavformat/avformat.h>
 #include <libavutil/dict.h>
 #include <libavutil/dovi_meta.h>
+#include <libavutil/pixdesc.h>
 
 extern pp_playback g_pp_pb;
 extern char nuvio_stream_headers[4096];
@@ -477,6 +479,73 @@ std::string quality_line()
     return q;
 }
 
+/* The L3 panel (Jellyfin's "Playback Info", for this player): what is playing,
+ * how it is decoded and output, and how the stream is keeping up. */
+std::vector<std::pair<std::string, std::string>> playback_stats(const Session &s)
+{
+    std::vector<std::pair<std::string, std::string>> v;
+    if (!play_fmt)
+        return v;
+    char b[256];
+    v.push_back({std::string("#") + T("Strøm"), ""});
+    std::string fmt = play_fmt->iformat && play_fmt->iformat->name ? play_fmt->iformat->name : "?";
+    fmt = fmt.substr(0, fmt.find(','));
+    if (play_fmt->bit_rate > 0) {
+        std::snprintf(b, sizeof b, "  \xC2\xB7  %.1f Mbps", play_fmt->bit_rate / 1e6);
+        fmt += b;
+    }
+    v.push_back({T("Beholder"), fmt});
+    std::snprintf(b, sizeof b, T("%.0f s fremover"), std::max(0.0, s.st.buffered - s.st.position));
+    v.push_back({T("Buffer"), b});
+    int vq = 0, aq = 0, ab = 0;
+    evo_pb_queue_depth(&vq, &aq, &ab);
+    std::snprintf(b, sizeof b, T("video %d  \xC2\xB7  lyd %d pakker"), vq, aq);
+    v.push_back({T("Køer"), b});
+    v.push_back({T("Rebuffringer"), std::to_string(s.rebuffers)});
+
+    if (video_stream_index >= 0 && video_stream_index < (int)play_fmt->nb_streams) {
+        const AVStream *vs = play_fmt->streams[video_stream_index];
+        const AVCodecParameters *p = vs->codecpar;
+        v.push_back({std::string("#") + T("Video"), ""});
+        std::string codec = video_codec_name(p->codec_id);
+        if (const char *prof = avcodec_profile_name(p->codec_id, p->profile))
+            codec += std::string(" ") + prof;
+        const double fps = vs->avg_frame_rate.den ? av_q2d(vs->avg_frame_rate) : evo_pb_video_fps();
+        std::snprintf(b, sizeof b, "%s  \xC2\xB7  %d\xC3\x97%d  \xC2\xB7  %.3g fps", codec.c_str(), p->width, p->height, fps);
+        v.push_back({T("Video"), b});
+        const AVPixFmtDescriptor *pd = av_pix_fmt_desc_get((AVPixelFormat)p->format);
+        const int dv = dolby_vision_profile(p);
+        const char *range = p->color_trc == AVCOL_TRC_SMPTE2084 ? "HDR10" : p->color_trc == AVCOL_TRC_ARIB_STD_B67 ? "HLG" : "SDR";
+        std::snprintf(b, sizeof b, "%s%s  \xC2\xB7  %d-bit  \xC2\xB7  %s", range, dv ? (" + Dolby Vision " + std::to_string(dv)).c_str() : "",
+                      pd ? pd->comp[0].depth : 8, av_color_primaries_name(p->color_primaries) ? av_color_primaries_name(p->color_primaries) : "?");
+        v.push_back({T("Fargeområde"), b});
+        v.push_back({T("Dekoder"), evo_pb_active_backend() == EVO_VDEC_BACKEND_NATIVE ? T("Maskinvare (sceVideodec2)")
+                                                                                     : T("Programvare (FFmpeg)")});
+        int w = 0, h = 0;
+        evo_agc_runtime_get_size(&w, &h);
+        std::snprintf(b, sizeof b, "%d\xC3\x97%d  \xC2\xB7  %s", w, h, evo_agc_runtime_hdr_output_active() ? "HDR10" : "SDR");
+        v.push_back({T("Skjerm"), b});
+    }
+    if (audio_stream_index >= 0 && audio_stream_index < (int)play_fmt->nb_streams) {
+        const AVCodecParameters *p = play_fmt->streams[audio_stream_index]->codecpar;
+        v.push_back({std::string("#") + T("Lyd"), ""});
+        std::string a = audio_codec_name(p);
+        const std::string ch = channel_name(p->ch_layout.nb_channels);
+        if (!ch.empty())
+            a += " " + ch;
+        std::snprintf(b, sizeof b, "  \xC2\xB7  %d kHz", p->sample_rate / 1000);
+        a += b;
+        if (p->bit_rate > 0) {
+            std::snprintf(b, sizeof b, "  \xC2\xB7  %lld kbps", (long long)(p->bit_rate / 1000));
+            a += b;
+        }
+        v.push_back({T("Lyd"), a});
+        std::snprintf(b, sizeof b, T("PCM, %d kanaler"), p->ch_layout.nb_channels);
+        v.push_back({T("Utgang"), b});
+    }
+    return v;
+}
+
 void refresh_audio(Session &s)
 {
     s.st.audio.clear();
@@ -869,6 +938,11 @@ extern "C" void nuvio_player_run(const char *json)
             int vq = 0, aq = 0, ab = 0;
             evo_pb_queue_depth(&vq, &aq, &ab);
             s.st.buffered = s.st.position + evo_demux_buffered_s();
+            static double s_stats_at = 0;
+            if (s_osd.stats_shown() && now - s_stats_at >= 1.0) {
+                s_stats_at = now;
+                s.st.stats = playback_stats(s);
+            }
             if (!s.started) {
                 s.st.open_progress = evo_demux_prebuffer_progress();
                 s.st.open_stage = s.req.str("buffering", "Buffering\xE2\x80\xA6");
