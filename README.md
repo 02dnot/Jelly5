@@ -1,9 +1,5 @@
 <p align="center">
-  <img src="docs/media/banner.jpg" alt="Jelly5 — Jellyfin for PlayStation 5" width="100%">
-</p>
-
-<p align="center">
-  <img src="docs/media/icon.png" alt="" width="96"><br>
+  <img src="docs/media/icon.png" alt="Jelly5" width="180"><br>
   <b>A native Jellyfin client for jailbroken PS5 consoles.</b><br>
   Its own GPU-drawn interface in the spirit of Netflix and Apple TV, hardware-decoded 4K HDR playback, and no browser in between.
 </p>
@@ -143,7 +139,7 @@ sees it); nothing else on the console is touched.
 | No Jelly5 tile | Check the path is exactly `/data/homebrew/PPSA99505/eboot.bin`; rerun ShadowMount+ or reboot and jailbreak again. |
 | The FTP copy fails (for example "Text file busy") | Jelly5 is still running: close it with the PS button first. |
 | Your server is not in the list | Type its address. Discovery needs UDP port 7359 to reach the server (in Docker: publish `7359/udp`, and *Enable auto discovery* on in Jellyfin's networking settings). |
-| A title won't play or stutters | Press **L3** while it plays and include that info in an issue. Over Wi-Fi, lower *Max quality* in Jelly5's settings. |
+| A title won't play or stutters | Press **L3** while it plays and include that info in an issue. Over Wi-Fi, lower *Maximum quality* in Jelly5's settings. |
 | The receiver shows PCM, not Dolby Atmos | Expected: the PS5 gives apps no bitstream passthrough (see *Known limits*). |
 
 ## Controls
