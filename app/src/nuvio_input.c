@@ -154,10 +154,10 @@ void nuvio_input_trigger_resistance(int on)
     for (int i = 0; i < 2; i++) {
         p.command[i].mode = on ? 5u : 0u;   /* slope feedback: light at first, stiffer further in */
         if (on) {
-            p.command[i].data[0] = 1;   /* from position 1 */
+            p.command[i].data[0] = 0;   /* from the very start */
             p.command[i].data[1] = 9;   /* to the end */
-            p.command[i].data[2] = 1;   /* strength 1 */
-            p.command[i].data[3] = 6;   /* up to 6 (of 8) */
+            p.command[i].data[2] = 3;   /* strength 3 */
+            p.command[i].data[3] = 8;   /* up to 8, the most */
         }
     }
     const int rc = scePadSetTriggerEffect(s_pad, &p);

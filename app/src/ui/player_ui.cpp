@@ -493,8 +493,9 @@ void PlayerUi::analog_scrub(const nuvio_input_state &in, const NuvioStatus &st)
     if (!m_req || m_music || !m_seeking || l == r || !st.error.empty() || m_overlay != Overlay::None ||
         now - m_trig_down_at < 0.25)
         return;
-    const float q = std::max(0.f, ((r ? in.r2 : in.l2) - 0.08f) / 0.92f);
-    const double rate = 6.0 + 294.0 * std::pow(q, 2.2);
+    /* A gentle curve: most of the travel is for fine scrubbing, the last part for speed. */
+    const float q = std::max(0.f, ((r ? in.r2 : in.l2) - 0.15f) / 0.85f);
+    const double rate = 3.0 + 117.0 * std::pow(q, 3.0);   /* 3 s/s lightly, 2 min/s pressed home */
     m_seek_target = std::max(0.0, std::min(st.duration > 0 ? st.duration - 1 : 1e9, m_seek_target + (r ? rate : -rate) * dt));
     m_seek_commit_at = now + 0.75;
     m_seek_last_step = now;
@@ -730,7 +731,7 @@ void PlayerUi::draw_bar(const NuvioStatus &st, float a)
         const float bh = 52 + (chapter.empty() ? 0 : 30) + (ph > 0 ? ph + 8 : 0);
         const float bx = std::max(x0 + bw / 2, std::min(x1 - bw / 2, px));
         const gfx::Rect r{bx - bw / 2, kBarY - 32 - bh, bw, bh};
-        glass(r, a);
+        glass_panel(r, std::min(28.f, r.h / 2), a, false);   /* no shadow: over the picture it read as a black box */
         float ty = r.y;
         if (ph > 0) {
             /* One thumbnail of a sheet of tile_w x tile_h: sheet = i / per, cell = i % per. */
