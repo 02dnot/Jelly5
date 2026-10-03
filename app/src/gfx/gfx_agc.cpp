@@ -432,6 +432,20 @@ void image_uv(const Rect &r, const Texture *t, float u0, float v0, float u1, flo
 
 /* One pass of the separable Gaussian (EVO's ui_backdrop_blur pipe): src is
  * sampled, the bound target written; the taps cover 3 sigma. */
+#ifdef JELLY5_LOG_HOST
+/* Dev builds: why the glass fell back, logged when the reason changes. */
+static void glass_why(const char *why)
+{
+    static const char *s_last = nullptr;
+    if (why != s_last) {
+        s_last = why;
+        evo_boot_log("gfx: glass step: %s", why);
+    }
+}
+#else
+static void glass_why(const char *) {}
+#endif
+
 static bool blur_pass(const Texture &src, float sigma, bool horizontal)
 {
     SceAgcCommandBuffer *cb = evo_agc_runtime_get_current_cb();
@@ -439,13 +453,16 @@ static bool blur_pass(const Texture &src, float sigma, bool horizontal)
     const uint32_t slot = evo_agc_runtime_get_current_slot();
     const evo_agc_user_data_layout_t ud = evo_agc_runtime_get_user_data_layout(EVO_AGC_PIPE_UI_BLUR);
     if (!cb || !ring || ud.ps_count == 0 || ud.ps_count > 16 || ud.ps_const_table_dword < 0 ||
-        ud.ps_texture_table_dword < 0 || ud.vs_count > 16)
+        ud.ps_texture_table_dword < 0 || ud.vs_count > 16) {
+        glass_why(!cb ? "blur: no command buffer" : !ring ? "blur: no ring" : "blur: user data layout");
         return false;
+    }
     evo_agc_transient_slice_t consts, cdesc, tdesc, ib;
     if (evo_agc_transient_ring_alloc(ring, slot, 33u * 16u, 16, &consts) != EVO_AGC_TRANSIENT_OK ||
         evo_agc_transient_ring_alloc(ring, slot, 16u, 16, &cdesc) != EVO_AGC_TRANSIENT_OK ||
         evo_agc_transient_ring_alloc(ring, slot, 48u, 16, &tdesc) != EVO_AGC_TRANSIENT_OK ||
         evo_agc_transient_ring_alloc(ring, slot, 12u, 16, &ib) != EVO_AGC_TRANSIENT_OK) {
+        glass_why("blur: ring full");
         evo_agc_runtime_note_drop(0);
         return false;
     }
@@ -472,8 +489,10 @@ static bool blur_pass(const Texture &src, float sigma, bool horizontal)
     }
     evo_agc_build_constant_vsharp((uint32_t *)cdesc.cpu, consts.gpu_addr, 33u * 16u);
     std::memset(tdesc.cpu, 0, 48u);
-    if (!build_tsharp(&src, (uint32_t *)tdesc.cpu))
+    if (!build_tsharp(&src, (uint32_t *)tdesc.cpu)) {
+        glass_why(src.bgra ? "blur: scanout tsharp (address not 64 KB aligned?)" : "blur: layer tsharp");
         return false;
+    }
     evo_agc_build_ssharp((uint32_t *)tdesc.cpu + 8, 1, 1);
     std::memcpy(ib.cpu, kQuad, sizeof kQuad);
 
@@ -562,8 +581,10 @@ int backdrop_blur(const Rect &r, float radius, float sigma, float opacity)
     const int x0 = std::max(0, (int)std::floor(r.x * s_scale)), y0 = std::max(0, (int)std::floor(r.y * s_scale));
     const int x1 = std::min(s_pw, (int)std::ceil((r.x + r.w) * s_scale));
     const int y1 = std::min(s_ph, (int)std::ceil((r.y + r.h) * s_scale));
-    if (x1 <= x0 || y1 <= y0)
+    if (x1 <= x0 || y1 <= y0) {
+        glass_why("empty rect");
         return 0;
+    }
     /* The blurred area: the pane, grown for the shader's refraction, which samples
      * from just outside the rim. */
     const int m = shader ? (int)std::ceil(30.f * s_scale) : 0;
@@ -574,13 +595,12 @@ int backdrop_blur(const Rect &r, float radius, float sigma, float opacity)
     evo_agc_layer_surface_t *h = nullptr, *v = nullptr;
     evo_agc_runtime_set_scissor(bx0, gy0, bx1 - bx0, gy1 - gy0);   /* layers clear what is scissored */
     if (evo_agc_layer_acquire(&h) != 0 || !h) {
-#ifdef JELLY5_LOG_HOST
-        evo_boot_log("gfx: backdrop: no free layer");
-#endif
+        glass_why("no free layer");
         restore_scissor();
         return 0;
     }
     if (evo_agc_layer_acquire(&v) != 0 || !v) {
+        glass_why("no second layer");
         evo_agc_layer_release(h);
         restore_scissor();
         return 0;
@@ -616,6 +636,8 @@ int backdrop_blur(const Rect &r, float radius, float sigma, float opacity)
         evo_agc_runtime_set_scissor(x0, y0, x1 - x0, y1 - y0);
         if (glass_pass(out_v, r, radius, opacity))
             result = 2;
+        else
+            glass_why("glass pass failed");
     }
 #ifdef JELLY5_LOG_HOST
     static int s_logged = -1;

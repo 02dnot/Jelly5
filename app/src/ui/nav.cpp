@@ -68,7 +68,7 @@ void Nav::draw(float a, int active, int focus, float dt, bool *animating)
     for (int i = 0; i < n; i++) {
         const bool f = m_tabs[i] == focus;
         const uint32_t c = f ? 0xff0b0b0fu : (m_tabs[i] == active ? kText : kText2);
-        if (m_tabs[i] == Search) {   /* △ goes straight here from anywhere: show it */
+        if (m_tabs[i] == Search && active != Search) {   /* △ goes straight here from elsewhere: show it */
             const float lw = gfx::text_width(tab_label(m_tabs[i]), st), lx = x + (widths[i] - lw - kHintW) / 2;
             gfx::text(lx, cy + 9, tab_label(m_tabs[i]), st, alpha(c, a));
             draw_pad_hint(lx + lw + 12, cy, PadButton::Triangle, "", 24, a);
