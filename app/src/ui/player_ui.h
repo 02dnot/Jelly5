@@ -127,6 +127,7 @@ private:
     int m_ep_col = 1, m_ep_season = 0, m_ep_index = 0;
     Anim m_ep_scroll;
     Anim m_lyric_scroll;                /* music: the lyrics' line, eased */
+    float m_dt = 0;                     /* this frame's step (draw sets m_last first) */
 
     std::string m_toast;
     double m_toast_until = 0;

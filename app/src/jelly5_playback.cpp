@@ -317,6 +317,17 @@ std::string request_json(jf::Client &c, const jf::Item &it, const jf::Playback &
             cJSON *e = cJSON_CreateObject();
             cJSON_AddNumberToObject(e, "start", l.start);
             cJSON_AddStringToObject(e, "text", l.text.c_str());
+            if (!l.cues.empty()) {   /* word by word */
+                cJSON *cs = cJSON_CreateArray();
+                for (const auto &c : l.cues) {
+                    cJSON *ce = cJSON_CreateObject();
+                    cJSON_AddNumberToObject(ce, "start", c.start);
+                    cJSON_AddNumberToObject(ce, "from", (double)c.from);
+                    cJSON_AddNumberToObject(ce, "to", (double)c.to);
+                    cJSON_AddItemToArray(cs, ce);
+                }
+                cJSON_AddItemToObject(e, "cues", cs);
+            }
             cJSON_AddItemToArray(ly, e);
         }
         cJSON_AddItemToObject(o, "lyrics", ly);

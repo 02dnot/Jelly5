@@ -770,6 +770,31 @@ std::vector<LyricLine> Client::lyrics(const std::string &item_id)
         const cJSON *st = cJSON_GetObjectItemCaseSensitive(l, "Start");
         if (cJSON_IsNumber(st))
             x.start = st->valuedouble / (double)kTicksPerSecond;
+        /* Cue positions count UTF-16 units (.NET strings); turn them into bytes. */
+        auto byte_at = [&x](int units) {
+            size_t b = 0;
+            for (int u = 0; u < units && b < x.text.size();) {
+                const unsigned char c = (unsigned char)x.text[b];
+                const size_t len = c < 0x80 ? 1 : c < 0xe0 ? 2 : c < 0xf0 ? 3 : 4;
+                u += len == 4 ? 2 : 1;
+                b += len;
+            }
+            return std::min(b, x.text.size());
+        };
+        const cJSON *cue;
+        cJSON_ArrayForEach(cue, cJSON_GetObjectItemCaseSensitive(l, "Cues")) {
+            const cJSON *cs = cJSON_GetObjectItemCaseSensitive(cue, "Start");
+            if (!cJSON_IsNumber(cs))
+                continue;
+            LyricLine::Cue c;
+            c.start = cs->valuedouble / (double)kTicksPerSecond;
+            c.from = byte_at(cJSON_GetObjectItemCaseSensitive(cue, "Position")
+                                 ? cJSON_GetObjectItemCaseSensitive(cue, "Position")->valueint : 0);
+            c.to = byte_at(cJSON_GetObjectItemCaseSensitive(cue, "EndPosition")
+                               ? cJSON_GetObjectItemCaseSensitive(cue, "EndPosition")->valueint : 0);
+            if (c.to > c.from)
+                x.cues.push_back(c);
+        }
         out.push_back(std::move(x));
     }
     cJSON_Delete(j);

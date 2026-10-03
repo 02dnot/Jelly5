@@ -50,6 +50,11 @@ struct NuvioChapter {
 struct NuvioLyric {
     double start = -1;            /* seconds; < 0: not timed */
     std::string text;
+    struct Cue {                  /* a word: when it is sung, and its bytes in text */
+        double start = 0;
+        size_t from = 0, to = 0;
+    };
+    std::vector<Cue> cues;        /* empty: the line is timed as a whole */
 };
 
 struct NuvioTrickplay {

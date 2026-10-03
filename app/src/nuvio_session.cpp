@@ -247,6 +247,15 @@ bool nuvio_request_parse(const char *json, NuvioRequest &r)
         NuvioLyric l;
         l.start = num_of(it, "start", -1);
         l.text = str_of(it, "text");
+        const cJSON *cue;
+        cJSON_ArrayForEach(cue, cJSON_GetObjectItemCaseSensitive(it, "cues")) {
+            NuvioLyric::Cue c;
+            c.start = num_of(cue, "start", 0);
+            c.from = (size_t)num_of(cue, "from", 0);
+            c.to = std::min((size_t)num_of(cue, "to", 0), l.text.size());
+            if (c.to > c.from)
+                l.cues.push_back(c);
+        }
         r.lyrics.push_back(l);
     }
     if (const cJSON *tp = cJSON_GetObjectItemCaseSensitive(root, "trickplay")) {

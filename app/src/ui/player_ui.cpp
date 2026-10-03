@@ -1352,8 +1352,7 @@ void PlayerUi::draw_lyrics(const NuvioStatus &st, float x, float w, float top, f
                 cur = (int)i;
     const float lh = 58, mid = top + (bottom - top) * 0.38f;
     m_lyric_scroll.to(timed ? (float)std::max(cur, 0) * lh : 0.f);
-    const float dt = (float)std::min(0.1, std::max(0.0, st.now - m_last));
-    m_lyric_scroll.step(dt, 7.f);
+    m_lyric_scroll.step(m_dt, 6.f);   /* the column glides up a line */
     if (m_lyric_scroll.value != m_lyric_scroll.target)
         m_dirty = true;
     gfx::push_scissor({x - 20, top, w + 40, bottom - top});
@@ -1361,12 +1360,32 @@ void PlayerUi::draw_lyrics(const NuvioStatus &st, float x, float w, float top, f
         const float y = (timed ? mid : top + 50) + i * lh - m_lyric_scroll.value;
         if (y < top - lh || y > bottom + lh)
             continue;
-        const bool now = timed && (int)i == cur;
         /* Fade towards the edges of the column. */
         const float edge = std::min(y - top, bottom - y) / 90.f;
         const float a = std::max(0.f, std::min(1.f, edge));
-        const uint32_t c = now ? kText : timed ? kText3 : kText2;
-        gfx::text(x, y, ly[i].text, {now ? gfx::Bold : gfx::SemiBold, now ? 40.f : 34.f, w}, alpha(c, a));
+        if (!timed) {
+            gfx::text(x, y, ly[i].text, {gfx::SemiBold, 34.f, w}, alpha(kText2, a));
+            continue;
+        }
+        /* The sung line lights up as the column reaches it, the last one dims as it
+         * leaves: brightness follows the eased scroll, so it glides, not jumps. */
+        const float near = 1.f - std::min(1.f, std::fabs(i * lh - m_lyric_scroll.value) / lh);
+        const float lit = (int)i == cur ? near : near * 0.35f;
+        const gfx::TextStyle ts{gfx::Bold, 38.f, w};
+        if ((int)i == cur && !ly[i].cues.empty()) {
+            /* Word by word (Jellyfin's cues): the line dim, each word lighting up as
+             * it is sung, over a short fade in. */
+            gfx::text(x, y, ly[i].text, ts, alpha(kText, a * 0.36f));
+            for (const NuvioLyric::Cue &c : ly[i].cues) {
+                const float on = std::max(0.f, std::min(1.f, (float)(st.position + 0.1 - c.start) / 0.18f));
+                if (on <= 0.f)
+                    continue;
+                const float wx = x + gfx::text_width(ly[i].text.substr(0, c.from), ts);
+                gfx::text(wx, y, ly[i].text.substr(c.from, c.to - c.from), ts, alpha(kText, a * on * near));
+            }
+            continue;
+        }
+        gfx::text(x, y, ly[i].text, ts, alpha(kText, a * (0.36f + 0.64f * lit)));
     }
     gfx::pop_scissor();
 }
@@ -1377,6 +1396,7 @@ void PlayerUi::draw(const NuvioStatus &st)
         return;
     const float dt = (float)std::min(0.1, std::max(0.0, st.now - m_last));
     m_last = st.now;
+    m_dt = dt;
     m_dirty = false;
     art::tick();   /* the player's loop owns the frame: uploads and eviction run here */
 

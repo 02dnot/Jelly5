@@ -140,6 +140,11 @@ struct RemoteSubtitle {
 struct LyricLine {
     double start = -1;                        /* seconds */
     std::string text;
+    struct Cue {                              /* a word's timing (enhanced LRC), when the file has it */
+        double start = 0;                     /* seconds */
+        size_t from = 0, to = 0;              /* byte range in text */
+    };
+    std::vector<Cue> cues;
 };
 
 struct QuickConnect {
