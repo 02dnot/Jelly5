@@ -235,13 +235,20 @@ void Home::draw_backdrop(float dt)
      * and quicker (its picture is already loaded). */
     const bool hero = m_row < 0;
     const jf::Item *f = focused_item();
-    const std::string want = f ? backdrop_url(*f) : std::string();
+    /* A title without a backdrop gets its own colours (its BlurHash) rather than
+     * keeping the last one's picture: a layer keyed "colour:<id>". */
+    std::string want = f ? backdrop_url(*f) : std::string();
+    if (f && (want.empty() || art::failed(want)))
+        want = "colour:" + f->id;
     if (!want.empty() && (m_bd.empty() || m_bd.back().url != want) && (hero || (m_now - m_focus_changed) > 0.25)) {
         /* A layer that has not started to show is replaced rather than stacked. */
         if (!m_bd.empty() && m_bd.size() > 1 && m_bd.back().mix.value < 0.02f)
             m_bd.pop_back();
         if (m_bd.empty() || m_bd.back().url != want) {
-            m_bd.push_back({want, f->backdrop_blurhash, Anim(), m_now});
+            const std::string &hash = !f->backdrop_blurhash.empty() ? f->backdrop_blurhash
+                                      : !f->thumb_blurhash.empty()  ? f->thumb_blurhash
+                                                                     : f->primary_blurhash;
+            m_bd.push_back({want, hash, Anim(), m_now});
             m_bd.back().mix.snap(m_bd.size() == 1 ? 1.f : 0.f);
         }
         if (m_bd.size() > 4)   /* rare: a long chain of interrupted fades */
@@ -249,7 +256,8 @@ void Home::draw_backdrop(float dt)
     }
     if (m_bd.size() > 1) {
         BackdropLayer &top = m_bd.back();
-        if (art::get(top.url, 1920, 1080)) {
+        const bool colour = top.url.compare(0, 7, "colour:") == 0;
+        if (colour || art::get(top.url, 1920, 1080) || art::failed(top.url)) {
             top.mix.to(1.f);
             if (top.mix.step(dt, hero ? 8.f : 4.5f))
                 m_animating = true;
@@ -266,11 +274,12 @@ void Home::draw_backdrop(float dt)
         const float a = i == 0 ? 1.f : smoothstep(m_bd[i].mix.value);
         if (a <= 0.f)
             continue;
-        if (const gfx::Texture *t = art::get(m_bd[i].url, 1920, 1080))
+        const bool colour = m_bd[i].url.compare(0, 7, "colour:") == 0;
+        if (const gfx::Texture *t = colour ? nullptr : art::get(m_bd[i].url, 1920, 1080))
             draw_drift(full, t, a, m_now - m_bd[i].since, m_bd[i].url);
-        else if (i == 0)
+        else if (i == 0 || colour || art::failed(m_bd[i].url))
             if (const gfx::Texture *ph = art::blurhash(m_bd[i].hash))
-                gfx::image(full, ph, 1.f, 0, true);
+                gfx::image(full, ph, a, 0, true);
     }
 
     /* Scrims (concept: .scrim-left, .scrim-bottom, .scrim-top). */

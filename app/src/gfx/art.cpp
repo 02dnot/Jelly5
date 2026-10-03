@@ -135,6 +135,12 @@ void evict(Entry &e)
 
 } // namespace
 
+bool failed(const std::string &url)
+{
+    auto it = s_art.find(url);
+    return it != s_art.end() && it->second.failed;
+}
+
 const gfx::Texture *get(const std::string &url, int max_w, int max_h)
 {
     if (url.empty())

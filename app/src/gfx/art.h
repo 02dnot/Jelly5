@@ -20,6 +20,8 @@ namespace art {
 /* The texture for url once it is ready (requesting it as needed), else null.
  * max_w/max_h bound the decoded size. */
 const gfx::Texture *get(const std::string &url, int max_w, int max_h);
+/* The picture at url could not be had (missing on the server, broken). */
+bool failed(const std::string &url);
 
 /* 0..1: how far the image at url has faded in (eased); 0 until it is ready. */
 float fade(const std::string &url, float seconds = 0.35f);
