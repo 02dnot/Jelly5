@@ -336,7 +336,7 @@ void Library::draw(double now, float dt)
                 continue;   /* focused poster last, over its neighbours */
             const float lift = m_lifts.step(items[i].id, f, dt, &m_animating);
             const gfx::Rect tile{kPad + c * (kPosterW + kColGap), y, kPosterW, tile_h};
-            draw_poster(m_client, items[i], tile, lift, 1.f, m_lifts.sheen(items[i].id, &m_animating));
+            draw_poster(m_client, items[i], tile, lift, 1.f);
             if (f) {
                 const float k = 1.f + 0.1f * lift;
                 m_card = {{tile.x - tile.w * (k - 1) / 2, tile.y - tile.h * (k - 1) / 2, tile.w * k, tile.h * k},

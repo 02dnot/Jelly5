@@ -268,7 +268,7 @@ void Search::draw(double now, float dt)
                 continue;
             const float lift = m_lifts.step(items[i].id, focus, dt, &anim);
             draw_poster(m_client, items[i], {kResX + (i % kResCols) * (kPosterW + kResGap), y, kPosterW, kPosterH},
-                        lift, 1.f, m_lifts.sheen(items[i].id, &anim));
+                        lift, 1.f);
         }
     gfx::pop_scissor();
     if (items.empty() && !for_query.empty())

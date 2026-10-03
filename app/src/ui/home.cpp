@@ -464,15 +464,6 @@ void Home::draw_rows(float dt)
             m_card = {cr, card_url(it), it.thumb_blurhash.empty() ? it.backdrop_blurhash : it.thumb_blurhash,
                       kCardR * k};
             m_has_card = true;
-            {   /* the focus sheen, once, a beat after landing */
-                const float p = (float)(m_now - m_focus_changed - 0.15) / 0.9f;
-                if (p >= 0.f && p < 1.f) {
-                    draw_sheen(cr, kCardR * k, p, a);
-                    m_animating = true;
-                } else if (p < 0.f) {
-                    m_animating = true;
-                }
-            }
             if (it.played_percent > 0 && it.played_percent < 100) {
                 gfx::fill({cr.x + 18, cr.y + cr.h - 22, cr.w - 36, 6}, alpha(0x47ffffffu, a), 3);
                 gfx::fill({cr.x + 18, cr.y + cr.h - 22, (cr.w - 36) * (float)(it.played_percent / 100), 6},

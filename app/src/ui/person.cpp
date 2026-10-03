@@ -196,8 +196,7 @@ void Person::draw(double now, float dt)
                 if (x > gfx::W || x + kPosterW < -40)
                     continue;
                 const float lift = m_lifts.step(items[i].id + std::to_string(r), f, dt, &m_animating);
-                draw_poster(m_client, items[i], {x, y + 30, kPosterW, kPosterH}, lift, 1.f,
-                            m_lifts.sheen(items[i].id + std::to_string(r), &m_animating));
+                draw_poster(m_client, items[i], {x, y + 30, kPosterW, kPosterH}, lift, 1.f);
                 if (lift > 0.01f && items[i].year)
                     gfx::text(x - 11, y + 30 + kPosterH * 1.05f + 68, std::to_string(items[i].year), {gfx::Medium, 18},
                               alpha(kText3, lift));

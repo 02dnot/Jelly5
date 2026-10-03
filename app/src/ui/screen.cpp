@@ -24,21 +24,7 @@ float Lifts::step(const std::string &key, bool focused, float dt, bool *animatin
     l.a.to(focused ? 1.f : 0.f);
     if (l.a.step(dt, 14.f) && animating)
         *animating = true;
-    l.focused_for = focused ? (l.focused_for < 0 ? 0.f : l.focused_for + dt) : -1.f;
     return l.a.value;
-}
-
-float Lifts::sheen(const std::string &key, bool *animating) const
-{
-    const auto it = m_lift.find(key);
-    if (it == m_lift.end() || it->second.focused_for < 0)
-        return -1.f;
-    const float p = (it->second.focused_for - 0.15f) / 0.9f;   /* a beat after landing, then 0.9 s */
-    if (p >= 1.f)
-        return -1.f;
-    if (animating)
-        *animating = true;
-    return std::max(0.f, p);
 }
 
 void draw_check(float cx, float cy, float size, uint32_t color)
@@ -49,21 +35,6 @@ void draw_check(float cx, float cy, float size, uint32_t color)
         gfx::fill({x + s * 1.6f * u, y - 4 * u + s * 1.6f * u, d, d}, color, d / 3);
     for (int s = 0; s < 11; s++)
         gfx::fill({x + 8 * u + s * 1.6f * u, y + 4 * u - s * 1.8f * u, d, d}, color, d / 3);
-}
-
-void draw_sheen(const gfx::Rect &r, float radius, float p, float a)
-{
-    if (p < 0.f || p > 1.f || a <= 0.f)
-        return;
-    (void)radius;
-    const float bw = r.w * 0.5f, e = p * p * (3.f - 2.f * p);
-    const float x = r.x - bw + (r.w + bw) * e;
-    const float fade = std::sin(e * 3.14159f);   /* in and out */
-    const uint32_t peak = alpha(0x38ffffffu, a * fade);
-    gfx::push_scissor(r);
-    gfx::fill_hgradient({x, r.y, bw / 2, r.h}, 0x00000000u, peak);
-    gfx::fill_hgradient({x + bw / 2, r.y, bw / 2, r.h}, peak, 0x00000000u);
-    gfx::pop_scissor();
 }
 
 std::string poster_url(jf::Client &c, const jf::Item &it, int width)
@@ -265,7 +236,7 @@ std::string landscape_blurhash(const jf::Item &it)
     return it.thumb_blurhash.empty() ? it.backdrop_blurhash : it.thumb_blurhash;
 }
 
-void draw_poster(jf::Client &c, const jf::Item &it, const gfx::Rect &base, float lift, float opacity, float sheen)
+void draw_poster(jf::Client &c, const jf::Item &it, const gfx::Rect &base, float lift, float opacity)
 {
     const float k = 1.f + 0.1f * lift;
     const gfx::Rect r{base.x - base.w * (k - 1) / 2, base.y - base.h * (k - 1) / 2, base.w * k, base.h * k};
@@ -296,7 +267,6 @@ void draw_poster(jf::Client &c, const jf::Item &it, const gfx::Rect &base, float
         gfx::fill({r.x + 14, r.y + r.h - 20, (r.w - 28) * (float)(it.played_percent / 100), 6},
                   alpha(0xffffffffu, opacity), 3);
     }
-    draw_sheen(r, 14 * k, sheen, opacity);
     /* The title under every poster (a grid is for skimming), brighter on focus; an
      * album's artist or an episode's series on a second line. */
     const uint32_t tc = lift > 0.5f ? kText : kText2;
