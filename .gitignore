@@ -5,3 +5,4 @@ build/
 *.ffpfsc
 .env.local
 app/build-assets.mk
+toolkit/.deps/
