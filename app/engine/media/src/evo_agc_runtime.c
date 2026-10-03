@@ -110,13 +110,18 @@ typedef char evo_tile_dims_must_be_pow2[
  * back via the rgba8 T#; only the scanout uses COMP_SWAP=ALT for BGRA. */
 #define EVO_AGC_LAYER_BYTES         UINT64_C(0x02000000) /* 32 MB per layer */
 #define EVO_AGC_LAYER_TOTAL         (EVO_AGC_MAX_LAYERS * EVO_AGC_LAYER_BYTES)
+/* Jelly5: the layers are drawn and sampled tiled (64KB_R_X), whose T# refuses a
+ * base that is not 64 KB aligned; at 256-byte alignment every backdrop blur
+ * failed and the glass fell back to a flat fill. They start 2 MB aligned, like
+ * the scanout, and this much slack pays for the padding. */
+#define EVO_AGC_LAYER_ALIGN         UINT64_C(0x00200000)
 
 #define EVO_AGC_TOTAL_DIRECT_MEM \
     (EVO_AGC_SCANOUT_TOTAL + EVO_AGC_TRANSIENT_RING_SIZE + \
      EVO_AGC_COMMAND_BUFFER_SIZE + EVO_AGC_SHADER_STORAGE_SIZE + \
      EVO_AGC_FENCE_STORAGE_SIZE + EVO_AGC_COMPOSITE_SIZE + \
      EVO_AGC_STENCIL_SIZE + EVO_AGC_DEPTH_SIZE + \
-     EVO_AGC_LAYER_TOTAL)
+     EVO_AGC_LAYER_ALIGN + EVO_AGC_LAYER_TOTAL)
 
 /*
  * VideoOut buffer attribute. 0x...22000000 is the TILED BGRA attribute and
@@ -1171,10 +1176,14 @@ int evo_agc_runtime_init(int width, int height, int hdr)
      * COMP_SWAP=STD so the rgba8 T# can sample them back. 256-byte aligned for
      * the image descriptors (base stored as >>8), and each is 32 MB - 4K RGBA8
      * needs 31.64 MB, so 4K straddles a 32 MB slot exactly. */
+    {
+        const uintptr_t at = (uintptr_t)(g_agc_dev.direct_mem_base + cur_offset);
+        cur_offset += (size_t)((EVO_AGC_LAYER_ALIGN - (at & (EVO_AGC_LAYER_ALIGN - 1u))) &
+                               (EVO_AGC_LAYER_ALIGN - 1u));
+    }
     for (int i = 0; i < EVO_AGC_MAX_LAYERS; ++i) {
         evo_agc_layer_surface_t *layer = &g_agc_dev.layers[i];
-        uint8_t *lg = g_agc_dev.direct_mem_base + cur_offset;
-        layer->cpu_base = (uint8_t *)(((uintptr_t)lg + 255u) & ~(uintptr_t)255);
+        layer->cpu_base = g_agc_dev.direct_mem_base + cur_offset;   /* 2 MB aligned (above) */
         layer->gpu_addr = (uint64_t)(uintptr_t)layer->cpu_base;
         layer->pool_index = i;
         layer->in_use = 0;

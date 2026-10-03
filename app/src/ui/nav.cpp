@@ -13,10 +13,6 @@
 #include <cstdio>
 
 namespace ui {
-namespace {
-constexpr float kHintW = 36;   /* the △ beside "Søk" and its gap */
-}
-
 
 const char *tab_label(int tab)
 {
@@ -39,7 +35,7 @@ void Nav::draw(float a, int active, int focus, float dt, bool *animating)
     const int n = (int)m_tabs.size();
     float widths[Count], total = 14;
     for (int i = 0; i < n; i++) {
-        widths[i] = gfx::text_width(tab_label(m_tabs[i]), st) + 68 + (m_tabs[i] == Search ? kHintW : 0);
+        widths[i] = gfx::text_width(tab_label(m_tabs[i]), st) + 68;
         total += widths[i] + 6;
     }
     const float px = (gfx::W - total) / 2;
@@ -68,13 +64,7 @@ void Nav::draw(float a, int active, int focus, float dt, bool *animating)
     for (int i = 0; i < n; i++) {
         const bool f = m_tabs[i] == focus;
         const uint32_t c = f ? 0xff0b0b0fu : (m_tabs[i] == active ? kText : kText2);
-        if (m_tabs[i] == Search && active != Search) {   /* △ goes straight here from elsewhere: show it */
-            const float lw = gfx::text_width(tab_label(m_tabs[i]), st), lx = x + (widths[i] - lw - kHintW) / 2;
-            gfx::text(lx, cy + 9, tab_label(m_tabs[i]), st, alpha(c, a));
-            draw_pad_hint(lx + lw + 12, cy, PadButton::Triangle, "", 24, a);
-        } else {
-            gfx::text(x + widths[i] / 2, cy + 9, tab_label(m_tabs[i]), st, alpha(c, a), 1);
-        }
+        gfx::text(x + widths[i] / 2, cy + 9, tab_label(m_tabs[i]), st, alpha(c, a), 1);
         x += widths[i] + 6;
     }
 
