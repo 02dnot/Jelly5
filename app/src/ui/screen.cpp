@@ -114,7 +114,7 @@ void glass_panel(const gfx::Rect &r, float radius, float a, bool shadow, float l
             gfx::shadow(r, radius, 30, 0.35f * a, 10);
         gfx::fill(r, alpha(0x2effffffu, a * lift), radius);
         gfx::fill_vgradient({r.x, r.y, r.w, r.h * 0.55f}, alpha(0x24ffffffu, a * lift), 0x00000000u, radius);
-        gfx::rim(r, radius, a);
+        gfx::rim(r, radius, 0.45f * a);
         return;
     }
     if (shadow)

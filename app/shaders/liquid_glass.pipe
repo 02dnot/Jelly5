@@ -118,8 +118,10 @@ void main() {
      * only a hairline of its own. */
     float band = 1.0 - smoothstep(0.0, max(0.22 * h, 3.0), -d);
     float hair = 1.0 - smoothstep(0.0, 1.4, -d);
-    float side = 0.55 * max(lit, 0.0) + 0.28 * max(-lit, 0.0);
-    col += vec3((band * band * (0.10 + side) * 0.55 + hair * (0.05 + 0.25 * side)) * g.uLight.z * (1.0 + 0.5 * g.uMore.x));
+    /* Mostly on the side toward the light, faint opposite, nothing in between: a
+     * light all the way round read as a white frame. */
+    float side = 0.45 * pow(max(lit, 0.0), 1.5) + 0.12 * pow(max(-lit, 0.0), 1.5);
+    col += vec3((band * band * side * 0.45 + hair * side * 0.6) * g.uLight.z * (1.0 + 0.5 * g.uMore.x));
     /* Sheen from above, and a little grain so it reads as a material. */
     float from_top = (px.y - lo.y) / max(hi.y - lo.y, 1.0);
     col += vec3((1.0 - smoothstep(0.0, 0.5, from_top)) * g.uTint.a);
