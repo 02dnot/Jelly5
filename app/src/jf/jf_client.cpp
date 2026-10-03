@@ -580,6 +580,24 @@ std::string Client::escape(const std::string &s) { return url_escape(s); }
 
 int unreachable_streak() { return g_unreachable.load(); }
 
+std::vector<std::string> Client::home_sections()
+{
+    std::vector<std::string> out;
+    std::string body;
+    if (!get_json("/DisplayPreferences/usersettings?userId=" + user_id_ + "&client=emby", &body))
+        return out;
+    cJSON *j = cJSON_Parse(body.c_str());
+    const cJSON *prefs = cJSON_GetObjectItemCaseSensitive(j, "CustomPrefs");
+    for (int i = 0; i < 10; i++) {
+        const cJSON *v = cJSON_GetObjectItemCaseSensitive(prefs, ("homesection" + std::to_string(i)).c_str());
+        if (!cJSON_IsString(v) || !v->valuestring)
+            break;
+        out.push_back(v->valuestring);
+    }
+    cJSON_Delete(j);
+    return out;
+}
+
 bool Client::ping()
 {
     return tracked_request("GET", server_ + "/System/Info/Public", {"Accept: application/json"}, "", 5).ok();

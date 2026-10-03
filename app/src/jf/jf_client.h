@@ -207,6 +207,10 @@ public:
     static std::string escape(const std::string &s);   /* for a query value */
     /* A cheap request that needs no sign-in: is the server there? */
     bool ping();
+    /* The home screen's sections as the user ordered them in Jellyfin (Settings ->
+     * Home: "resume", "nextup", "latestmedia", "smalllibrarytiles", "none" ...),
+     * empty when they kept the default. */
+    std::vector<std::string> home_sections();
     /* The user's display settings for libraries (from /Users/Me): ids of libraries
      * left out of "Nylig lagt til". */
     const std::vector<std::string> &latest_excludes() const { return latest_excludes_; }

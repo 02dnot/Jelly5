@@ -310,6 +310,8 @@ void load_home(jf::Client &c, unsigned session, bool keep_hero = false)
     jobs.emplace_back([&] { next = c.next_up(20); });
     jobs.emplace_back([&] { views = c.views(); });
     jobs.emplace_back([&] { mylist = c.favorites(30); });
+    std::vector<std::string> sections;
+    jobs.emplace_back([&] { sections = c.home_sections(); });
     for (auto &j : jobs)
         j.join();
     /* Rows for video libraries; music opens from Biblioteker. Books and photos are not here. */
@@ -374,6 +376,36 @@ void load_home(jf::Client &c, unsigned session, bool keep_hero = false)
     }
     if (!libs.empty())
         m.rows.push_back({T("Biblioteker"), std::move(libs), false, Row::Libraries});
+    /* The user's own order from Jellyfin (Settings -> Home), when they set one:
+     * its sections in that order, the ones left out hidden; ours (Min liste,
+     * recommendations, genres) after them; Biblioteker always, as it is the way
+     * to what no tab covers. */
+    if (!sections.empty()) {
+        std::vector<Row> ordered;
+        auto take = [&](Row::Kind kind) {
+            for (auto it = m.rows.begin(); it != m.rows.end();)
+                if (it->kind == kind) {
+                    ordered.push_back(std::move(*it));
+                    it = m.rows.erase(it);
+                } else {
+                    ++it;
+                }
+        };
+        for (const std::string &sec : sections) {
+            if (sec == "resume") take(Row::Resume);
+            else if (sec == "nextup") take(Row::NextUp);
+            else if (sec == "latestmedia") take(Row::Latest);
+            else if (sec == "smalllibrarytiles" || sec == "librarybuttons") take(Row::Libraries);
+        }
+        for (auto it = m.rows.begin(); it != m.rows.end();)   /* Jellyfin's, left out: hidden */
+            if (it->kind == Row::Resume || it->kind == Row::NextUp || it->kind == Row::Latest)
+                it = m.rows.erase(it);
+            else
+                ++it;
+        for (Row &r : m.rows)
+            ordered.push_back(std::move(r));
+        m.rows = std::move(ordered);
+    }
     std::lock_guard<std::mutex> g(s_state.lock);
     if (session != s_session)
         return;   /* the account changed while this loaded */
