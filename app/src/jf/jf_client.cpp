@@ -7,6 +7,7 @@
 #include "jf_http.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
@@ -18,6 +19,21 @@ extern "C" {
 
 namespace jf {
 namespace {
+
+std::atomic<int> g_unreachable{0};   /* requests in a row that got no answer at all */
+
+/* Every request of the client goes through here, so the app can tell when the
+ * server has gone away (no answer, not an HTTP error) and when it is back. */
+HttpResponse tracked_request(const std::string &method, const std::string &url,
+                             const std::vector<std::string> &headers, const std::string &body, int timeout_s)
+{
+    HttpResponse r = http_request(method, url, headers, body, timeout_s);
+    if (r.status == 0)
+        g_unreachable++;
+    else
+        g_unreachable = 0;
+    return r;
+}
 
 constexpr int kTimeout = 15;
 constexpr const char *kVersion = "0.0.1";
@@ -227,7 +243,7 @@ std::string Client::auth_header() const
 
 bool Client::get_json(const std::string &path, std::string *body)
 {
-    HttpResponse r = http_request("GET", server_ + path, {auth_header(), "Accept: application/json"}, "", kTimeout);
+    HttpResponse r = tracked_request("GET", server_ + path, {auth_header(), "Accept: application/json"}, "", kTimeout);
     if (!r.ok()) {
         set_error("GET " + path + " -> " + std::to_string(r.status) + " " + r.error);
         return false;
@@ -238,7 +254,7 @@ bool Client::get_json(const std::string &path, std::string *body)
 
 bool Client::post_json(const std::string &path, const std::string &json, std::string *body)
 {
-    HttpResponse r = http_request("POST", server_ + path, {auth_header(), "Accept: application/json"},
+    HttpResponse r = tracked_request("POST", server_ + path, {auth_header(), "Accept: application/json"},
                                   json.empty() ? "{}" : json, kTimeout);
     if (!r.ok()) {
         set_error("POST " + path + " -> " + std::to_string(r.status) + " " + r.error);
@@ -562,6 +578,13 @@ std::vector<std::string> Client::genres()
 
 std::string Client::escape(const std::string &s) { return url_escape(s); }
 
+int unreachable_streak() { return g_unreachable.load(); }
+
+bool Client::ping()
+{
+    return tracked_request("GET", server_ + "/System/Info/Public", {"Accept: application/json"}, "", 5).ok();
+}
+
 std::vector<std::string> Client::genres_in(const std::string &parent_id, const std::string &types)
 {
     std::vector<std::string> out;
@@ -675,7 +698,7 @@ std::vector<Item> Client::person_items(const std::string &person_id, const std::
 
 bool Client::set_favorite(const std::string &id, bool favorite)
 {
-    HttpResponse r = http_request(favorite ? "POST" : "DELETE",
+    HttpResponse r = tracked_request(favorite ? "POST" : "DELETE",
                                   server_ + "/UserFavoriteItems/" + id + "?userId=" + user_id_,
                                   {auth_header()}, "", kTimeout);
     return r.ok();
@@ -751,7 +774,7 @@ std::vector<RemoteSubtitle> Client::search_subtitles(const std::string &item_id,
 
 bool Client::download_subtitle(const std::string &item_id, const std::string &subtitle_id)
 {
-    HttpResponse r = http_request("POST", server_ + "/Items/" + item_id + "/RemoteSearch/Subtitles/" +
+    HttpResponse r = tracked_request("POST", server_ + "/Items/" + item_id + "/RemoteSearch/Subtitles/" +
                                               url_escape(subtitle_id),
                                   {auth_header()}, "", 60);
     if (!r.ok())
@@ -790,7 +813,7 @@ std::vector<LyricLine> Client::lyrics(const std::string &item_id)
 {
     std::vector<LyricLine> out;
     std::string body;
-    HttpResponse r = http_request("GET", server_ + "/Audio/" + item_id + "/Lyrics",
+    HttpResponse r = tracked_request("GET", server_ + "/Audio/" + item_id + "/Lyrics",
                                   {auth_header(), "Accept: application/json"}, "", kTimeout);
     if (!r.ok())
         return out;   /* 404: no lyrics, not an error */
@@ -852,7 +875,7 @@ std::vector<Item> Client::instant_mix(const std::string &id, int limit)
 
 bool Client::set_played(const std::string &id, bool played)
 {
-    HttpResponse r = http_request(played ? "POST" : "DELETE",
+    HttpResponse r = tracked_request(played ? "POST" : "DELETE",
                                   server_ + "/UserPlayedItems/" + id + "?userId=" + user_id_,
                                   {auth_header()}, "", kTimeout);
     return r.ok();
@@ -1148,7 +1171,7 @@ void Client::stop_encoding(const Playback &pb)
 {
     if (pb.play_method == "DirectPlay")
         return;
-    http_request("DELETE",
+    tracked_request("DELETE",
                  server_ + "/Videos/ActiveEncodings?deviceId=" + url_escape(device_id_) +
                      "&playSessionId=" + pb.play_session_id,
                  {auth_header()}, "", kTimeout);

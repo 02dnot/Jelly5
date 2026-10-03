@@ -205,6 +205,8 @@ public:
     int count_before(const std::string &parent_id, const std::string &types, const std::string &filter,
                      const std::string &letter);
     static std::string escape(const std::string &s);   /* for a query value */
+    /* A cheap request that needs no sign-in: is the server there? */
+    bool ping();
     /* The user's display settings for libraries (from /Users/Me): ids of libraries
      * left out of "Nylig lagt til". */
     const std::vector<std::string> &latest_excludes() const { return latest_excludes_; }
@@ -298,5 +300,9 @@ private:
     std::string error_;
     mutable std::mutex error_lock_;
 };
+
+/* Requests in a row (from any client) that got no answer at all: the server or
+ * the network is gone. 0 once anything answers. */
+int unreachable_streak();
 
 } // namespace jf

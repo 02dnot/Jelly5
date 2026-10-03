@@ -411,6 +411,8 @@ struct Session {
         double vq_empty_since = 0;        /* underrun watch */
     int rebuffers = 0;
     double last_rebuffer_at = -1e9;
+    int drop_retries = 0;             /* the stream broke off early: reopen attempts so far */
+    double retry_at = 0, drop_pos = 0, playing_since = 0;
     int64_t last_pts = INT64_MIN;
     NuvioStatus st;
     std::vector<int> audio_streams;   /* status.audio index -> stream */
@@ -769,11 +771,8 @@ extern "C" void nuvio_player_init(int user_id)
  * One-way for this playback - g_vdec_force_ffmpeg stays set until the next
  * request - so a seek cannot land back on the decoder that failed.
  */
-static void reopen_software(Session &s, const char *why)
+static void reopen_at(Session &s, double at)
 {
-    const double at = s.started ? s_pb->getPositionSeconds() : s.req.start_position;
-    evo_bt("nuvio: hardware decoder %s - reopening at %.1f s on the software decoder", why, at);
-    g_vdec_force_ffmpeg = 1;
     s_pb->stopPlayback();
     nuvio_subs_close();
     for (const NuvioSubtitleRef &r : s.req.subtitles)
@@ -792,6 +791,36 @@ static void reopen_software(Session &s, const char *why)
     s.wd_frames = -1;
     s_osd.begin(&s.req, s.open_started);
     start_job(s.job);
+}
+
+static void reopen_software(Session &s, const char *why)
+{
+    const double at = s.started ? s_pb->getPositionSeconds() : s.req.start_position;
+    evo_bt("nuvio: hardware decoder %s - reopening at %.1f s on the software decoder", why, at);
+    g_vdec_force_ffmpeg = 1;
+    reopen_at(s, at);
+}
+
+/* The stream broke off well before the end - the network or the server went
+ * away: try again from where it stopped, waiting a little longer each time;
+ * after six tries, say so. Without this a dropped connection looked like the
+ * end of the episode and played the next. */
+static bool connection_dropped(Session &s, double now, bool keep_pos = false)
+{
+    if (s.drop_retries >= 6) {
+        s.failed = true;
+        s.error = s.req.str("connection_gone", "The connection to the server was lost.");
+        return true;
+    }
+    s.drop_retries++;
+    if (!keep_pos)
+        s.drop_pos = std::max(0.0, s.st.position - 2.0);
+    s.retry_at = now + std::min(10.0, 1.5 * s.drop_retries);
+    evo_bt("nuvio: stream broke off at %.1f s - retry %d", s.drop_pos, s.drop_retries);
+    s_pb->stopPlayback();
+    s.opened = false;
+    s_osd.toast(s.req.str("connection_lost", "Lost the connection - trying again\xE2\x80\xA6"), now);
+    return true;
 }
 
 
@@ -881,6 +910,8 @@ extern "C" void nuvio_player_run(const char *json)
                 if (s.cancel) {
                     s.done = true;
                     s.res.state = "stopped";
+                } else if (!s.job.ok && s.drop_retries > 0) {
+                    connection_dropped(s, now, true);   /* still gone: wait and try again */
                 } else if (!s.job.ok) {
                     s.failed = true;
                     s.error = s.req.str("open_failed", "This stream could not be opened. The link may have "
@@ -911,6 +942,10 @@ extern "C" void nuvio_player_run(const char *json)
             }
             if (s.done)
                 break;
+        }
+        if (s.retry_at > 0 && now >= s.retry_at && !s.job.running) {   /* a dropped stream: try again */
+            s.retry_at = 0;
+            reopen_at(s, s.drop_pos);
         }
         const bool engine_ready = s.opened && !s.job.running;
 
@@ -1005,6 +1040,15 @@ extern "C" void nuvio_player_run(const char *json)
             if (evo_pb_decode_fatal()) {
                 s.failed = true;
                 s.error = s.req.str("decode_failed", "This video could not be decoded.");
+            }
+            if (s.started && !s.st.paused && s.st.position > s.drop_pos + 20 && s.drop_retries > 0)
+                s.drop_retries = 0;   /* playing well again */
+            /* Broke off early (not near the end): the connection, not the end. */
+            const bool early = s.st.duration > 60 && s.st.position < s.st.duration - 45;
+            if (!s.failed && s.started && early && s.retry_at == 0 &&
+                ((seen_active && !active) || (evo_pb_is_eof() && vq == 0 && now - s.last_frame_at > 1.5))) {
+                connection_dropped(s, now);
+                continue;
             }
             /* Ended: the engine stopped by itself, or the last frame has shown. */
             if (!s.failed && s.started && !s_osd.post_play_active() &&

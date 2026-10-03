@@ -284,6 +284,8 @@ void refresh_hero_cache(jf::Client &c, std::vector<jf::Item> *out)
 
 /* Loads the home rows, all requests in parallel. With keep_hero the featured
  * titles are kept (a refresh after playback only needs the rows). */
+bool draw_connection(double now);   /* below: the note when the server is out of reach */
+
 void load_home(jf::Client &c, unsigned session, bool keep_hero = false)
 {
     {
@@ -1047,6 +1049,8 @@ bool draw_frame(double t, float dt)
                 ui::draw_mini_player(t, 1.f);
                 animating = true;
             }
+            if (draw_connection(t))
+                animating = true;
         }
         /* The splash fades away over the first frames of the home screen. */
         s_splash.to(0.f);
@@ -1057,6 +1061,50 @@ bool draw_frame(double t, float dt)
     }
     gfx::end_frame();
     return animating;
+}
+
+/* The server out of reach: requests get no answer at all (jf::unreachable_streak).
+ * A note at the top says so while the app asks the server every 4 s; when it
+ * answers, the note says so briefly and the home rows reload. Returns true while
+ * it shows (frames are wanted). */
+bool draw_connection(double now)
+{
+    static bool s_down = false, s_pinging = false;
+    static double s_last_ping = 0, s_back_at = -10;
+    static std::mutex s_ping_lock;
+    const bool down = jf::unreachable_streak() >= 2;
+    if (down) {
+        s_down = true;
+        std::lock_guard<std::mutex> g(s_ping_lock);
+        if (!s_pinging && now - s_last_ping > 4.0) {
+            s_pinging = true;
+            s_last_ping = now;
+            jf::Client *c = s_client;
+            std::thread([c] {
+                c->ping();
+                std::lock_guard<std::mutex> g2(s_ping_lock);
+                s_pinging = false;
+            }).detach();
+        }
+    } else if (s_down) {
+        s_down = false;
+        s_back_at = now;
+        jf::Client *c = s_client;
+        const unsigned session = s_session;
+        std::thread([c, session] { load_home(*c, session, true); }).detach();
+    }
+    const bool back = now - s_back_at < 2.5;
+    if (!s_down && !back)
+        return false;
+    const std::string text = s_down ? T("Ingen kontakt med Jellyfin-serveren \xE2\x80\x93 pr\xC3\xB8ver igjen \xE2\x80\xA6")
+                                    : T("Tilkoblet igjen");
+    const gfx::TextStyle ts{gfx::SemiBold, 24};
+    const float w = gfx::text_width(text, ts) + 72;
+    const gfx::Rect r{gfx::W / 2 - w / 2, 136, w, 60};
+    ui::glass_panel(r, 30, 1.f, true);
+    gfx::fill({r.x + 26, r.y + 25, 10, 10}, s_down ? 0xffff9f0au : 0xff30d158u, 5);   /* amber: away, green: back */
+    gfx::text(r.x + 48, r.y + 39, text, ts, ui::kText);
+    return true;
 }
 
 /* What a chosen item plays: a series starts at its next episode. */
