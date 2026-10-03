@@ -6,6 +6,7 @@
  */
 #include "ui/player_ui.h"
 
+#include "app/remote.h"
 #include "gfx/art.h"
 #include "gfx/gfx.h"
 #include "nuvio_subs.h"
@@ -233,6 +234,7 @@ void PlayerUi::tick(const NuvioStatus &st, std::vector<OsdCommand> &out)
     m_now = st.now;
     if (!m_req)
         return;
+    remote_poll(st, out);
     if (st.started && !m_shown_once) {
         m_shown_once = true;
         show_controls(st.now, Zone::Buttons);   /* a moment as the picture appears */
@@ -975,24 +977,65 @@ void PlayerUi::music_input(uint32_t p, const NuvioStatus &st, std::vector<OsdCom
         if (m_req->has_next)
             out.push_back({OsdCmd::PlayNext});
     } else if (p & NUVIO_BTN_L1) {
-        /* Back: to the start of this track, or (within its first 3 s) the one before. */
-        int here = -1;
-        for (size_t i = 0; i < m_req->episodes.size(); i++)
-            if (m_req->episodes[i].season == m_req->season && m_req->episodes[i].episode == m_req->episode)
-                here = (int)i;
-        if (st.position > 3.0 || here <= 0) {
-            out.push_back({OsdCmd::SeekTo, 0.0});
-        } else {
-            OsdCommand c{OsdCmd::PlayEpisode};
-            c.season = m_req->episodes[here - 1].season;
-            c.episode = m_req->episodes[here - 1].episode;
-            out.push_back(c);
-        }
+        previous_track(st, out);
     } else if (p & NUVIO_BTN_CIRCLE) {
         if (m_seeking)
             m_seeking = false;
         else
             out.push_back({OsdCmd::Stop});
+    }
+}
+
+/* Back: to the start of this track, or (within its first 3 s) the one before. */
+void PlayerUi::previous_track(const NuvioStatus &st, std::vector<OsdCommand> &out)
+{
+    int here = -1;
+    for (size_t i = 0; i < m_req->episodes.size(); i++)
+        if (m_req->episodes[i].season == m_req->season && m_req->episodes[i].episode == m_req->episode)
+            here = (int)i;
+    if (st.position > 3.0 || here <= 0) {
+        out.push_back({OsdCmd::SeekTo, 0.0});
+    } else {
+        OsdCommand c{OsdCmd::PlayEpisode};
+        c.season = m_req->episodes[here - 1].season;
+        c.episode = m_req->episodes[here - 1].episode;
+        out.push_back(c);
+    }
+}
+
+void PlayerUi::remote_poll(const NuvioStatus &st, std::vector<OsdCommand> &out)
+{
+    remote::Command c;
+    while (remote::take(&c)) {
+        m_dirty = true;
+        const double d = st.duration > 0 ? st.duration - 1 : 1e9;
+        switch (c.kind) {
+        case remote::Command::Play:   /* something else to play: stop, the app starts it */
+            remote::put_back(c);
+            out.push_back({OsdCmd::Stop});
+            return;
+        case remote::Command::Pause:
+            if (!st.paused) out.push_back({OsdCmd::TogglePause});
+            break;
+        case remote::Command::Unpause:
+            if (st.paused) out.push_back({OsdCmd::TogglePause});
+            break;
+        case remote::Command::PlayPause: out.push_back({OsdCmd::TogglePause}); break;
+        case remote::Command::Stop: out.push_back({OsdCmd::Stop}); return;
+        case remote::Command::Seek:
+            out.push_back({OsdCmd::SeekTo, std::max(0.0, std::min(d, c.seek_ticks / 10000000.0))});
+            if (!m_music) show_controls(st.now, Zone::Bar);
+            break;
+        case remote::Command::Rewind: out.push_back({OsdCmd::SeekTo, std::max(0.0, st.position - 10)}); break;
+        case remote::Command::FastForward: out.push_back({OsdCmd::SeekTo, std::min(d, st.position + 30)}); break;
+        case remote::Command::Next:
+            if (m_req->has_next) out.push_back({OsdCmd::PlayNext});
+            break;
+        case remote::Command::Previous: previous_track(st, out); break;
+        case remote::Command::Message:
+            toast(c.header.empty() ? c.text : c.text.empty() ? c.header : c.header + ": " + c.text, st.now);
+            break;
+        }
     }
 }
 

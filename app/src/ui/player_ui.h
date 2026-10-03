@@ -77,6 +77,9 @@ private:
     void draw_episodes(float a, float dt);
     void draw_error(const NuvioStatus &st);
     void music_input(uint32_t p, const NuvioStatus &st, std::vector<OsdCommand> &out);
+    void previous_track(const NuvioStatus &st, std::vector<OsdCommand> &out);
+    /* Commands from a phone controlling the PS5 (app/remote). */
+    void remote_poll(const NuvioStatus &st, std::vector<OsdCommand> &out);
     void draw_music(const NuvioStatus &st);
 
     const NuvioRequest *m_req = nullptr;

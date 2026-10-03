@@ -42,22 +42,33 @@ Session s_session;
 
 int64_t ticks(double seconds) { return (int64_t)std::llround(seconds * jf::kTicksPerSecond); }
 
+/* Progress every 10 s, as Jellyfin's own clients do, and at once when playback
+ * pauses or resumes (a phone controlling the PS5 shows the state it is in).
+ * Paused: the position (posted once a second) has not moved for 1.5 s. */
 void *reporter_thread(void *)
 {
+    double last_pos = -1, still_since = 0, t = 0, last_report = 0;
+    bool reported_paused = false;
     while (s_session.active) {
-        for (int i = 0; i < 100 && s_session.active; i++)
-            usleep(100 * 1000);   /* every 10 s, as Jellyfin's own clients do */
+        usleep(250 * 1000);
+        t += 0.25;
         if (!s_session.active)
             break;
         double pos;
-        bool paused;
         {
             std::lock_guard<std::mutex> g(s_session.lock);
             pos = s_session.position;
-            paused = std::fabs(pos - s_session.reported) < 0.5;
-            s_session.reported = pos;
         }
-        s_session.client->report_progress(s_session.pb, ticks(pos), paused);
+        if (std::fabs(pos - last_pos) > 0.05) {
+            last_pos = pos;
+            still_since = t;
+        }
+        const bool paused = t - still_since >= 1.5;
+        if (paused != reported_paused || t - last_report >= 10.0) {
+            reported_paused = paused;
+            last_report = t;
+            s_session.client->report_progress(s_session.pb, ticks(pos), paused);
+        }
     }
     return nullptr;
 }
@@ -198,7 +209,7 @@ std::string request_json(jf::Client &c, const jf::Item &it, const jf::Playback &
     }
     cJSON_AddItemToObject(o, "subtitles", subs);
 
-    if ((episode || audio) && !episodes.empty()) {
+    if (!episodes.empty()) {   /* a series' episodes, an album, or a queue */
         cJSON *eps = cJSON_CreateArray();
         size_t here = episodes.size();
         for (size_t i = 0; i < episodes.size(); i++) {
@@ -406,6 +417,8 @@ std::vector<jf::Item> album_queue(jf::Client &client, jf::Item *item, bool shuff
     return tracks;
 }
 
+static bool play_chain(jf::Client &client, jf::Item item, std::vector<jf::Item> episodes, std::string *error);
+
 bool jelly5_play(jf::Client &client, const jf::Item &first, std::string *error, bool shuffle)
 {
     jf::Item item = first;
@@ -414,6 +427,27 @@ bool jelly5_play(jf::Client &client, const jf::Item &first, std::string *error, 
         episodes = client.episodes(item.series_id, std::string());
     if (item.type == "Audio" && !item.album_id.empty())
         episodes = album_queue(client, &item, shuffle);
+    return play_chain(client, item, std::move(episodes), error);
+}
+
+/* The queue as the player's episode list: one "season", numbered in play order. */
+bool jelly5_play_queue(jf::Client &client, const std::vector<jf::Item> &queue, size_t start, std::string *error)
+{
+    if (queue.empty())
+        return false;
+    if (queue.size() == 1)
+        return jelly5_play(client, queue.front(), error);
+    std::vector<jf::Item> q = queue;
+    for (size_t i = 0; i < q.size(); i++) {
+        q[i].parent_index = 1;
+        q[i].index = (int)i + 1;
+    }
+    const jf::Item item = q[std::min(start, q.size() - 1)];
+    return play_chain(client, item, std::move(q), error);
+}
+
+static bool play_chain(jf::Client &client, jf::Item item, std::vector<jf::Item> episodes, std::string *error)
+{
 
     for (int chain = 0; chain < 50; chain++) {
         jf::Playback pb;

@@ -11,6 +11,7 @@
  */
 #include "jelly5_playback.h"
 #include "app/accounts.h"
+#include "app/remote.h"
 #include "app/settings.h"
 #include "platform/ime.h"
 #include "jf/jf_client.h"
@@ -476,6 +477,8 @@ void use_account(jf::Client &c, unsigned session, accounts::Account a)
             }
             evo_bt("jelly5: signed in as %s on %s %s", c.user_name().c_str(), name.c_str(), version.c_str());
             load_home(c, session);
+            /* Controllable from Jellyfin's apps ("Spill på PS5") while this session lasts. */
+            remote::start(&c, [session] { return session == s_session; });
             load_extras(c, session);
             return;
         }
@@ -866,8 +869,11 @@ bool resolve_playable(jf::Item *item)
     return true;
 }
 
-void play(jf::Item item, bool from_start, bool shuffle = false)
+void play(jf::Item item, bool from_start, bool shuffle = false, const std::vector<jf::Item> *queue = nullptr,
+          size_t start = 0)
 {
+    if (queue && !queue->empty())
+        item = (*queue)[std::min(start, queue->size() - 1)];
     if (from_start)
         item.position_ticks = 0;
     if (!resolve_playable(&item)) {
@@ -905,7 +911,9 @@ void play(jf::Item item, bool from_start, bool shuffle = false)
 
     nuvio_input_close();
     std::string error;
-    if (!jelly5_play(*s_client, item, &error, shuffle))
+    const bool ok = queue && queue->size() > 1 ? jelly5_play_queue(*s_client, *queue, start, &error)
+                                               : jelly5_play(*s_client, item, &error, shuffle);
+    if (!ok)
         notify(("Jelly5: kunne ikke spille av\n" + error).c_str());
     nuvio_input_open(s_user);
     /* Back at once; positions and "next up" refresh behind the screen. */
@@ -917,6 +925,45 @@ void play(jf::Item item, bool from_start, bool shuffle = false)
         load_home(*c, session, true);
         load_extras(*c, session);   /* what was just watched shapes "Fordi du så" */
     }).detach();
+}
+
+/* A command from a phone while the menus are up: play what it sent, or show
+ * its message. (During playback the player takes them itself.) */
+void remote_idle(const remote::Command &rc)
+{
+    if (rc.kind == remote::Command::Message) {
+        notify((rc.header.empty() ? rc.text : rc.header + "\n" + rc.text).c_str());
+        return;
+    }
+    if (rc.kind != remote::Command::Play)
+        return;
+    std::vector<jf::Item> q;
+    if (rc.play_command == "PlayInstantMix") {
+        q = s_client->instant_mix(rc.item_ids.front(), 60);
+    } else {
+        for (const std::string &id : rc.item_ids) {
+            jf::Item it;
+            if (s_client->item(id, &it))
+                q.push_back(it);
+        }
+    }
+    if (q.empty()) {
+        notify("Jelly5: fant ikke det som ble sendt");
+        return;
+    }
+    size_t start = std::min((size_t)std::max(0, rc.start_index), q.size() - 1);
+    if (rc.play_command == "PlayShuffle") {
+        std::srand((unsigned)time(nullptr));
+        for (size_t i = q.size(); i > 1; i--)
+            std::swap(q[i - 1], q[std::rand() % i]);
+        start = 0;
+    }
+    q[start].position_ticks = rc.start_ticks;   /* the phone says where to start */
+    evo_bt("jelly5: remote play %s (%zu in queue)", q[start].name.c_str(), q.size());
+    s_stack.clear();   /* back from playback on the home screen */
+    s_tab = s_nav_tab = ui::Nav::Home;
+    s_nav_focus = false;
+    play(q[start], false, false, &q, start);
 }
 
 } // namespace
@@ -997,6 +1044,14 @@ int main()
         }
         if (phase == Phase::Gate)
             gate_poll();
+        if (!chose && phase == Phase::Home && s_home_version == s_model_version) {
+            remote::Command rc;
+            if (remote::take(&rc)) {
+                remote_idle(rc);
+                last = now_s();
+                continue;
+            }
+        }
         if (chose) {
             play(chosen, from_start, shuffle);
             last = now_s();

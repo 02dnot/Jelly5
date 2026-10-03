@@ -652,6 +652,23 @@ std::vector<Item> Client::local_trailers(const std::string &id)
     return out;
 }
 
+bool Client::post_capabilities()
+{
+    return post_json("/Sessions/Capabilities/Full",
+                     "{\"PlayableMediaTypes\":[\"Video\",\"Audio\"],\"SupportedCommands\":[\"DisplayMessage\"],"
+                     "\"SupportsMediaControl\":true,\"SupportsPersistentIdentifier\":true}",
+                     nullptr);
+}
+
+std::vector<Item> Client::instant_mix(const std::string &id, int limit)
+{
+    std::string body;
+    if (!get_json("/Items/" + id + "/InstantMix?userId=" + user_id_ + "&limit=" + std::to_string(limit) +
+                      "&fields=" + kFields, &body))
+        return {};
+    return items_of(body);
+}
+
 bool Client::set_played(const std::string &id, bool played)
 {
     HttpResponse r = http_request(played ? "POST" : "DELETE",

@@ -217,8 +217,15 @@ public:
     /* The PS5 device profile (JSON) sent with PlaybackInfo. */
     static std::string device_profile_json(int64_t max_bitrate = 0);
 
-private:
+    /* "Authorization: MediaBrowser ..." with this session's token (also for /socket). */
     std::string auth_header() const;
+    /* Remote control: this device plays video and audio and takes playstate
+     * commands and messages (POST /Sessions/Capabilities/Full). */
+    bool post_capabilities();
+    /* Jellyfin's Instant Mix: songs like this one (or album, artist, genre). */
+    std::vector<Item> instant_mix(const std::string &id, int limit);
+
+private:
     bool get_json(const std::string &path, std::string *body);
     bool post_json(const std::string &path, const std::string &json, std::string *body);
     std::vector<Item> items_of(const std::string &body);
