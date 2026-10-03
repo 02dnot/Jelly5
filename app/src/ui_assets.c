@@ -87,3 +87,11 @@ ui_asset ui_asset_font_noto_symbols(void)
     ui_asset a = {nuvio_blob_font_noto_symbols, (size_t)(nuvio_blob_font_noto_symbols_end - nuvio_blob_font_noto_symbols) - 1};
     return a;
 }
+
+__asm__(".section .rodata\n.balign 16\n.global nuvio_blob_img_wordmark\nnuvio_blob_img_wordmark:\n.incbin \"assets/brand/wordmark.png\"\n.byte 0\n.global nuvio_blob_img_wordmark_end\nnuvio_blob_img_wordmark_end:\n.previous\n");
+extern const uint8_t nuvio_blob_img_wordmark[], nuvio_blob_img_wordmark_end[];
+ui_asset ui_asset_img_wordmark(void)
+{
+    ui_asset a = {nuvio_blob_img_wordmark, (size_t)(nuvio_blob_img_wordmark_end - nuvio_blob_img_wordmark) - 1};
+    return a;
+}

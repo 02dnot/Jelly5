@@ -5,6 +5,8 @@
 #include "ui/screen.h"
 
 #include "gfx/art.h"
+#include "ui_image.h"
+#include "ui_assets.h"
 
 #include <algorithm>
 
@@ -213,23 +215,38 @@ void draw_drift(const gfx::Rect &full, const gfx::Texture *t, float a, double ag
     gfx::image_uv(full, t, cu - hw, cv - hv, cu + hw, cv + hv, a, 0);
 }
 
-float brand_width(float size)
+float brand_width(float size) { return size * 880.f / 300.f; }
+
+/* The "Jelly5" wordmark (assets/brand/wordmark.png, 880x300, built into the app):
+ * tall letters from y 6 to the baseline at y 231, so drawn as tall as the type size
+ * it stands where "Jelly5" set in that size would. */
+static const gfx::Texture *wordmark()
 {
-    return size * 0.95f + size * 0.3f + gfx::text_width("Jelly5", {gfx::Bold, size});
+    static const gfx::Texture *t = nullptr;
+    static bool tried = false;
+    if (!tried) {
+        tried = true;
+        const ui_asset a = ui_asset_img_wordmark();
+        ui_image img;
+        if (a.data && ui_image_decode(a.data, a.size, 880, 300, &img) == 0) {
+            t = gfx::texture_from_image(&img);
+            ui_image_free(&img);
+        }
+    }
+    return t;
 }
 
 float draw_brand(float x, float baseline, float size, float opacity, bool glow)
 {
-    const float m = size * 0.95f;                     /* the mark's side */
-    const gfx::Rect mark{x, baseline - m * 0.84f, m, m};
-    gfx::push_opacity(opacity);
-    if (glow)
-        gfx::shadow(mark, m * 0.29f, m * 0.4f, 0.45f, 0);
-    gfx::fill_vgradient(mark, 0xffaa5cc3u, 0xff00a4dcu, m * 0.29f);
-    gfx::text(mark.x + m * 0.5f, mark.y + m * 0.5f + m * 0.27f, "J", {gfx::Bold, m * 0.74f}, 0xffffffffu, 1);
-    const float w = gfx::text(x + m + size * 0.3f, baseline, "Jelly5", {gfx::Bold, size}, kText);
-    gfx::pop_opacity();
-    return m + size * 0.3f + w;
+    const gfx::Texture *t = wordmark();
+    if (!t) {   /* the asset failed: plain type */
+        return gfx::text(x, baseline, "Jelly5", {gfx::Bold, size}, alpha(kText, opacity));
+    }
+    const float h = size, w = h * 880.f / 300.f;
+    const gfx::Rect r{x, baseline - h * 231.f / 300.f, w, h};
+    (void)glow;   /* the wordmark carries its own soft light */
+    gfx::image(r, t, opacity, 0, false);
+    return w;
 }
 
 std::string landscape_url(jf::Client &c, const jf::Item &it, int width)

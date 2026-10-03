@@ -21,6 +21,8 @@ FIXED = [
     ("font_noto_emoji", "assets/fonts/NotoEmoji.ttf"),
     # Jelly5: symbols the other fonts lack (♪ ♫ ...), a subset of Noto Sans Symbols (SIL OFL)
     ("font_noto_symbols", "assets/fonts/NotoSansSymbols-Subset.ttf"),
+    # Jelly5: the "Jelly5" wordmark (assets/brand/wordmark.png, cropped from wordmark-source.png)
+    ("img_wordmark", "assets/brand/wordmark.png"),
 ]
 
 
