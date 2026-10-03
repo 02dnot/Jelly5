@@ -30,48 +30,66 @@ your Jellyfin server.
 
 ## Features
 
-**Browsing**
-- Home with a hero, *Continue watching*, *Next up*, *Recently added* per library, recommendations and genres
-- Libraries for movies, shows, music and collections, with sorting, filters and remembered focus
+**An interface made for the TV**
+- Liquid glass throughout: controls on frosted, light-bending glass, and one springy glass drop that marks the focus wherever you are
+- Home with a hero, *Continue watching*, *Next up*, *Recently added* per library, recommendations and genres, in the order you set in Jellyfin
 - Detail pages with logo art, cast, seasons and episodes, trailers, extras and *More like this*
+- Libraries for movies, shows and music: sort, filter (unwatched, favourites, genre, decade) and jump A–Å by letter
 - Search across movies, shows, episodes, music and people
-- Several users and servers, with profile pictures, plus a screensaver drawn from your own library's backdrops
+- Several users and servers with profile pictures, and a screensaver drawn from your own backdrops
+- Norwegian and English, following the PS5's system language
 
 **Signing in**
-- **Quick Connect** by default: scan the QR code with your phone, tap *Authorize*, and you are in
-- Or sign in with user name and password using the PS5's system keyboard
+- Finds Jellyfin servers on your network by itself
+- **Quick Connect** by default: scan the QR code with your phone, tap *Authorize*, done
+- Or user name and password with the PS5's system keyboard
 
 **Playback**
-- Hardware decoding of H.264 and HEVC, including 4K HDR10 (Dolby Vision plays its HDR10 base layer)
-- Direct play where possible, with server transcoding when needed, through a PS5 device profile
-- Audio and subtitle tracks (SRT/ASS/PGS), with subtitle style settings and online subtitle search
-- Trickplay thumbnails, chapters on L1/R1, *Skip intro*/*Skip credits* from Jellyfin's media segments, and auto-play of the next episode
-- Choice between versions when an item has several
-- Progress, resume and watched state synced with Jellyfin
+- Hardware decoding of H.264 and HEVC up to 4K, HDR10 and HLG (Dolby Vision plays its HDR10 base layer)
+- Direct play wherever the PS5 can, server transcoding where it can't, through a PS5 device profile
+- Audio and subtitle tracks (SRT, ASS/SSA, PGS and more), subtitle styling and online subtitle search
+- Trickplay thumbnails, a chapter menu, *Skip intro* from Jellyfin's media segments, auto-play of the next episode
+- Choice between versions when a title has several
+- An audio delay setting for soundbars and receivers
+- Playback info on L3: how the server serves it, codecs, decoder, bitrate and buffer
+- Keeps going through network hiccups: a stream that breaks off resumes where it stopped
+- Progress, resume and watched state synced with Jellyfin; mark whole seasons or series as watched
 
 **Music**
 - Albums, artists, playlists and Instant Mix
-- Background playback while you browse, with a mini player and a full *Now playing* view with lyrics
+- Background playback while you browse, a mini player and a full *Now playing* view with time-synced lyrics (word by word when the lyrics have it)
 
 **PS5 touches**
-- The DualSense light bar follows the colours of what is playing
-- A 120 Hz interface on displays that support it
+- Adaptive triggers: L2/R2 scrub against a resistance, faster the harder you press
+- The DualSense light bar takes the colour of what is playing
+- A 120 Hz interface on displays that support it, and its own background on the PS5 home screen
 - *Watch together* (Jellyfin SyncPlay) and remote control from other Jellyfin apps
-- Norwegian and English interface
+
+## Formats
+
+| | Plays on the PS5 | Notes |
+| --- | --- | --- |
+| Video | H.264, HEVC (Main, Main 10), VP9 and older formats | AV1 is transcoded by the server |
+| HDR | HDR10, HLG, HDR10+ (as HDR10), Dolby Vision (its HDR10 base layer) | Dolby Vision profile 5 is transcoded |
+| Audio | AAC, AC3, E-AC3, TrueHD, DTS (incl. DTS-HD MA), FLAC, Opus, MP3 and more | Decoded to multichannel PCM |
+| Subtitles | SRT, ASS/SSA, PGS, DVD and DVB subtitles, WebVTT | Embedded or external |
+| Containers | MKV, MP4, TS/M2TS, AVI and more | Blu-ray folders and ISO files are not supported |
+| 3D | — | Side-by-side and top-and-bottom files are refused; 3D Blu-ray (MVC) plays in 2D |
 
 ## Requirements
 
-- A jailbroken PS5 with **ShadowMount+** and an FTP server (for example ftpsrv or etaHEN's). Tested on firmware **11.60**.
-- A Jellyfin server (developed against 12.1) on the same network or reachable from the console.
+- A jailbroken PS5 with **ShadowMount+** and an FTP server (for example ftpsrv or etaHEN's). Tested on firmware **11.60**; other firmware with ShadowMount+ should work but is untested.
+- A Jellyfin server (developed and tested against 12.1) on the same network or reachable from the console.
 
 ## Install
 
-1. Download `Jelly5-<version>.zip` from the latest release and unzip it.
+1. Download `Jelly5-<version>.zip` from the [latest release](../../releases/latest) and unzip it.
 2. Over FTP, copy the `PPSA99505` folder to `/data/homebrew/` on the console,
    so that you have `/data/homebrew/PPSA99505/eboot.bin`.
 3. ShadowMount+ mounts it and adds the **Jelly5** tile under Media. If the tile
    doesn't show up, rerun your payloads or reboot and jailbreak again.
-4. Open Jelly5, enter your server address and sign in with Quick Connect.
+4. Open Jelly5. It looks for Jellyfin servers on your network; pick yours, or
+   type its address, and sign in with Quick Connect.
 
 The zip also has `PPSA99505.ffpfsc`, a PFS image of the same app for loaders
 that mount images. The folder route above is the tested one.
@@ -89,14 +107,14 @@ console.
 | --- | --- | --- |
 | ✕ | Select | Play / pause, select |
 | ○ | Back one level at a time | Hide the controls, then leave the player |
-| D-pad | Move | Show the controls; left/right seek in 10 s steps (faster when held) |
-| L2 / R2 | | Rewind / fast forward (harder = faster) |
+| D-pad | Move | Show the controls; left/right seek in 10 s steps |
 | L1 / R1 | Previous / next tab | Previous / next chapter |
-| L2 / R2 (sorted A–Å) | Previous / next letter | |
+| L2 / R2 | Previous / next letter (libraries sorted A–Å) | Rewind / fast forward, faster the harder you press |
 | △ | Search | Episodes (a film: its chapters) |
-| □ | Sort & filter (in the libraries) | Audio and subtitles |
-| Options | Options for the selected title (watched, favourite, …) | Audio, subtitles, versions and more |
-| Touchpad | Open *Now playing* while music plays | Audio, subtitles, versions and more |
+| □ | Sort & filter (libraries) | Audio and subtitles |
+| Options | Options for the selected title (watched, favourite, …) | The controls |
+| Touchpad | *Now playing*, while music plays | The controls |
+| L3 | | Playback info |
 
 ## Known limits
 
@@ -106,7 +124,19 @@ These come from the platform, not from Jelly5:
 - No true 24p output: the console runs the display at 60 or 120 Hz.
 - Dolby Vision plays its HDR10 base layer. Profile 5, which has none, is transcoded by the server.
 - AV1 is transcoded by the server for now.
+- No 3D output, so side-by-side and top-and-bottom 3D files are not played.
 - The app can't quit itself. Close it with the PS button.
+
+## Privacy
+
+Jelly5 talks to your Jellyfin server and nothing else. It keeps its accounts,
+settings and a 96 MB image cache in its own folder, `/download0/jelly5`, and
+writes nowhere else on the console. Release builds send no logs anywhere.
+
+## Reporting problems
+
+Open an issue with your firmware, your Jellyfin version, what you did and what
+happened. For playback problems, the L3 playback info for the title helps a lot.
 
 ## Building
 
@@ -137,7 +167,8 @@ Jelly5 stands on the work of others in the PS5 scene and beyond:
 - **[EVO Player](https://github.com/sainsaji/EVO-PLAYER-PS5)**: the media engine (demuxing, `sceVideodec2`, the AGC renderer, audio, HDR), shader pipeline tooling and much of what is known about the PS5's GPU from user space
 - **[ps5-payload-dev SDK](https://github.com/ps5-payload-dev/sdk)** by John Törnblom and contributors, plus the pacbrew sysroot
 - **[Switchfin](https://github.com/dragonflylee/switchfin)**, used as a reference for the Jellyfin API
-- [FFmpeg](https://ffmpeg.org), [dav1d](https://code.videolan.org/videolan/dav1d), [libass](https://github.com/libass/libass), FreeType, HarfBuzz, [cJSON](https://github.com/DaveGamble/cJSON), [NanoSVG](https://github.com/memononen/nanosvg), [QR Code generator](https://www.nayuki.io/page/qr-code-generator-library) by Project Nayuki, and the Inter, Roboto and Noto typefaces
+- **[OverShifted/LiquidGlass](https://github.com/OverShifted/LiquidGlass)** (MIT), whose refraction profile the glass shader follows
+- [FFmpeg](https://ffmpeg.org), [libass](https://github.com/libass/libass), FreeType, HarfBuzz, [cJSON](https://github.com/DaveGamble/cJSON), [NanoSVG](https://github.com/memononen/nanosvg), [QR Code generator](https://www.nayuki.io/page/qr-code-generator-library) by Project Nayuki, and the Inter, Roboto and Noto typefaces
 - The [Jellyfin](https://jellyfin.org) project
 
 Third-party licences are listed in
