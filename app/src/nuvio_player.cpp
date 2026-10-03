@@ -1138,9 +1138,11 @@ extern "C" void nuvio_player_run(const char *json)
         if (s.started && have)
             sub_changed = nuvio_subs_render(&s_sub_canvas, pts, video_rect(f), s_osd.subtitle_lift()) != 0;
         const bool osd_changed = s_osd.wants_frame(s.st);
-        const bool stale = have && evo_agc_runtime_video_slot_stale(pts);
-
-        if (new_frame || stale || sub_changed || osd_changed) {
+        /* A frame is drawn when something in it changed: a new picture, subtitles, the
+         * interface. (A per-buffer "stale" check redrew the same picture on every
+         * pass - its pts were never recorded - so each frame was drawn about twice.)
+         * The last flipped buffer stays on screen in between. */
+        if (new_frame || sub_changed || osd_changed) {
             evo_agc_runtime_frame_begin();
             evo_agc_runtime_clear_black();
             if (have) {
