@@ -491,6 +491,9 @@ void Home::draw_rows(float dt)
             gfx::shadow(cr, kCardR * k, 30, 0.75f * lift.value * a, 22 * lift.value);
             art::draw(cr, card_url(it), it.thumb_blurhash.empty() ? it.backdrop_blurhash : it.thumb_blurhash,
                       640, 360, kCardR * k, a);
+            m_card = {cr, card_url(it), it.thumb_blurhash.empty() ? it.backdrop_blurhash : it.thumb_blurhash,
+                      kCardR * k};
+            m_has_card = true;
             {   /* the focus sheen, once, a beat after landing */
                 const float p = (float)(m_now - m_focus_changed - 0.15) / 0.9f;
                 if (p >= 0.f && p < 1.f) {

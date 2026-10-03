@@ -66,6 +66,14 @@ public:
     virtual bool animating() const = 0;
     /* 0..1 while a pushed screen fades in over the one below (1 = opaque). */
     virtual float enter() const { return 1.f; }
+    /* The focused card as last drawn: where it is and its picture, for the page
+     * it opens to grow out of. false when there is none. */
+    struct Card {
+        gfx::Rect rect;
+        std::string url, blurhash;
+        float radius = 14;
+    };
+    virtual bool focused_card(Card *) const { return false; }
     /* 0..1: how much of the top navigation shows over this screen. */
     virtual float nav_alpha() const = 0;
 };

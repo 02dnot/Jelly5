@@ -546,6 +546,12 @@ Gate s_gate = Gate::None;
 ui::Nav s_nav;
 std::vector<std::unique_ptr<ui::Screen>> s_stack;   /* detail pages over the tab */
 ui::Screen *s_now_page = nullptr;                   /* the now-playing page, while it is on the stack */
+/* The card a page was opened from: the page grows out of it as it comes in. */
+struct Origin {
+    ui::Screen::Card card;
+    const ui::Screen *page = nullptr;
+};
+Origin s_origin;
 std::vector<jf::Item> s_queue;                      /* what the chosen Play hands over as a queue */
 size_t s_queue_start = 0;
 int s_tab = ui::Nav::Home;
@@ -753,6 +759,8 @@ void shell_input(uint32_t p, jf::Item *play, bool *chose, bool *from_start, bool
         break;
     }
     case ui::Action::Open: {
+        ui::Screen::Card from;
+        const bool have_from = screen_for(s_tab)->focused_card(&from);
         if (s_stack.size() >= 8)
             s_stack.erase(s_stack.begin());   /* "more like this" chains stay bounded */
         /* Seasons and episodes open their series' page. */
@@ -784,6 +792,9 @@ void shell_input(uint32_t p, jf::Item *play, bool *chose, bool *from_start, bool
         else
             s_stack.emplace_back(new ui::Detail(*s_client, target));
         s_stack.back()->activate();
+        s_origin.page = have_from ? s_stack.back().get() : nullptr;
+        if (have_from)
+            s_origin.card = from;
         break;
     }
     case ui::Action::Back:
@@ -959,6 +970,19 @@ bool draw_frame(double t, float dt)
                                                            : s_tab == ui::Nav::Search ? (ui::Screen *)s_search.get()
                                                                                       : (ui::Screen *)s_home.get());
                 below->draw(t, dt);
+                /* The card it was opened from grows to fill the screen as the page comes in
+                 * (Apple TV, Netflix): its picture, losing its corners, under the page. */
+                if (s_origin.page == scr) {
+                    const ui::Screen::Card &c = s_origin.card;
+                    const float e = ui::smoothstep(std::min(1.f, enter * 1.25f));
+                    const gfx::Rect r{c.rect.x * (1 - e), c.rect.y * (1 - e), c.rect.w + (gfx::W - c.rect.w) * e,
+                                      c.rect.h + (gfx::H - c.rect.h) * e};
+                    gfx::fill({0, 0, gfx::W, gfx::H}, ui::alpha(0xff000000u, 0.5f * e));
+                    if (const gfx::Texture *tex = art::get(c.url, 640, 720))
+                        gfx::image(r, tex, 1.f, c.radius * (1 - e), true);
+                    else if (const gfx::Texture *bh = art::blurhash(c.blurhash))
+                        gfx::image(r, bh, 1.f, c.radius * (1 - e), true);
+                }
                 gfx::push_opacity(enter);
             }
             scr->draw(t, dt);

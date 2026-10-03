@@ -331,6 +331,12 @@ void Library::draw(double now, float dt)
             const float lift = m_lifts.step(items[i].id, f, dt, &m_animating);
             const gfx::Rect tile{kPad + c * (kPosterW + kColGap), y, kPosterW, tile_h};
             draw_poster(m_client, items[i], tile, lift, 1.f, m_lifts.sheen(items[i].id, &m_animating));
+            if (f) {
+                const float k = 1.f + 0.1f * lift;
+                m_card = {{tile.x - tile.w * (k - 1) / 2, tile.y - tile.h * (k - 1) / 2, tile.w * k, tile.h * k},
+                          poster_url(m_client, items[i], 480), items[i].primary_blurhash, 14 * k};
+                m_has_card = true;
+            }
         }
     }
     gfx::pop_scissor();

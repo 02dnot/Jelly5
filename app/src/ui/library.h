@@ -47,6 +47,12 @@ public:
     void draw(double now, float dt) override;
     bool animating() const override { return m_animating; }
     float nav_alpha() const override { return m_nav.value * (1.f - m_menu.visibility()); }
+    bool focused_card(Card *c) const override
+    {
+        if (m_has_card && !m_in_pills)
+            *c = m_card;
+        return m_has_card && !m_in_pills;
+    }
 
 private:
     struct Data {
@@ -67,6 +73,8 @@ private:
     std::vector<Source> m_sources;
     int m_source = 0;
     bool m_pushed = false;
+    Card m_card;
+    bool m_has_card = false;
     ItemMenu m_menu;
     std::shared_ptr<Data> m_data = std::make_shared<Data>();
 

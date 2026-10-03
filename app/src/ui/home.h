@@ -49,6 +49,12 @@ public:
     void draw(double now, float dt) override;
     bool animating() const override { return m_animating; }
     float nav_alpha() const override { return m_hero_mode.value * (1.f - m_menu.visibility()); }
+    bool focused_card(Card *c) const override
+    {
+        if (m_has_card && m_row >= 0)
+            *c = m_card;
+        return m_has_card && m_row >= 0;
+    }
 
 private:
     const jf::Item *focused_item() const;
@@ -88,6 +94,8 @@ private:
     double m_focus_changed = 0;
 
     ItemMenu m_menu;                    /* Triangle on a title */
+    Card m_card;                        /* the focused card as drawn (for the page it opens) */
+    bool m_has_card = false;
 
     bool m_animating = false;
     double m_now = 0;
