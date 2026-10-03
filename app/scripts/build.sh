@@ -11,9 +11,11 @@
 # Mac:
 #
 #   ./scripts/build.sh            # re-execs itself in the container
-#   ./scripts/build.sh --ffpfsc   # also pack PPSA99176.ffpfsc
+#   ./scripts/build.sh --ffpfsc   # also pack PPSA99505.ffpfsc
+#   ./scripts/build.sh --release  # for sharing: no .env.local server, no log
+#                                 # target, packed as .ffpfsc and .zip
 #
-# Output: build/app/PPSA99176/{eboot.bin, sce_sys/, sce_module/libc.prx}
+# Output: build/app/PPSA99505/{eboot.bin, sce_sys/, sce_module/libc.prx}
 # The packaging steps follow the toolkit's app packaging (player mode);
 # the loader constants and PRX stub rules there are hardware-validated.
 # =============================================================================
@@ -28,11 +30,12 @@ NUVIO_ROOT="$(cd "${APP_ROOT}/.." && pwd)"
 EVO_ROOT="${EVO_ROOT:-${NUVIO_ROOT}/toolkit}"   # native-app toolkit (vendored)
 IMAGE="${NUVIO_BUILD_IMAGE:-}"
 
-FFPFSC=0
+FFPFSC=0; RELEASE=0
 for arg in "$@"; do
     case "${arg}" in
         --ffpfsc) FFPFSC=1 ;;
-        -h|--help) sed -n '2,16p' "$0"; exit 0 ;;
+        --release) RELEASE=1; FFPFSC=1 ;;
+        -h|--help) sed -n '2,18p' "$0"; exit 0 ;;
         *) echo "unknown option: ${arg}" >&2; exit 2 ;;
     esac
 done
@@ -118,8 +121,10 @@ log "compiling (${TCC})"
 # console sends its log (this machine, as the PS5 sees it).
 ENV_LOCAL="${NUVIO_ROOT}/.env.local"
 JF_URL=""; PS5_HOST=""
+(( RELEASE )) && ENV_LOCAL=/dev/null   # nothing personal in a shared build
 [[ -f "${ENV_LOCAL}" ]] && eval "$(grep -E '^(JF_URL|PS5_HOST)=' "${ENV_LOCAL}")"
 LOG_HOST="${JELLY5_LOG_HOST:-}"
+(( RELEASE )) && LOG_HOST=""
 if [[ -z "${LOG_HOST}" && -n "${PS5_HOST}" ]]; then
     IFACE="$(route -n get "${PS5_HOST}" 2>/dev/null | awk '/interface:/{print $2}')"
     [[ -n "${IFACE}" ]] && LOG_HOST="$(ipconfig getifaddr "${IFACE}" 2>/dev/null || true)"
@@ -277,5 +282,11 @@ if (( FFPFSC )); then
     rm -f -- "${BUILD}/app/${TITLE_ID}.ffpfsc"
     "${MKPFS}" pack folder --no-adjust-output-file-extension --version PS5 --verify \
         "${APPDIR}" "${BUILD}/app/${TITLE_ID}.ffpfsc"
+fi
+if (( RELEASE )); then
+    VER="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["contentVersion"])' "${PARAM}")"
+    rm -f -- "${BUILD}/app/Jelly5-${VER}.zip"
+    (cd "${BUILD}/app" && zip -qr "Jelly5-${VER}.zip" "${TITLE_ID}" "${TITLE_ID}.ffpfsc")
+    ok "release: ${BUILD#"${NUVIO_ROOT}/"}/app/Jelly5-${VER}.zip"
 fi
 ok "app: ${APPDIR#"${NUVIO_ROOT}/"}/"

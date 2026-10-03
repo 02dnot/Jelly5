@@ -36,9 +36,20 @@ VENV="${CHECKOUT}/.venv-linux"
 PY="${VENV}/bin/python"
 STAMP="${VENV}/.evo-revision"
 
+# MkPFS needs Python 3.11+ (enum.StrEnum); macOS's own python3 is 3.9.
+HOSTPY=""
+for cand in python3.14 python3.13 python3.12 python3.11 python3; do
+    if command -v "$cand" >/dev/null && "$cand" -c 'import sys; sys.exit(sys.version_info < (3, 11))'; then
+        HOSTPY="$cand"; break
+    fi
+done
+[[ -n "${HOSTPY}" ]] || { echo "MkPFS needs Python 3.11 or newer" >&2; exit 2; }
+if [[ -x "${PY}" ]] && ! "${PY}" -c 'import sys; sys.exit(sys.version_info < (3, 11))'; then
+    rm -rf -- "${VENV}"   # made by an older python
+fi
 if [[ ! -x "${PY}" ]]; then
     rm -rf -- "${VENV}"
-    python3 -m venv "${VENV}" || { echo "python3-venv is required" >&2; exit 2; }
+    "${HOSTPY}" -m venv "${VENV}" || { echo "python3-venv is required" >&2; exit 2; }
 fi
 if [[ ! -f "${STAMP}" || "$(<"${STAMP}")" != "${REVISION}" ]]; then
     "${PY}" -m pip install --disable-pip-version-check --quiet --upgrade pip >&2 || true
