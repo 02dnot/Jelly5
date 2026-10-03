@@ -101,7 +101,7 @@ void main() {
      * on it still reads (Apple's clear glass does the same); a dark one is left. */
     col *= 1.0 - g.uMore.y * smoothstep(0.42, 0.9, luma);
     /* The focus drop: the same glass, lifted toward white. */
-    col = mix(col, vec3(1.0), 0.16 * g.uMore.x);
+    col = mix(col, vec3(1.0), 0.09 * g.uMore.x);
 
     vec2 L = normalize(g.uLight.xy);
     float lit = dot(n, L);
@@ -123,7 +123,7 @@ void main() {
     /* Sheen from above, and a little grain so it reads as a material. */
     float from_top = (px.y - lo.y) / max(hi.y - lo.y, 1.0);
     col += vec3((1.0 - smoothstep(0.0, 0.5, from_top)) * g.uTint.a);
-    col += (fract(sin(dot(px, vec2(12.9898, 78.233))) * 43758.5453) - 0.5) * 0.025;
+    col += (fract(sin(dot(px, vec2(12.9898, 78.233))) * 43758.5453) - 0.5) * 0.02 * (1.0 - g.uMore.x);
 
     float a = coverage * g.uTone.w;
     out_color = vec4(clamp(col, 0.0, 1.0) * a, a);

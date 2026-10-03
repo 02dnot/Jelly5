@@ -62,19 +62,46 @@ void Nav::draw(float a, int active, int focus, float dt, bool *animating)
         x += widths[i] + 6;
     }
     if (focus >= 0 && focus != Settings) {
-        if (m_focus_x.value == 0)
-            m_focus_x.snap(m_focus_x.target), m_focus_w.snap(m_focus_w.target);
-        const bool moving_x = m_focus_x.step(dt, 16.f);
-        const bool moving_w = m_focus_w.step(dt, 16.f);
-        if (moving_x || moving_w)
+        /* The focus is a drop of liquid glass (iOS 26's tab bar). It moves on an
+         * underdamped spring - it overshoots and settles back - stretches along
+         * its speed and thins as it does, and swells when it sets off. */
+        if (m_last_focus < 0 || m_dw == 0) {   /* appearing: in place, popping in */
+            m_dx = m_focus_x.target, m_dw = m_focus_w.target, m_dvx = m_dvw = 0;
+            m_pop = -0.35f, m_vpop = 0;
+        } else if (focus != m_last_focus) {
+            m_vpop += 2.2f;   /* a nudge: it swells as it leaves */
+        }
+        m_last_focus = focus;
+        bool moving = false;
+        for (float left = std::min(dt, 0.05f); left > 0; left -= 1.f / 240) {   /* small steps: stable */
+            const float h = std::min(left, 1.f / 240);
+            const float ax = 260.f * (m_focus_x.target - m_dx) - 19.f * m_dvx;
+            const float aw = 260.f * (m_focus_w.target - m_dw) - 19.f * m_dvw;
+            const float ap = 300.f * (0.f - m_pop) - 14.f * m_vpop;
+            m_dvx += ax * h, m_dx += m_dvx * h;
+            m_dvw += aw * h, m_dw += m_dvw * h;
+            m_vpop += ap * h, m_pop += m_vpop * h;
+        }
+        moving = std::fabs(m_focus_x.target - m_dx) > 0.2f || std::fabs(m_dvx) > 2.f ||
+                 std::fabs(m_focus_w.target - m_dw) > 0.2f || std::fabs(m_pop) > 0.003f || std::fabs(m_vpop) > 0.05f;
+        if (moving)
             *animating = true;
-        /* The focus is a drop of brighter glass (iOS 26's tab bar): while it slides
-         * it stretches along the way it moves and thins a little, then settles. */
-        const float travel = m_focus_x.target - m_focus_x.value;
-        const float stretch = std::min(70.f, std::fabs(travel) * 0.4f);
-        const float x0 = m_focus_x.value - 4 - (travel < 0 ? stretch : 0) * 0.5f;
-        const float hh = 66 - stretch * 0.14f;
-        glass_panel({x0, cy - hh / 2, m_focus_w.value + 8 + stretch * 0.5f, hh}, hh / 2, a, false, 1.f);
+        else
+            m_dx = m_focus_x.target, m_dw = m_focus_w.target, m_pop = m_vpop = 0;
+        const float speed = std::min(1.f, std::fabs(m_dvx) / 1600.f);
+        const float grow = 1.f + 0.10f * m_pop;
+        const float w = (m_dw + 8) * grow * (1.f + 0.35f * speed), hh = 66 * grow * (1.f - 0.16f * speed);
+        const float cx = m_dx + m_dw / 2;
+        glass_panel({cx - w / 2, cy - hh / 2, w, hh}, hh / 2, a, false, 1.f);
+        /* The label on the drop, crisp over the lens. */
+        float lx = px + 7;
+        for (int i = 0; i < n; i++) {
+            if (m_tabs[i] == focus)
+                gfx::text(lx + widths[i] / 2, cy + 9, tab_label(m_tabs[i]), {gfx::Bold, 25}, alpha(kText, a), 1);
+            lx += widths[i] + 6;
+        }
+    } else {
+        m_last_focus = -1;
     }
 
     /* Clock and the viewer's initial. */
