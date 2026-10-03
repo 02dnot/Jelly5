@@ -299,7 +299,7 @@ void Home::draw_info(const jf::Item &it, float bottom, bool hero, float a)
     const std::string logo = m_client.image_url(it.logo_owner, "Logo", it.logo_tag, 800);
     const float max_lw = hero ? 640.f : 520.f, max_lh = hero ? 200.f : 150.f;
     if (!logo.empty()) {
-        if (const gfx::Texture *t = art::get(logo, 800, 260)) {
+        if (const gfx::Texture *t = art::get(logo, 800, 800)) {
             const float iw = (float)gfx::texture_width(t), ih = (float)gfx::texture_height(t);
             const float k = std::min(max_lw / iw, max_lh / ih);
             gfx::image({kPad, title_bottom - ih * k, iw * k, ih * k}, t, a * art::fade(logo), 0, false);

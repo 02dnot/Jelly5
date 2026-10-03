@@ -506,6 +506,34 @@ static uint8_t *fetch_network(const char *url, size_t *len)
     return buf;
 }
 
+/* Jelly5: a logo's transparent margins cut away. Logos come with any amount of
+ * empty canvas around them (one was 600x614 for a 390x185 mark in a corner);
+ * cropped to what is drawn, every logo fills the space it is laid out in. */
+static void trim_transparent(ui_image *img)
+{
+    int x0 = img->w, y0 = img->h, x1 = -1, y1 = -1;
+    for (int y = 0; y < img->h; y++) {
+        const uint32_t *row = img->px + (size_t)y * img->w;
+        for (int x = 0; x < img->w; x++)
+            if ((row[x] >> 24) > 8) {
+                if (x < x0) x0 = x;
+                if (x > x1) x1 = x;
+                if (y < y0) y0 = y;
+                if (y > y1) y1 = y;
+            }
+    }
+    if (x1 < 0 || (x0 == 0 && y0 == 0 && x1 == img->w - 1 && y1 == img->h - 1))
+        return;   /* empty, or nothing to cut */
+    const int w = x1 - x0 + 1, h = y1 - y0 + 1;
+    ui_image t;
+    if (ui_image_alloc(&t, w, h) != 0)
+        return;
+    for (int y = 0; y < h; y++)
+        memcpy(t.px + (size_t)y * w, img->px + (size_t)(y0 + y) * img->w + x0, (size_t)w * 4);
+    ui_image_free(img);
+    *img = t;
+}
+
 static void *worker(void *arg)
 {
     (void)arg;
@@ -536,6 +564,8 @@ static void *worker(void *arg)
         free(data);
         if (ok && blur > 0)
             ui_image_blur(&img, blur);
+        if (ok && strstr(url, "/Images/Logo"))
+            trim_transparent(&img);
         if (!ok) {
             evo_bt("image: FAILED %.100s", url);
             cache_forget(url);

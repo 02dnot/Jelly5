@@ -685,7 +685,7 @@ void PlayerUi::draw_controls(const NuvioStatus &st)
     gfx::fill_vgradient({0, H - 420, W, 420}, 0x00000000u, alpha(0xe0000000u, a));
 
     /* Top: the logo and the clock. */
-    if (const gfx::Texture *logo = m_req->logo.empty() ? nullptr : art::get(m_req->logo, 800, 300)) {
+    if (const gfx::Texture *logo = m_req->logo.empty() ? nullptr : art::get(m_req->logo, 800, 800)) {
         const float iw = (float)gfx::texture_width(logo), ih = (float)gfx::texture_height(logo);
         const float k = std::min(300.f / iw, 84.f / ih);
         gfx::image({kPad, 60 + (84 - ih * k), iw * k, ih * k}, logo, a, 0, false);

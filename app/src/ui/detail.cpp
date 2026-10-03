@@ -461,7 +461,7 @@ void Detail::draw_top(float y0, float dt)
     const std::string logo = m_client.image_url(it.logo_owner, "Logo", it.logo_tag, 900);
     const float title_bottom = y0 + 380;
     if (!logo.empty()) {
-        if (const gfx::Texture *t = art::get(logo, 900, 300)) {
+        if (const gfx::Texture *t = art::get(logo, 900, 900)) {
             const float iw = (float)gfx::texture_width(t), ih = (float)gfx::texture_height(t);
             const float k = std::min(800.f / iw, 210.f / ih);
             gfx::image({kPad, title_bottom - ih * k, iw * k, ih * k}, t, art::fade(logo), 0, false);
@@ -855,7 +855,7 @@ void Detail::draw(double now, float dt)
     /* The text waits for the details (and the logo) so nothing is swapped in
      * front of the viewer; at most 0.6 s, then it fades in as one. */
     const std::string logo = m_client.image_url(it.logo_owner, "Logo", it.logo_tag, 900);
-    const bool logo_ready = logo.empty() || art::get(logo, 900, 300);
+    const bool logo_ready = logo.empty() || art::get(logo, 900, 900);
     if ((m_view.have_detail && logo_ready) || now - m_opened > 0.6)
         m_content.to(1.f);
     if (m_content.step(dt, 12.f) || m_content.target < 1.f)
