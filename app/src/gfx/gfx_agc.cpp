@@ -514,7 +514,7 @@ static bool glass_pass(const Texture &src, const Rect &r, float radius, float op
         r.x * s, r.y * s, (r.x + r.w) * s, (r.y + r.h) * s,              /* uRect */
         radius * s, std::min(30.f, std::min(r.w, r.h) * 0.3f) * s,      /* uShape: radius, bevel */
         1.f / (float)src.w, 1.f / (float)src.h,
-        -0.55f, -0.83f, 1.f, 26.f * s,                                   /* uLight: dir, rim, refraction */
+        -0.55f, -0.83f, 1.f, 1.f,                                        /* uLight: dir, rim, refraction */
         1.4f, 1.06f, 0.14f, opacity,                                     /* uTone: saturation, brightness, tint */
         0.05f, 0.05f, 0.07f, 0.06f,                                      /* uTint: colour, sheen */
     };
@@ -542,6 +542,16 @@ static bool glass_pass(const Texture &src, const Rect &r, float radius, float op
 
 int backdrop_blur(const Rect &r, float radius, float sigma, float opacity)
 {
+#ifdef JELLY5_LOG_HOST
+    static int s_why = -1;   /* why the glass is flat, logged when it changes */
+    const int why = !evo_agc_has_layers() ? 1 : !evo_agc_runtime_pipeline_valid(EVO_AGC_PIPE_UI_BLUR) ? 2 : 0;
+    if (why != s_why) {
+        s_why = why;
+        evo_boot_log("gfx: backdrop layers=%d blur=%d glass=%d", evo_agc_has_layers(),
+                     evo_agc_runtime_pipeline_valid(EVO_AGC_PIPE_UI_BLUR),
+                     evo_agc_runtime_pipeline_valid(EVO_AGC_PIPE_UI_GLASS));
+    }
+#endif
     if (opacity <= 0.f || !evo_agc_has_layers() || !evo_agc_runtime_pipeline_valid(EVO_AGC_PIPE_UI_BLUR))
         return 0;
     /* Panel pixels: the rect, and the rect grown by the blur's reach for the first pass. */
@@ -564,6 +574,9 @@ int backdrop_blur(const Rect &r, float radius, float sigma, float opacity)
     evo_agc_layer_surface_t *h = nullptr, *v = nullptr;
     evo_agc_runtime_set_scissor(bx0, gy0, bx1 - bx0, gy1 - gy0);   /* layers clear what is scissored */
     if (evo_agc_layer_acquire(&h) != 0 || !h) {
+#ifdef JELLY5_LOG_HOST
+        evo_boot_log("gfx: backdrop: no free layer");
+#endif
         restore_scissor();
         return 0;
     }

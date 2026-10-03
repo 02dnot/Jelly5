@@ -7,12 +7,11 @@
 ; left the blurred backdrop in a layer (sampled here as uSource, in the same
 ; canvas coordinates as the target). Per pixel, from the pane's rounded shape:
 ;   - coverage, anti-aliased on the signed distance to the rounded box;
-;   - refraction: within the bevel the backdrop is sampled from further out
-;     along the outward normal, so the picture bends at the rim like a lens,
-;     with a little dispersion (the colours part slightly at the very edge);
+;   - refraction after OverShifted/LiquidGlass (MIT): near the rim the picture
+;     is pulled in from inside, like a thick lens, with a little dispersion;
 ;   - vibrancy: saturation and brightness lifted, then a light tint;
-;   - a specular rim lit from the light direction (and a faint opposite glint),
-;     and a soft sheen from above.
+;   - a glow along the rim by angle to the light, a thin specular line, a
+;     soft sheen from above and a little grain.
 ; Output is premultiplied (the runtime sets premultiplied blending).
 ;
 ; Built by tools/shaders/build.sh (amdllpc, gfx1013) into
@@ -41,7 +40,7 @@ entryPoint = main
 layout(set = 0, binding = 0, std140) uniform GlassConstants {
     vec4 uRect;    /* the pane: x0, y0, x1, y1 in target pixels */
     vec4 uShape;   /* x = corner radius px, y = bevel px, z = 1/target width, w = 1/target height */
-    vec4 uLight;   /* xy = direction toward the light, z = rim strength, w = refraction px */
+    vec4 uLight;   /* xy = direction toward the light, z = rim strength, w = refraction (0..1) */
     vec4 uTone;    /* x = saturation, y = brightness, z = tint amount, w = opacity */
     vec4 uTint;    /* rgb = tint colour, a = sheen strength */
 } g;
@@ -73,13 +72,17 @@ void main() {
     if (coverage <= 0.0)
         discard;
 
-    /* Refraction: 0 deep inside, strongest at the rim (a smooth bevel). */
-    float bevel = max(g.uShape.y, 1.0);
-    float t = clamp(-d / bevel, 0.0, 1.0);
-    float bend = (1.0 - t) * (1.0 - t);
-    vec2 off = n * bend * g.uLight.w;
-    /* A touch of dispersion toward the rim: red bends least, blue most. */
-    vec2 spread = n * bend * bend * 0.18 * g.uLight.w;
+    /* Refraction after OverShifted/LiquidGlass (MIT): with t the depth into the
+     * pane (0 at the rim, 1 a half-height in), the picture is sampled pulled in
+     * along the normal by h * (1 - f(t)^3), f(t) = 1 - b * (c e)^(-d t - a): a
+     * thick lens, strongly bent at the rim and flat inside. */
+    float h = max(min(half_size.x, half_size.y), 1.0);
+    float t = max(-d, 0.0) / h;
+    float f = 1.0 - 2.3 * pow(5.2 * 2.718281828, -6.9 * t - 0.7);
+    float pull = h * (1.0 - pow(clamp(f, 0.0, 1.0), 3.0)) * g.uLight.w;
+    vec2 off = -n * pull;
+    /* A touch of dispersion right at the rim: red bends least, blue most. */
+    vec2 spread = -n * pull * 0.06;
     vec3 col;
     col.r = texture(uSource, (px + off - spread) * g.uShape.zw).r;
     col.g = texture(uSource, (px + off) * g.uShape.zw).g;
@@ -90,15 +93,17 @@ void main() {
     col = mix(vec3(luma), col, g.uTone.x) * g.uTone.y;
     col = mix(col, g.uTint.rgb, g.uTone.z);
 
-    /* Specular rim: a thin lit line, brightest facing the light. */
+    /* Glow along the rim, by angle: brightest toward the light, darker opposite. */
+    float edge = 1.0 - smoothstep(0.0, 0.12 * h, -d);
+    float ang = dot(normalize(rel / max(half_size, vec2(1.0))), normalize(g.uLight.xy));
+    col *= 1.0 + 0.32 * g.uLight.z * ang * edge;
+    /* A thin specular line on the lit side. */
     float rim_band = 1.0 - smoothstep(0.0, 2.6, -d);
-    float lit = dot(n, normalize(g.uLight.xy));
-    float spec = rim_band * (0.22 + 0.78 * max(lit, 0.0) + 0.35 * max(-lit, 0.0)) * g.uLight.z;
-    /* A broader soft glow inside the lit edge. */
-    spec += (1.0 - smoothstep(0.0, bevel, -d)) * max(lit, 0.0) * 0.10 * g.uLight.z;
-    /* Sheen from above. */
+    col += vec3(rim_band * (0.12 + 0.5 * max(dot(n, normalize(g.uLight.xy)), 0.0)) * g.uLight.z);
+    /* Sheen from above, and a little grain so it reads as a material. */
     float from_top = (px.y - lo.y) / max(hi.y - lo.y, 1.0);
-    col += vec3(spec + (1.0 - smoothstep(0.0, 0.5, from_top)) * g.uTint.a);
+    col += vec3((1.0 - smoothstep(0.0, 0.5, from_top)) * g.uTint.a);
+    col += (fract(sin(dot(px, vec2(12.9898, 78.233))) * 43758.5453) - 0.5) * 0.025;
 
     float a = coverage * g.uTone.w;
     out_color = vec4(clamp(col, 0.0, 1.0) * a, a);
