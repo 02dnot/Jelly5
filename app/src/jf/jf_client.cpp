@@ -332,6 +332,9 @@ bool Client::validate()
     if (cJSON *j = cJSON_Parse(body.c_str())) {
         user_image_tag_ = str_of(j, "PrimaryImageTag");
         user_name_ = str_of(j, "Name");
+        const cJSON *policy = cJSON_GetObjectItemCaseSensitive(j, "Policy");
+        is_admin_ = bool_of(policy, "IsAdministrator");
+        manages_subtitles_ = is_admin_ || bool_of(policy, "EnableSubtitleManagement");
         cJSON_Delete(j);
     }
     return true;
@@ -650,6 +653,68 @@ std::vector<Item> Client::local_trailers(const std::string &id)
         cJSON_Delete(j);
     }
     return out;
+}
+
+void Client::check_subtitle_search()
+{
+    subtitle_search_ = false;
+    if (!manages_subtitles_)
+        return;
+    if (!is_admin_) {   /* the plugin list is for administrators: assume one is there */
+        subtitle_search_ = true;
+        return;
+    }
+    std::string body;
+    if (!get_json("/Plugins", &body))
+        return;
+    if (cJSON *j = cJSON_Parse(body.c_str())) {
+        const cJSON *p;
+        cJSON_ArrayForEach(p, j) {
+            const std::string name = str_of(p, "Name");
+            const std::string status = str_of(p, "Status");
+            if ((name.find("ubtitle") != std::string::npos || name == "Subbuzz" || name == "Podnapisi" ||
+                 name == "Addic7ed") &&
+                (status.empty() || status == "Active"))
+                subtitle_search_ = true;
+        }
+        cJSON_Delete(j);
+    }
+}
+
+std::vector<RemoteSubtitle> Client::search_subtitles(const std::string &item_id, const std::string &language)
+{
+    std::vector<RemoteSubtitle> out;
+    std::string body;
+    if (!get_json("/Items/" + item_id + "/RemoteSearch/Subtitles/" + language + "?isPerfectMatch=false", &body))
+        return out;
+    cJSON *j = cJSON_Parse(body.c_str());
+    const cJSON *r;
+    cJSON_ArrayForEach(r, j) {
+        RemoteSubtitle x;
+        x.id = str_of(r, "Id");
+        x.name = str_of(r, "Name");
+        x.provider = str_of(r, "ProviderName");
+        x.language = str_of(r, "ThreeLetterISOLanguageName");
+        x.format = str_of(r, "Format");
+        x.downloads = (int)num_of(r, "DownloadCount", 0);
+        x.hash_match = bool_of(r, "IsHashMatch");
+        x.forced = bool_of(r, "Forced");
+        x.hearing_impaired = bool_of(r, "HearingImpaired");
+        if (!x.id.empty())
+            out.push_back(std::move(x));
+    }
+    cJSON_Delete(j);
+    return out;
+}
+
+bool Client::download_subtitle(const std::string &item_id, const std::string &subtitle_id)
+{
+    HttpResponse r = http_request("POST", server_ + "/Items/" + item_id + "/RemoteSearch/Subtitles/" +
+                                              url_escape(subtitle_id),
+                                  {auth_header()}, "", 60);
+    if (!r.ok())
+        set_error("subtitle download -> " + std::to_string(r.status) + " " + r.error);
+    return r.ok();
 }
 
 bool Client::post_capabilities()

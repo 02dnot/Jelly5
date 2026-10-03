@@ -7,6 +7,7 @@
 #include "ui/player_ui.h"
 
 #include "app/remote.h"
+#include "jelly5_playback.h"
 #include "gfx/art.h"
 #include "gfx/gfx.h"
 #include "nuvio_subs.h"
@@ -235,6 +236,15 @@ void PlayerUi::tick(const NuvioStatus &st, std::vector<OsdCommand> &out)
     if (!m_req)
         return;
     remote_poll(st, out);
+    int track = -1;
+    switch (jelly5_subs::download_state(&track)) {
+    case jelly5_subs::Done:
+        out.push_back({OsdCmd::SelectSubtitle, 0, track});
+        toast("Undertekst lagt til", st.now);
+        break;
+    case jelly5_subs::Failed: toast("Kunne ikke hente underteksten", st.now); break;
+    default: break;
+    }
     if (st.started && !m_shown_once) {
         m_shown_once = true;
         show_controls(st.now, Zone::Buttons);   /* a moment as the picture appears */
@@ -274,11 +284,20 @@ void PlayerUi::tick(const NuvioStatus &st, std::vector<OsdCommand> &out)
 void PlayerUi::tracks_input(uint32_t p, const NuvioStatus &st, std::vector<OsdCommand> &out)
 {
     const int na = (int)st.audio.size(), ns = nuvio_subs_count();
-    const int rows[3] = {na, ns + 2, 5};   /* subtitles: Av, tracks, Tilpass */
+    const bool find = jelly5_subs::available();
+    const int rows[3] = {na, ns + 2 + (find ? 1 : 0), 5};   /* subtitles: Av, tracks, Tilpass, Søk */
     int &r = m_rows[m_col];
+    if (m_col == 2 && m_find_open && !(p & (NUVIO_BTN_CIRCLE | NUVIO_BTN_LEFT)) ) {
+        find_input(p);
+        return;
+    }
+    if (m_col == 2 && m_find_open && (p & NUVIO_BTN_LEFT) && m_rows[2] == 0 && m_find_langs.size() > 1) {
+        find_input(p);   /* Left on the language row changes language */
+        return;
+    }
     if (p & NUVIO_BTN_CIRCLE) {
         if (m_col == 2) {
-            m_style_open = false;
+            m_style_open = m_find_open = false;
             m_col = 1;
         } else {
             m_overlay = Overlay::None;
@@ -287,7 +306,7 @@ void PlayerUi::tracks_input(uint32_t p, const NuvioStatus &st, std::vector<OsdCo
         r = std::max(0, r - 1);
     } else if (p & NUVIO_BTN_DOWN) {
         r = std::min(std::max(0, rows[m_col] - 1), r + 1);
-    } else if (m_col == 2 && (p & (NUVIO_BTN_LEFT | NUVIO_BTN_RIGHT | NUVIO_BTN_CROSS))) {
+    } else if (m_col == 2 && m_style_open && (p & (NUVIO_BTN_LEFT | NUVIO_BTN_RIGHT | NUVIO_BTN_CROSS))) {
         const int d = (p & NUVIO_BTN_LEFT) ? -1 : 1;
         nuvio_sub_style s;
         nuvio_subs_get_style(&s);
@@ -318,7 +337,7 @@ void PlayerUi::tracks_input(uint32_t p, const NuvioStatus &st, std::vector<OsdCo
     } else if (p & NUVIO_BTN_RIGHT) {
         if (m_col == 0)
             m_col = 1;
-        else if (m_col == 1 && m_style_open)
+        else if (m_col == 1 && (m_style_open || m_find_open))
             m_col = 2;
     } else if (p & NUVIO_BTN_CROSS) {
         if (m_col == 0 && r < na) {
@@ -326,12 +345,50 @@ void PlayerUi::tracks_input(uint32_t p, const NuvioStatus &st, std::vector<OsdCo
         } else if (m_col == 1) {
             if (r == ns + 1) {
                 m_style_open = true;   /* "Tilpass undertekster" */
+                m_find_open = false;
                 m_col = 2;
                 m_rows[2] = 0;
+            } else if (r == ns + 2) {
+                /* "Søk etter undertekster": the preferred language first, then English. */
+                m_find_open = true;
+                m_style_open = false;
+                m_col = 2;
+                m_rows[2] = 0;
+                m_find_langs.clear();
+                for (const std::string &l : m_req->prefs.subtitle_langs)
+                    if (l.size() == 3 && m_find_langs.empty())
+                        m_find_langs.push_back(l);
+                if (m_find_langs.empty())
+                    m_find_langs.push_back("nor");
+                if (m_find_langs[0] != "eng")
+                    m_find_langs.push_back("eng");
+                m_find_lang = 0;
+                jelly5_subs::search(m_find_langs[0]);
             } else {
                 out.push_back({OsdCmd::SelectSubtitle, 0, r - 1});   /* row 0 = Av */
             }
         }
+    }
+}
+
+/* The search column: row 0 the language (Left/Right), then the results (Cross fetches). */
+void PlayerUi::find_input(uint32_t p)
+{
+    std::vector<jf::RemoteSubtitle> found;
+    std::string lang;
+    jelly5_subs::results(&found, &lang);
+    int &r = m_rows[2];
+    if (p & NUVIO_BTN_UP) {
+        r = std::max(0, r - 1);
+    } else if (p & NUVIO_BTN_DOWN) {
+        r = std::min((int)found.size(), r + 1);
+    } else if ((p & (NUVIO_BTN_LEFT | NUVIO_BTN_RIGHT)) && r == 0 && m_find_langs.size() > 1) {
+        m_find_lang = (m_find_lang + ((p & NUVIO_BTN_RIGHT) ? 1 : -1) + (int)m_find_langs.size()) %
+                      (int)m_find_langs.size();
+        jelly5_subs::search(m_find_langs[m_find_lang]);
+    } else if ((p & NUVIO_BTN_CROSS) && r >= 1 && r <= (int)found.size()) {
+        jelly5_subs::download(found[r - 1]);
+        toast("Henter undertekst \xE2\x80\xA6", m_now);
     }
 }
 
@@ -769,8 +826,8 @@ void PlayerUi::draw_tracks(const NuvioStatus &st, float a)
     const int visible = 10;
     const float cols[3] = {r.x + 56, r.x + 640, r.x + 1180};
     const float widths[3] = {520, 480, 380};
-    const char *heads[3] = {"Lyd", "Undertekster", "Tilpass"};
-    for (int c = 0; c < (m_style_open ? 3 : 2); c++)
+    const char *heads[3] = {"Lyd", "Undertekster", m_find_open ? "S\xC3\xB8k" : "Tilpass"};
+    for (int c = 0; c < (m_style_open || m_find_open ? 3 : 2); c++)
         gfx::text(cols[c] + 18, top, heads[c], {gfx::SemiBold, 22}, alpha(kText3, a));
 
     auto column = [&](int c, int n, auto label_of) {
@@ -817,7 +874,8 @@ void PlayerUi::draw_tracks(const NuvioStatus &st, float a)
 
     /* Subtitles: Av, the tracks, then "Tilpass undertekster". */
     const int ns = nuvio_subs_count(), cur = nuvio_subs_selected();
-    column(1, ns + 2, [&](int i, std::string &label, std::string &right, bool &sel, bool &dim) {
+    const bool find = jelly5_subs::available();
+    column(1, ns + 2 + (find ? 1 : 0), [&](int i, std::string &label, std::string &right, bool &sel, bool &dim) {
         if (i == 0) {
             label = "Av";
             sel = cur < 0;
@@ -825,6 +883,10 @@ void PlayerUi::draw_tracks(const NuvioStatus &st, float a)
         }
         if (i == ns + 1) {
             label = "Tilpass undertekster \xE2\x80\xBA";
+            return;
+        }
+        if (i == ns + 2) {
+            label = "S\xC3\xB8k etter undertekster \xE2\x80\xBA";
             return;
         }
         nuvio_sub_track t;
@@ -862,6 +924,31 @@ void PlayerUi::draw_tracks(const NuvioStatus &st, float a)
             }
             right = v;
         });
+    }
+    /* Subtitle search: the language, then what the server's plugins found. */
+    if (m_find_open) {
+        std::vector<jf::RemoteSubtitle> found;
+        std::string lang;
+        const jelly5_subs::State state = jelly5_subs::results(&found, &lang);
+        column(2, 1 + (int)found.size(), [&](int i, std::string &label, std::string &right, bool &, bool &) {
+            if (i == 0) {
+                label = "Spr\xC3\xA5k";
+                right = (m_find_langs.size() > 1 ? "\xE2\x80\xB9 " : "") + language_name(lang) +
+                        (m_find_langs.size() > 1 ? " \xE2\x80\xBA" : "");
+                return;
+            }
+            const jf::RemoteSubtitle &x = found[i - 1];
+            label = x.name.empty() ? x.provider : x.name;
+            if (x.hash_match) right += "Passer ";
+            if (x.hearing_impaired) right += "SDH ";
+            if (x.forced) right += "Tvungen ";
+            if (right.empty() && x.downloads > 0) right = std::to_string(x.downloads) + " nedl.";
+        });
+        const float sy = top + 30 + (row_h + 4) + 40;   /* where the first result goes */
+        if (state == jelly5_subs::Busy)
+            gfx::text(cols[2] + 18, sy, "S\xC3\xB8ker \xE2\x80\xA6", {gfx::Medium, 22}, alpha(kText3, a));
+        else if (state == jelly5_subs::Done && found.empty())
+            gfx::text(cols[2] + 18, sy, "Fant ingen", {gfx::Medium, 22}, alpha(kText3, a));
     }
     gfx::text(r.x + 56, r.y + r.h - 40, "\xE2\x97\x8B lukk", {gfx::Medium, 20}, alpha(kText3, a));
 }

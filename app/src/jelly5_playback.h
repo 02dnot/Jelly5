@@ -21,6 +21,20 @@ bool jelly5_play(jf::Client &client, const jf::Item &item, std::string *error, b
  * through the rest. */
 bool jelly5_play_queue(jf::Client &client, const std::vector<jf::Item> &queue, size_t start, std::string *error);
 
+/* Subtitle search while something plays (the player's "Søk etter undertekster"):
+ * Jellyfin's subtitle plugins search, the server downloads the choice, and it
+ * is added to the player as an external track. All of it runs off the
+ * player's thread; the player polls the state. */
+namespace jelly5_subs {
+enum State { Idle, Busy, Done, Failed };
+bool available();                                 /* this title, this account, this server */
+void search(const std::string &language);         /* three-letter code */
+State results(std::vector<jf::RemoteSubtitle> *out, std::string *language);
+void download(const jf::RemoteSubtitle &s);
+/* Done: *track is the player's new subtitle track (to select). */
+State download_state(int *track);
+} // namespace jelly5_subs
+
 extern "C" {
 /* Called by the player through the bridge stand-ins (jelly5_bridge.cpp). */
 void jelly5_playback_progress(double position, double duration);

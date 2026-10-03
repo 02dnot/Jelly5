@@ -117,6 +117,13 @@ struct Page {
     int total = 0;
 };
 
+/* A subtitle Jellyfin's subtitle plugins found for a title. */
+struct RemoteSubtitle {
+    std::string id, name, provider, language, format;
+    int downloads = 0;
+    bool hash_match = false, forced = false, hearing_impaired = false;
+};
+
 struct QuickConnect {
     std::string code, secret;
 };
@@ -222,6 +229,16 @@ public:
     /* Remote control: this device plays video and audio and takes playstate
      * commands and messages (POST /Sessions/Capabilities/Full). */
     bool post_capabilities();
+    /* Subtitle search through the server's plugins (Open Subtitles and the like):
+     * the user may manage subtitles (an administrator, or the policy allows it)
+     * and, as far as an administrator can see, a subtitle plugin is installed.
+     * Checked by check_subtitle_search() after sign-in. */
+    bool can_search_subtitles() const { return subtitle_search_; }
+    void check_subtitle_search();
+    std::vector<RemoteSubtitle> search_subtitles(const std::string &item_id, const std::string &language);
+    /* The server downloads it next to the video (a new external subtitle stream). */
+    bool download_subtitle(const std::string &item_id, const std::string &subtitle_id);
+
     /* Jellyfin's Instant Mix: songs like this one (or album, artist, genre). */
     std::vector<Item> instant_mix(const std::string &id, int limit);
 
@@ -232,6 +249,7 @@ private:
 
     std::string server_, device_id_, device_name_;
     std::string token_, user_id_, user_name_, user_image_tag_;
+    bool is_admin_ = false, manages_subtitles_ = false, subtitle_search_ = false;
     void set_error(std::string e) { std::lock_guard<std::mutex> g(error_lock_); error_ = std::move(e); }
     std::string error_;
     mutable std::mutex error_lock_;

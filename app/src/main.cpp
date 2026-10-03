@@ -468,6 +468,7 @@ void use_account(jf::Client &c, unsigned session, accounts::Account a)
             a.image_tag = c.user_image_tag();
             accounts::remember(a);
             settings::load_server(c);
+            c.check_subtitle_search();
             std::string name, version;
             c.public_info(&name, &version);
             {

@@ -5,10 +5,12 @@
 #include "jelly5_playback.h"
 
 #include "nuvio_player.h"
+#include "nuvio_subs.h"
 #include "app/settings.h"
 
 #include "evo_boot_trace.h"
 
+#include <algorithm>
 #include <atomic>
 #include <cctype>
 #include <cmath>
@@ -368,6 +370,115 @@ double position_from_result(const std::string &result, double fallback)
 }
 
 } // namespace
+
+/* ---- subtitle search -------------------------------------------------------------- */
+
+namespace jelly5_subs {
+namespace {
+std::mutex s_lock;
+State s_search = Idle, s_download = Idle;
+std::vector<jf::RemoteSubtitle> s_found;
+std::string s_lang;
+int s_track = -1;
+unsigned s_gen = 0;              /* a new search or title drops older answers */
+}
+
+bool available()
+{
+    return s_session.active && s_session.client && s_session.client->can_search_subtitles();
+}
+
+void search(const std::string &language)
+{
+    if (!available())
+        return;
+    jf::Client *c = s_session.client;
+    const std::string id = s_session.pb.item_id;
+    unsigned gen;
+    {
+        std::lock_guard<std::mutex> g(s_lock);
+        gen = ++s_gen;
+        s_search = Busy;
+        s_found.clear();
+        s_lang = language;
+    }
+    std::thread([c, id, language, gen] {
+        std::vector<jf::RemoteSubtitle> found = c->search_subtitles(id, language);
+        /* Best first: a match for this very file, then the most downloaded. */
+        std::stable_sort(found.begin(), found.end(), [](const jf::RemoteSubtitle &a, const jf::RemoteSubtitle &b) {
+            return a.hash_match != b.hash_match ? a.hash_match : a.downloads > b.downloads;
+        });
+        std::lock_guard<std::mutex> g(s_lock);
+        if (gen != s_gen)
+            return;
+        s_found = std::move(found);
+        s_search = Done;
+    }).detach();
+}
+
+State results(std::vector<jf::RemoteSubtitle> *out, std::string *language)
+{
+    std::lock_guard<std::mutex> g(s_lock);
+    *out = s_found;
+    *language = s_lang;
+    return s_search;
+}
+
+void download(const jf::RemoteSubtitle &sub)
+{
+    if (!available())
+        return;
+    jf::Client *c = s_session.client;
+    const jf::Playback pb = s_session.pb;
+    {
+        std::lock_guard<std::mutex> g(s_lock);
+        s_download = Busy;
+        s_track = -1;
+    }
+    const unsigned gen = s_gen;
+    std::thread([c, pb, sub, gen] {
+        /* The new file shows as an external subtitle stream the next time the server
+         * is asked how to play the title: the one that was not there before. */
+        std::set<std::string> known;
+        for (const jf::MediaStream &m : pb.streams)
+            if (m.type == "Subtitle" && m.is_external)
+                known.insert(m.delivery_url.substr(0, m.delivery_url.find('?')));
+        int track = -1;
+        if (c->download_subtitle(pb.item_id, sub.id)) {
+            for (int attempt = 0; attempt < 5 && track < 0; attempt++) {
+                if (attempt)
+                    usleep(1000 * 1000);   /* the server may still be writing it */
+                jf::Playback now;
+                if (!c->playback_info(pb.item_id, 0, -1, -1, &now))
+                    continue;
+                for (const jf::MediaStream &m : now.streams)
+                    if (m.type == "Subtitle" && m.is_external && !m.delivery_url.empty() &&
+                        !known.count(m.delivery_url.substr(0, m.delivery_url.find('?')))) {
+                        track = nuvio_subs_add_external(m.delivery_url.c_str(), m.language.c_str(),
+                                                        sub.name.c_str(), "");
+                        break;
+                    }
+            }
+        }
+        evo_bt("jelly5: subtitle download %s -> track %d", track >= 0 ? "ok" : "failed", track);
+        std::lock_guard<std::mutex> g(s_lock);
+        if (gen != s_gen && track < 0)
+            return;
+        s_track = track;
+        s_download = track >= 0 ? Done : Failed;
+    }).detach();
+}
+
+State download_state(int *track)
+{
+    std::lock_guard<std::mutex> g(s_lock);
+    const State st = s_download;
+    *track = s_track;
+    if (st == Done || st == Failed)
+        s_download = Idle;   /* reported once */
+    return st;
+}
+} // namespace jelly5_subs
 
 extern "C" void jelly5_playback_progress(double position, double duration)
 {

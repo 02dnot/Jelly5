@@ -74,6 +74,7 @@ private:
     void draw_bar(const NuvioStatus &st, float a);
     void draw_skip_next(const NuvioStatus &st);
     void draw_tracks(const NuvioStatus &st, float a);
+    void find_input(uint32_t p);
     void draw_episodes(float a, float dt);
     void draw_error(const NuvioStatus &st);
     void music_input(uint32_t p, const NuvioStatus &st, std::vector<OsdCommand> &out);
@@ -108,6 +109,9 @@ private:
     int m_col = 0;
     int m_rows[3] = {0, 0, 0};
     bool m_style_open = false;
+    bool m_find_open = false;           /* column 2 is "Søk etter undertekster" */
+    std::vector<std::string> m_find_langs;
+    int m_find_lang = 0;
     /* Episodes: 0 seasons, 1 episodes. */
     int m_ep_col = 1, m_ep_season = 0, m_ep_index = 0;
     Anim m_ep_scroll;
