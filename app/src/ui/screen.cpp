@@ -121,7 +121,7 @@ void glass_panel(const gfx::Rect &r, float radius, float a, bool shadow, float l
         return;
     }
     if (shadow)
-        gfx::shadow(r, radius, 46, 0.6f * a, 18);
+        gfx::shadow(r, radius, 40, 0.4f * a, 14);
     /* The drop is clearer than a pane but not sharp: it sits on panes with lit rims,
      * and its lens squeezing a sharp rim into its edge aliased into blue blocks. */
     const int glass = gfx::backdrop_blur(r, radius, lift > 0 ? 9.f : 18.f, a, lift);
@@ -325,7 +325,7 @@ void draw_poster(jf::Client &c, const jf::Item &it, const gfx::Rect &base, float
     const float k = 1.f + 0.1f * lift;
     const gfx::Rect r{base.x - base.w * (k - 1) / 2, base.y - base.h * (k - 1) / 2, base.w * k, base.h * k};
     if (lift > 0.01f)
-        gfx::shadow(r, 14 * k, 30, 0.75f * lift * opacity, 22 * lift);
+        gfx::shadow(r, 14 * k, 26, 0.3f * lift * opacity, 10 * lift);
     art::draw(r, poster_url(c, it, 480), it.primary_blurhash, 480, 720, 14 * k, opacity);
     /* Watched: a check; a series with episodes left: how many. Both on a small piece
      * of glass (tint, sheen, lit rim - no blur: there are dozens on screen). */

@@ -725,7 +725,7 @@ void Detail::draw_sections(float dt)
                     const float k = 1.f + 0.1f * lift;
                     const gfx::Rect r{x - kEpW * (k - 1) / 2, y - kEpH * (k - 1) / 2, kEpW * k, kEpH * k};
                     if (lift > 0.01f)
-                        gfx::shadow(r, 14 * k, 30, 0.75f * lift, 22 * lift);
+                        gfx::shadow(r, 14 * k, 26, 0.3f * lift, 10 * lift);
                     art::draw(r, landscape_url(m_client, e, 640), e.primary_blurhash, 640, 360, 14 * k);
                     if (e.played_percent > 0 && e.played_percent < 100) {
                         gfx::fill({r.x + 18, r.y + r.h - 22, r.w - 36, 6}, 0x47ffffffu, 3);
@@ -767,7 +767,7 @@ void Detail::draw_sections(float dt)
                     const float k = 1.f + 0.1f * lift, cy = y + 60;
                     const gfx::Rect r{x - kSimW * (k - 1) / 2, cy - kSimH * (k - 1) / 2, kSimW * k, kSimH * k};
                     if (lift > 0.01f)
-                        gfx::shadow(r, 14 * k, 30, 0.75f * lift, 22 * lift);
+                        gfx::shadow(r, 14 * k, 26, 0.3f * lift, 10 * lift);
                     /* Its own still, else the title's backdrop. */
                     const jf::Item &it = m_view.item;
                     if (!e.primary_tag.empty())
@@ -800,8 +800,6 @@ void Detail::draw_sections(float dt)
                 const float k = 1.f + 0.1f * lift;
                 const float d = kCastD * k;
                 const gfx::Rect r{x - (d - kCastD) / 2, y + 56 - (d - kCastD) / 2, d, d};
-                if (lift > 0.01f)
-                    gfx::shadow(r, d / 2, 24, 0.6f * lift, 16 * lift);
                 const std::string url =
                     p.image_tag.empty() ? std::string() : m_client.image_url(p.id, "Primary", p.image_tag, 340);
                 if (url.empty()) {
@@ -840,7 +838,7 @@ void Detail::draw_sections(float dt)
                     const float k = 1.f + 0.1f * lift;
                     const gfx::Rect r{x - kSimW * (k - 1) / 2, y + 56 - kSimH * (k - 1) / 2, kSimW * k, kSimH * k};
                     if (lift > 0.01f)
-                        gfx::shadow(r, 14 * k, 30, 0.75f * lift, 22 * lift);
+                        gfx::shadow(r, 14 * k, 26, 0.3f * lift, 10 * lift);
                     art::draw(r, landscape_url(m_client, s, 640), landscape_blurhash(s), 640, 360, 14 * k);
                     if (lift > 0.01f)
                         gfx::text(r.x, r.y + r.h + 36, s.name, {gfx::SemiBold, 22, r.w}, alpha(kText, lift));

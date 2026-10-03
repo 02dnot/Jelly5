@@ -152,7 +152,7 @@ void Person::draw(double now, float dt)
     const gfx::Rect portrait{kPad, 130 - off, 280, 420};
     const std::string url = p.primary_tag.empty() ? std::string()
                                                   : m_client.image_url(p.id, "Primary", p.primary_tag, 560);
-    gfx::shadow(portrait, 22, 40, 0.6f, 18);
+    gfx::shadow(portrait, 22, 36, 0.35f, 12);
     if (url.empty()) {
         gfx::fill_vgradient(portrait, 0xff2a2a35u, 0xff16161cu, 22);
         gfx::text(portrait.x + portrait.w / 2, portrait.y + portrait.h / 2 + 30, p.name.substr(0, 1),

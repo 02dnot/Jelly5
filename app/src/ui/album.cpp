@@ -179,7 +179,7 @@ void Album::draw(double now, float dt)
     gfx::fill_hgradient({0, 0, gfx::W, gfx::H}, 0x9907070au, 0xe607070au);
 
     const gfx::Rect cr{kPad, kTop, kCover, kCover};
-    gfx::shadow(cr, 20, 50, 0.7f, 22);
+    gfx::shadow(cr, 20, 44, 0.4f, 14);
     art::draw(cr, cover, m_album.primary_blurhash, 800, 800, 20, 1.f, 0xff1c1c22u);
 
     /* Title, artist, year · tracks · minutes. */

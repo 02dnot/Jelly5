@@ -475,7 +475,7 @@ void Home::draw_rows(float dt)
                 m_animating = true;
             const float k = 1.f + 0.1f * lift.value;
             const gfx::Rect cr{cx - kCardW * (k - 1) / 2, cy - kCardH * (k - 1) / 2, kCardW * k, kCardH * k};
-            gfx::shadow(cr, kCardR * k, 30, 0.75f * lift.value * a, 22 * lift.value);
+            gfx::shadow(cr, kCardR * k, 26, 0.3f * lift.value * a, 10 * lift.value);
             art::draw(cr, card_url(it), it.thumb_blurhash.empty() ? it.backdrop_blurhash : it.thumb_blurhash,
                       640, 360, kCardR * k, a);
             m_card = {cr, card_url(it), it.thumb_blurhash.empty() ? it.backdrop_blurhash : it.thumb_blurhash,
