@@ -79,8 +79,8 @@ private:
     std::map<std::string, Anim> m_lift;
 };
 
-/* A 2:3 poster with blurhash placeholder, focus lift and shadow. focus_label
- * draws the title under it once lifted. */
+/* A 2:3 poster with blurhash placeholder, focus lift and shadow, and its title
+ * under it (an album's artist, an episode's series below that). */
 void draw_poster(jf::Client &c, const jf::Item &it, const gfx::Rect &r, float lift, float opacity);
 
 /* The ambient background: the focused title's backdrop as a blur (its

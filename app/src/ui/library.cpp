@@ -330,12 +330,7 @@ void Library::draw(double now, float dt)
                 continue;   /* focused poster last, over its neighbours */
             const float lift = m_lifts.step(items[i].id, f, dt, &m_animating);
             const gfx::Rect tile{kPad + c * (kPosterW + kColGap), y, kPosterW, tile_h};
-            draw_poster(m_client, items[i], tile, lift, 1.f);
-            if (sq && lift > 0.01f && !items[i].album_artist.empty()) {   /* the artist under the album */
-                const float k = 1.f + 0.1f * lift;
-                gfx::text(tile.x - tile.w * (k - 1) / 2, tile.y + tile.h * (1 + (k - 1) / 2) + 62,
-                          items[i].album_artist, {gfx::Medium, 18, tile.w * k}, alpha(kText3, lift));
-            }
+            draw_poster(m_client, items[i], tile, lift, 1.f);   /* title (and artist) under it */
         }
     }
     gfx::pop_scissor();

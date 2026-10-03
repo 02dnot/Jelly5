@@ -189,8 +189,14 @@ void draw_poster(jf::Client &c, const jf::Item &it, const gfx::Rect &base, float
         gfx::fill({r.x + 14, r.y + r.h - 20, (r.w - 28) * (float)(it.played_percent / 100), 6},
                   alpha(0xffffffffu, opacity), 3);
     }
-    if (lift > 0.01f)
-        gfx::text(r.x, r.y + r.h + 34, it.name, {gfx::SemiBold, 20, r.w}, alpha(kText, lift * opacity));
+    /* The title under every poster (a grid is for skimming), brighter on focus; an
+     * album's artist or an episode's series on a second line. */
+    const uint32_t tc = lift > 0.5f ? kText : kText2;
+    gfx::text(r.x, r.y + r.h + 34, it.name, {gfx::SemiBold, 20, r.w}, alpha(tc, opacity));
+    const std::string &sub = it.type == "MusicAlbum" ? it.album_artist : it.type == "Episode" ? it.series_name
+                                                                                              : std::string();
+    if (!sub.empty())
+        gfx::text(r.x, r.y + r.h + 60, sub, {gfx::Medium, 18, r.w}, alpha(kText3, opacity));
 }
 
 void Ambient::set(const std::string &blurhash, double now)
