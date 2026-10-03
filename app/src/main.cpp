@@ -376,7 +376,7 @@ std::string genre_title(const std::string &g)
         {"Reality", "Reality"}, {"Romance", "Romantikk"}, {"Science Fiction", "Science fiction"},
         {"Sci-Fi & Fantasy", "Science fiction og fantasy"}, {"Talk", "Talkshow"}, {"Thriller", "Thriller"},
         {"TV Movie", "TV-film"}, {"War", "Krig"}, {"War & Politics", "Krig og politikk"}, {"Western", "Western"},
-        {"Soap", "SÃ¥pe"}, {"News", "Nyheter"}};
+        {"Soap", "Såpe"}, {"News", "Nyheter"}};
     const auto it = no.find(g);
     return it == no.end() ? g : it->second;
 }
@@ -423,7 +423,7 @@ void load_extras(jf::Client &c, unsigned session)
         if (r.items.size() < 4 || r.baseline.empty())
             continue;
         std::string title;
-        if (r.type == "SimilarToRecentlyPlayed") title = "Fordi du sÃ¥ " + r.baseline;
+        if (r.type == "SimilarToRecentlyPlayed") title = "Fordi du så " + r.baseline;
         else if (r.type == "SimilarToLikedItem") title = "Fordi du likte " + r.baseline;
         else if (r.type.find("Director") != std::string::npos) title = "Regissert av " + r.baseline;
         else if (r.type.find("Actor") != std::string::npos) title = "Med " + r.baseline;

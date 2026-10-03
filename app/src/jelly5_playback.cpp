@@ -133,6 +133,7 @@ struct Extras {
     std::vector<jf::Segment> segments;
     std::vector<jf::Chapter> chapters;
     jf::Trickplay trickplay;
+    std::vector<jf::LyricLine> lyrics;
 };
 
 std::string request_json(jf::Client &c, const jf::Item &it, const jf::Playback &pb,
@@ -268,6 +269,17 @@ std::string request_json(jf::Client &c, const jf::Item &it, const jf::Playback &
             cJSON_AddItemToArray(chs, e);
         }
         cJSON_AddItemToObject(o, "chapters", chs);
+    }
+    /* Lyrics (music): timed lines follow the song, untimed ones just show. */
+    if (!ex.lyrics.empty()) {
+        cJSON *ly = cJSON_CreateArray();
+        for (const auto &l : ex.lyrics) {
+            cJSON *e = cJSON_CreateObject();
+            cJSON_AddNumberToObject(e, "start", l.start);
+            cJSON_AddStringToObject(e, "text", l.text.c_str());
+            cJSON_AddItemToArray(ly, e);
+        }
+        cJSON_AddItemToObject(o, "lyrics", ly);
     }
     /* Scrub previews, when the server has made them. */
     if (ex.trickplay.valid()) {
@@ -571,7 +583,9 @@ static bool play_chain(jf::Client &client, jf::Item item, std::vector<jf::Item> 
         evo_bt("jelly5: play %s (%s) %s %s", item.name.c_str(), item.id.c_str(), pb.play_method.c_str(),
                pb.transcode_reasons.c_str());
         Extras ex;
-        if (item.type != "Audio") {   /* music has no intros, chapters or previews */
+        if (item.type == "Audio") {
+            ex.lyrics = client.lyrics(item.id);
+        } else {   /* music has no intros, chapters or previews */
             std::thread chapters([&] { client.media_extras(item.id, pb.media_source_id, &ex.chapters, &ex.trickplay); });
             ex.segments = client.segments(item.id);
             chapters.join();

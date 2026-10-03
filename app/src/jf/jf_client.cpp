@@ -146,6 +146,8 @@ Item item_of(const cJSON *o)
     it.album_id = str_of(o, "AlbumId");
     it.album = str_of(o, "Album");
     it.album_artist = str_of(o, "AlbumArtist");
+    const cJSON *aa = cJSON_GetArrayItem(cJSON_GetObjectItemCaseSensitive(o, "AlbumArtists"), 0);
+    it.album_artist_id = str_of(aa, "Id");
     if (it.album_artist.empty())
         it.album_artist = first_of(o, "Artists");
     it.album_primary_tag = str_of(o, "AlbumPrimaryImageTag");
@@ -488,7 +490,7 @@ std::vector<Item> Client::episodes(const std::string &series_id, const std::stri
 }
 
 Page Client::library(const std::string &parent_id, const std::string &types, const std::string &sort_by,
-                     bool descending, int start, int limit)
+                     bool descending, int start, int limit, const std::string &filter)
 {
     Page page;
     std::string body;
@@ -496,7 +498,7 @@ Page Client::library(const std::string &parent_id, const std::string &types, con
                       "&IncludeItemTypes=" + types +
                       "&Recursive=true&SortBy=" + sort_by + "&SortOrder=" + (descending ? "Descending" : "Ascending") +
                       "&StartIndex=" + std::to_string(start) + "&Limit=" + std::to_string(limit) +
-                      "&fields=" + kFields + "&EnableTotalRecordCount=true", &body))
+                      "&fields=" + kFields + "&EnableTotalRecordCount=true" + filter, &body))
         return page;
     page.items = items_of(body);
     if (cJSON *j = cJSON_Parse(body.c_str())) {
@@ -715,6 +717,28 @@ bool Client::download_subtitle(const std::string &item_id, const std::string &su
     if (!r.ok())
         set_error("subtitle download -> " + std::to_string(r.status) + " " + r.error);
     return r.ok();
+}
+
+std::vector<LyricLine> Client::lyrics(const std::string &item_id)
+{
+    std::vector<LyricLine> out;
+    std::string body;
+    HttpResponse r = http_request("GET", server_ + "/Audio/" + item_id + "/Lyrics",
+                                  {auth_header(), "Accept: application/json"}, "", kTimeout);
+    if (!r.ok())
+        return out;   /* 404: no lyrics, not an error */
+    cJSON *j = cJSON_Parse(r.body.c_str());
+    const cJSON *l;
+    cJSON_ArrayForEach(l, cJSON_GetObjectItemCaseSensitive(j, "Lyrics")) {
+        LyricLine x;
+        x.text = str_of(l, "Text");
+        const cJSON *st = cJSON_GetObjectItemCaseSensitive(l, "Start");
+        if (cJSON_IsNumber(st))
+            x.start = st->valuedouble / (double)kTicksPerSecond;
+        out.push_back(std::move(x));
+    }
+    cJSON_Delete(j);
+    return out;
 }
 
 bool Client::post_capabilities()

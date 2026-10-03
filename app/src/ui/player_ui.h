@@ -82,6 +82,7 @@ private:
     /* Commands from a phone controlling the PS5 (app/remote). */
     void remote_poll(const NuvioStatus &st, std::vector<OsdCommand> &out);
     void draw_music(const NuvioStatus &st);
+    void draw_lyrics(const NuvioStatus &st, float x, float w, float top, float bottom);
 
     const NuvioRequest *m_req = nullptr;
     bool m_music = false;               /* an audio track: the now-playing screen */
@@ -115,6 +116,7 @@ private:
     /* Episodes: 0 seasons, 1 episodes. */
     int m_ep_col = 1, m_ep_season = 0, m_ep_index = 0;
     Anim m_ep_scroll;
+    Anim m_lyric_scroll;                /* music: the lyrics' line, eased */
 
     std::string m_toast;
     double m_toast_until = 0;

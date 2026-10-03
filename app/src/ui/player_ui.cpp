@@ -1151,8 +1151,11 @@ void PlayerUi::draw_music(const NuvioStatus &st)
     }
 
     const float x = cx + cs + 110, w = W - kPad - x;
+    if (!r.lyrics.empty()) {
+        draw_lyrics(st, x, w, cy - 40, cy + cs - 250);
+    } else {
     float y = cy + 70;
-    gfx::text(x, y, st.paused ? "Satt pÃ¥ pause" : "Spilles nÃ¥", {gfx::SemiBold, 22}, kText3);
+    gfx::text(x, y, st.paused ? "Satt på pause" : "Spilles nå", {gfx::SemiBold, 22}, kText3);
     y += 78;
     const std::string title = r.title;
     gfx::text(x, y, title, {gfx::Bold, 58, w, 2, 66}, kText);
@@ -1162,12 +1165,17 @@ void PlayerUi::draw_music(const NuvioStatus &st)
     y += 46;
     std::string album = r.album;
     if (!r.year.empty() && r.year != "0")
-        album += (album.empty() ? "" : " Â· ") + r.year;
+        album += (album.empty() ? "" : " · ") + r.year;
     if (!album.empty())
         gfx::text(x, y, album, {gfx::Medium, 26, w}, kText3);
+    }
 
     /* The bar, the times under it. */
     const float by = cy + cs - 150;
+    if (!r.lyrics.empty()) {   /* with lyrics: the track and artist sit over the bar */
+        gfx::text(x, by - 74, r.title, {gfx::Bold, 32, w}, kText);
+        gfx::text(x, by - 36, r.artist, {gfx::Medium, 24, w}, kText2);
+    }
     const double d = st.duration > 0 ? st.duration : 1;
     const double pos = m_seeking ? m_seek_target : st.position;
     const float h = m_seeking ? 10.f : 8.f;
@@ -1178,7 +1186,7 @@ void PlayerUi::draw_music(const NuvioStatus &st)
         gfx::fill({px - 13, by - 13, 26, 26}, 0xffffffffu, 13);
     gfx::text(x, by + 44, fmt_time(pos), {gfx::SemiBold, 22}, kText2);
     if (st.duration > 0)
-        gfx::text(x + w, by + 44, "â" + fmt_time(std::max(0.0, d - pos)), {gfx::SemiBold, 22}, kText2, 2);
+        gfx::text(x + w, by + 44, "−" + fmt_time(std::max(0.0, d - pos)), {gfx::SemiBold, 22}, kText2, 2);
 
     /* Transport: previous, play/pause, next (L1, Cross, R1). */
     const float ty = cy + cs - 30, mid = x + 160;
@@ -1203,6 +1211,38 @@ void PlayerUi::draw_music(const NuvioStatus &st)
 
     if (r.has_next && !r.next.title.empty())
         gfx::text(x, H - 90, "Neste: " + r.next.title, {gfx::Medium, 24, w}, kText3);
+}
+
+/* Lyrics in a column between top and bottom: timed lines follow the song with the
+ * one being sung bright and large, the rest dim; untimed lyrics are simply shown. */
+void PlayerUi::draw_lyrics(const NuvioStatus &st, float x, float w, float top, float bottom)
+{
+    const std::vector<NuvioLyric> &ly = m_req->lyrics;
+    const bool timed = ly.front().start >= 0;
+    int cur = -1;
+    if (timed)
+        for (size_t i = 0; i < ly.size(); i++)
+            if (ly[i].start >= 0 && ly[i].start <= st.position + 0.15)
+                cur = (int)i;
+    const float lh = 58, mid = top + (bottom - top) * 0.38f;
+    m_lyric_scroll.to(timed ? (float)std::max(cur, 0) * lh : 0.f);
+    const float dt = (float)std::min(0.1, std::max(0.0, st.now - m_last));
+    m_lyric_scroll.step(dt, 7.f);
+    if (m_lyric_scroll.value != m_lyric_scroll.target)
+        m_dirty = true;
+    gfx::push_scissor({x - 20, top, w + 40, bottom - top});
+    for (size_t i = 0; i < ly.size(); i++) {
+        const float y = (timed ? mid : top + 50) + i * lh - m_lyric_scroll.value;
+        if (y < top - lh || y > bottom + lh)
+            continue;
+        const bool now = timed && (int)i == cur;
+        /* Fade towards the edges of the column. */
+        const float edge = std::min(y - top, bottom - y) / 90.f;
+        const float a = std::max(0.f, std::min(1.f, edge));
+        const uint32_t c = now ? kText : timed ? kText3 : kText2;
+        gfx::text(x, y, ly[i].text, {now ? gfx::Bold : gfx::SemiBold, now ? 40.f : 34.f, w}, alpha(c, a));
+    }
+    gfx::pop_scissor();
 }
 
 void PlayerUi::draw(const NuvioStatus &st)

@@ -242,6 +242,12 @@ bool nuvio_request_parse(const char *json, NuvioRequest &r)
         ch.name = str_of(it, "name");
         r.chapters.push_back(ch);
     }
+    cJSON_ArrayForEach(it, cJSON_GetObjectItemCaseSensitive(root, "lyrics")) {
+        NuvioLyric l;
+        l.start = num_of(it, "start", -1);
+        l.text = str_of(it, "text");
+        r.lyrics.push_back(l);
+    }
     if (const cJSON *tp = cJSON_GetObjectItemCaseSensitive(root, "trickplay")) {
         NuvioTrickplay &t = r.trickplay;
         t.width = (int)num_of(tp, "width", 0);

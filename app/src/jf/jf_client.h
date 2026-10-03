@@ -40,7 +40,7 @@ struct Item {
     std::string primary_blurhash, backdrop_blurhash, thumb_blurhash;
     std::string collection_type;              /* views: movies, tvshows, music ... */
     /* Music: a track's album and artist (the album's cover is its art). */
-    std::string album_id, album, album_artist;
+    std::string album_id, album, album_artist, album_artist_id;
     std::string album_primary_tag, album_blurhash;
     std::string premiere_date;                /* ISO date; a person's birth date */
     std::vector<std::string> locations;       /* a person's birthplace */
@@ -124,6 +124,12 @@ struct RemoteSubtitle {
     bool hash_match = false, forced = false, hearing_impaired = false;
 };
 
+/* A line of a song's lyrics; start < 0 when the lyrics are not timed. */
+struct LyricLine {
+    double start = -1;                        /* seconds */
+    std::string text;
+};
+
 struct QuickConnect {
     std::string code, secret;
 };
@@ -169,8 +175,11 @@ public:
     std::vector<Item> latest(const std::string &parent_id, int limit);
     std::vector<Item> episodes(const std::string &series_id, const std::string &season_id);
     /* A library page: types e.g. "Movie" or "Series"; sort_by e.g. "DateCreated,SortName". */
+    /* filter: extra query, e.g. "&AlbumArtistIds=<id>" (an artist's albums). */
     Page library(const std::string &parent_id, const std::string &types, const std::string &sort_by,
-                 bool descending, int start, int limit);
+                 bool descending, int start, int limit, const std::string &filter = std::string());
+    /* A song's lyrics (Jellyfin's .lrc / lyric plugins); empty when it has none. */
+    std::vector<LyricLine> lyrics(const std::string &item_id);
     /* types e.g. "Movie,Series" or "Person" (Jellyfin's own matching and order). */
     std::vector<Item> search(const std::string &term, const std::string &types, int limit);
 

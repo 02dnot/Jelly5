@@ -47,6 +47,11 @@ struct NuvioChapter {
     std::string name;
 };
 
+struct NuvioLyric {
+    double start = -1;            /* seconds; < 0: not timed */
+    std::string text;
+};
+
 struct NuvioTrickplay {
     int width = 0, height = 0, tile_w = 0, tile_h = 0, count = 0;
     double interval = 0;
@@ -92,6 +97,7 @@ struct NuvioRequest {
     NuvioEpisode next;
     std::vector<NuvioSkip> skips;
     std::vector<NuvioChapter> chapters;
+    std::vector<NuvioLyric> lyrics;
     NuvioTrickplay trickplay;
     NuvioPrefs prefs;
     std::map<std::string, std::string> strings;
