@@ -654,6 +654,11 @@ void Detail::draw_sections(float dt)
                           focus ? 0xff0b0b0fu : active ? kText : kText2, 1);
                 x += w + 12;
             }
+            if (m_zone == Episodes && m_episode < (int)m_eps.size()) {   /* what Options does here */
+                const std::string what = m_eps[m_episode].played ? T("Merk som usett") : T("Merk som sett");
+                draw_pad_hint(gfx::W - kPad - pad_hint_width(PadButton::Options, what, 26), y + 27,
+                              PadButton::Options, what, 26);
+            }
         }
     }
 

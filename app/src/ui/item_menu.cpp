@@ -96,7 +96,7 @@ void ItemMenu::draw(float dt, bool *animating)
         sub = b;
     }
     const float row_h = 68, w = 640;
-    const float h = 60 + 52 + (sub.empty() ? 0 : 34) + 24 + m_options.size() * (row_h + 6) + 40;
+    const float h = 60 + 52 + (sub.empty() ? 0 : 34) + 24 + m_options.size() * (row_h + 6) + 40 + 52;
     const float rise = 24 * (1.f - a);
     const gfx::Rect r{(gfx::W - w) / 2, (gfx::H - h) / 2 + rise, w, h};
     glass_panel(r, 28, a);
@@ -125,6 +125,8 @@ void ItemMenu::draw(float dt, bool *animating)
         gfx::text(row.x + 26, row.y + 44, label, {gfx::SemiBold, 26}, alpha(focus ? 0xff0b0b0fu : kText2, a));
         y += row_h + 6;
     }
+    draw_pad_hints(r.x + 56, r.y + r.h - 52, {{PadButton::Cross, T("Velg")}, {PadButton::Circle, T("Lukk")}}, 0, 26,
+                   a);
 }
 
 } // namespace ui
