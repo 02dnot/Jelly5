@@ -80,6 +80,16 @@ ui_asset ui_asset_font_noto_emoji(void)
     return a;
 }
 
+/* Jelly5: symbols (♪ ♫ and friends) the other fonts lack, for subtitles and the UI.
+ * A subset of Noto Sans Symbols (SIL OFL 1.1, assets/fonts/NotoSansSymbols-OFL.txt). */
+__asm__(".section .rodata\n.balign 16\n.global nuvio_blob_font_noto_symbols\nnuvio_blob_font_noto_symbols:\n.incbin \"assets/fonts/NotoSansSymbols-Subset.ttf\"\n.byte 0\n.global nuvio_blob_font_noto_symbols_end\nnuvio_blob_font_noto_symbols_end:\n.previous\n");
+extern const uint8_t nuvio_blob_font_noto_symbols[], nuvio_blob_font_noto_symbols_end[];
+ui_asset ui_asset_font_noto_symbols(void)
+{
+    ui_asset a = {nuvio_blob_font_noto_symbols, (size_t)(nuvio_blob_font_noto_symbols_end - nuvio_blob_font_noto_symbols) - 1};
+    return a;
+}
+
 __asm__(".section .rodata\n.balign 16\n.global nuvio_blob_img_wordmark\nnuvio_blob_img_wordmark:\n.incbin \"assets/app_logo_wordmark.png\"\n.byte 0\n.global nuvio_blob_img_wordmark_end\nnuvio_blob_img_wordmark_end:\n.previous\n");
 extern const uint8_t nuvio_blob_img_wordmark[], nuvio_blob_img_wordmark_end[];
 ui_asset ui_asset_img_wordmark(void)

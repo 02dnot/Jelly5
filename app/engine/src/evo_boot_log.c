@@ -240,6 +240,27 @@ static void nl_queue(const char *stamped, size_t m)
 }
 #endif
 
+/* Jelly5: stream and image URLs carry the session's access token; no log line
+ * (console, file or the UDP log) ever shows it. */
+static void redact_tokens(char *s)
+{
+    static const char *const keys[] = {"api_key=", "ApiKey=", "Token=\"", "X-Emby-Token: ", "X-MediaBrowser-Token: "};
+    for (size_t k = 0; k < sizeof keys / sizeof keys[0]; k++) {
+        const size_t kl = strlen(keys[k]);
+        char *p = s;
+        while ((p = strstr(p, keys[k])) != NULL) {
+            char *v = p + kl, *e = v;
+            while (*e && *e != '&' && *e != '"' && *e != ' ' && *e != ',' && *e != '\n')
+                e++;
+            if (e > v) {
+                v[0] = '*';
+                memmove(v + 1, e, strlen(e) + 1);
+            }
+            p = v + 1;
+        }
+    }
+}
+
 void evo_boot_log(const char *fmt, ...)
 {
     char line[600];
@@ -247,6 +268,7 @@ void evo_boot_log(const char *fmt, ...)
     va_start(ap, fmt);
     vsnprintf(line, sizeof line, fmt, ap);
     va_end(ap);
+    redact_tokens(line);
 
     printf("EVO boot: %s\n", line);
     fflush(stdout);

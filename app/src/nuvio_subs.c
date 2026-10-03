@@ -159,6 +159,7 @@ int nuvio_subs_init(void)
     add_font_asset("Roboto-Bold.ttf", ui_asset_font_roboto_bold());
     add_font_asset("NotoNaskhArabicUI-Regular.ttf", ui_asset_font_naskh_regular());
     add_font_asset("NotoNaskhArabicUI-Bold.ttf", ui_asset_font_naskh_bold());
+    add_font_asset("NotoSansSymbols-Subset.ttf", ui_asset_font_noto_symbols());   /* Jelly5: ♪ in lyrics */
     add_font_asset("Inter-Regular.ttf", ui_asset_font_inter_regular());
     if (!(s_rend = ass_renderer_init(s_lib)))
         return -1;

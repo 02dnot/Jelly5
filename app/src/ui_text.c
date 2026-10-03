@@ -28,6 +28,7 @@ enum {
     F_INTER_R, F_INTER_M, F_INTER_SB, F_INTER_B,
     F_NASKH_R, F_NASKH_B,
     F_EMOJI,                  /* Noto Emoji (monochrome): addon descriptions use emoji */
+    F_SYMBOLS,                /* Jelly5: Noto Sans Symbols subset (♪ ♫ ...) */
     /* The console's fonts, loaded the first time a character needs them. */
     F_SYS_JP_R, F_SYS_JP_B, F_SYS_KR_R, F_SYS_KR_B, F_SYS_CN, F_SYS_TH_R, F_SYS_TH_B,
     F_COUNT
@@ -111,8 +112,9 @@ int ui_text_init(void)
         ui_asset_font_inter_regular(), ui_asset_font_inter_medium(),
         ui_asset_font_inter_semibold(), ui_asset_font_inter_bold(),
         ui_asset_font_naskh_regular(), ui_asset_font_naskh_bold(), ui_asset_font_noto_emoji(),
+        ui_asset_font_noto_symbols(),
     };
-    for (int i = 0; i < 7; i++) {
+    for (int i = 0; i < (int)(sizeof a / sizeof a[0]); i++) {
         if (load_font(i, a[i].data, a[i].size) != 0) {
             evo_bt("text: embedded font %d failed", i);
             return -1;
@@ -131,6 +133,7 @@ static int chain(ui_weight w, int *out)
     out[n++] = F_INTER_R + (int)w;
     out[n++] = bold ? F_NASKH_B : F_NASKH_R;
     out[n++] = F_EMOJI;
+    out[n++] = F_SYMBOLS;
     out[n++] = bold ? F_SYS_JP_B : F_SYS_JP_R;
     out[n++] = bold ? F_SYS_KR_B : F_SYS_KR_R;
     out[n++] = F_SYS_CN;
@@ -231,13 +234,13 @@ static int needs_bidi(const uint32_t *cps, int n)
 static void layout_cps(ui_weight w, float size, const uint32_t *in_cps, int in_n)
 {
     layout *L = &s_lay;
-    int ch[8];
+    int ch[12];
     /* Characters no font can draw are left out rather than shown as boxes
      * (and emoji variation selectors / joiners go with them). */
     static uint32_t cps[MAX_CPS];
     int n = 0;
     {
-        int chk[8];
+        int chk[12];
         const int nchk = chain(w, chk);
         for (int i = 0; i < in_n && n < MAX_CPS; i++) {
             const uint32_t cp = in_cps[i];

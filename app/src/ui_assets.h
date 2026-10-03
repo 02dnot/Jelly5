@@ -27,6 +27,7 @@ ui_asset ui_asset_font_roboto_bold(void);
 ui_asset ui_asset_font_naskh_regular(void);
 ui_asset ui_asset_font_naskh_bold(void);
 ui_asset ui_asset_font_noto_emoji(void);
+ui_asset ui_asset_font_noto_symbols(void);   /* Jelly5 */
 ui_asset ui_asset_img_wordmark(void);
 ui_asset ui_asset_svg_aspect_ratio(void);
 ui_asset ui_asset_svg_audio_filled(void);
