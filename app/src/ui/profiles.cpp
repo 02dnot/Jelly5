@@ -80,8 +80,7 @@ void Profiles::draw(double, float dt)
             gfx::text(r.x + dd / 2, r.y + dd / 2 + 32, name.substr(0, 1), {gfx::Bold, 90}, kText, 1);
             if (!a.image_tag.empty())
                 art::draw(r, a.server + "/Users/" + a.user_id + "/Images/Primary?tag=" + a.image_tag + "&fillWidth=440",
-                          "", 440, 440, dd / 2, art::fade(a.server + "/Users/" + a.user_id + "/Images/Primary?tag=" +
-                                                           a.image_tag + "&fillWidth=440"));
+                          "", 440, 440, dd / 2, 1.f, 0);   /* over the initial until it loads */
         } else {
             name = "Legg til";
             gfx::fill(r, 0x14ffffffu, dd / 2);

@@ -2,7 +2,7 @@
  * Jelly5 — Jellyfin for PS5
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * Sizes and timings follow concept/style.css (.player ...).
+ * The Netflix TV layout in the app's look; colours from concept/style.css.
  */
 #include "ui/player_ui.h"
 
@@ -20,8 +20,7 @@ namespace ui {
 namespace {
 
 constexpr float W = gfx::W, H = gfx::H;
-constexpr float kBarY = H - 120, kBarH = 10;
-constexpr uint32_t kGlass = 0xdc1c1c22u;
+constexpr float kBarY = H - 205;
 constexpr uint32_t kAccent = 0xff00a4dcu;
 
 std::string fmt_time(double s)
@@ -97,10 +96,14 @@ void PlayerUi::begin(const NuvioRequest *req, double now)
     m_dirty = true;
 }
 
-void PlayerUi::show_controls(double now)
+void PlayerUi::show_controls(double now, Zone zone)
 {
+    if (!m_controls) {
+        m_zone = zone;
+        m_button = 0;
+    }
     m_controls = true;
-    m_hide_at = now + 4.0;
+    m_hide_at = now + 5.0;
     m_dirty = true;
 }
 
@@ -111,7 +114,7 @@ void PlayerUi::toast(const std::string &text, double now)
     m_dirty = true;
 }
 
-float PlayerUi::subtitle_lift() const { return a_controls.value * 150.f; }
+float PlayerUi::subtitle_lift() const { return a_controls.value * 210.f; }
 
 int PlayerUi::current_skip(const NuvioStatus &st) const
 {
@@ -141,12 +144,58 @@ bool PlayerUi::next_card(const NuvioStatus &st) const
                                    left <= 45.0;
 }
 
-std::vector<PlayerUi::Tab> PlayerUi::tabs() const
+std::vector<PlayerUi::Button> PlayerUi::buttons() const
 {
-    std::vector<Tab> t{TabInfo, TabAudio, TabSubs};
+    std::vector<Button> b{Button::PlayPause};
     if (m_req && m_req->episodes.size() > 1)
-        t.push_back(TabEpisodes);
-    return t;
+        b.push_back(Button::Episodes);
+    b.push_back(Button::Tracks);
+    if (m_req && m_req->has_next)
+        b.push_back(Button::Next);
+    return b;
+}
+
+std::vector<int> PlayerUi::seasons() const
+{
+    std::vector<int> out;
+    for (const NuvioEpisode &e : m_req->episodes)
+        if (std::find(out.begin(), out.end(), e.season) == out.end())
+            out.push_back(e.season);
+    std::sort(out.begin(), out.end(), [](int a, int b) { return (a == 0) != (b == 0) ? a != 0 : a < b; });
+    return out;   /* specials (season 0) last */
+}
+
+std::vector<int> PlayerUi::episodes_in(int season) const
+{
+    std::vector<int> out;
+    for (size_t i = 0; i < m_req->episodes.size(); i++)
+        if (m_req->episodes[i].season == season)
+            out.push_back((int)i);
+    return out;
+}
+
+void PlayerUi::open_overlay(Overlay o)
+{
+    m_overlay = m_overlay_drawn = o;
+    m_dirty = true;
+    if (o == Overlay::Tracks) {
+        m_col = 0;
+        m_style_open = false;
+        m_rows[0] = m_rows[1] = m_rows[2] = 0;
+        /* Start on the subtitles when there is anything to choose there. */
+        if (nuvio_subs_count() > 0)
+            m_col = 1;
+        m_rows[1] = nuvio_subs_selected() + 1;
+    } else if (o == Overlay::Episodes) {
+        m_ep_col = 1;
+        m_ep_season = m_req->season;
+        const std::vector<int> eps = episodes_in(m_ep_season);
+        m_ep_index = 0;
+        for (size_t i = 0; i < eps.size(); i++)
+            if (m_req->episodes[eps[i]].episode == m_req->episode)
+                m_ep_index = (int)i;
+        m_ep_scroll.snap(std::max(0.f, (m_ep_index - 1) * 178.f));
+    }
 }
 
 void PlayerUi::seek_step(int dir, const NuvioStatus &st, double now)
@@ -161,9 +210,11 @@ void PlayerUi::seek_step(int dir, const NuvioStatus &st, double now)
         m_seek_step = 10;
     }
     m_seek_last_step = now;
-    m_seek_target = std::max(0.0, std::min(st.duration > 0 ? st.duration - 1 : 1e9, m_seek_target + dir * m_seek_step));
+    m_seek_target =
+        std::max(0.0, std::min(st.duration > 0 ? st.duration - 1 : 1e9, m_seek_target + dir * m_seek_step));
     m_seek_commit_at = now + 0.75;
-    show_controls(now);
+    show_controls(now, Zone::Bar);
+    m_zone = Zone::Bar;
 }
 
 void PlayerUi::playback_ended(const NuvioStatus &, std::vector<OsdCommand> &out)
@@ -181,10 +232,9 @@ void PlayerUi::tick(const NuvioStatus &st, std::vector<OsdCommand> &out)
         return;
     if (st.started && !m_shown_once) {
         m_shown_once = true;
-        show_controls(st.now);   /* the controls show for a moment as the picture appears */
-        m_hide_at = st.now + 2.5;
+        show_controls(st.now, Zone::Buttons);   /* a moment as the picture appears */
+        m_hide_at = st.now + 3.0;
     }
-
     /* Automatic intro skipping (Innstillinger). */
     if (m_req->prefs.auto_skip && !m_seeking) {
         const int k = current_skip(st);
@@ -196,13 +246,12 @@ void PlayerUi::tick(const NuvioStatus &st, std::vector<OsdCommand> &out)
     if (m_seeking && st.now >= m_seek_commit_at) {
         out.push_back({OsdCmd::SeekTo, m_seek_target});
         m_seeking = false;
-        m_hide_at = st.now + 2.0;
+        m_hide_at = st.now + 2.5;
     }
-    if (m_controls && !st.paused && !m_panel && !m_seeking && st.now >= m_hide_at) {
+    if (m_controls && !st.paused && m_overlay == Overlay::None && !m_seeking && st.now >= m_hide_at) {
         m_controls = false;
         m_dirty = true;
     }
-
     /* The next-episode countdown (10 s) when autoplay is on. */
     if (next_card(st)) {
         if (m_card_since < 0)
@@ -216,91 +265,107 @@ void PlayerUi::tick(const NuvioStatus &st, std::vector<OsdCommand> &out)
     }
 }
 
-void PlayerUi::panel_input(uint32_t p, const NuvioStatus &st, std::vector<OsdCommand> &out)
+/* Lyd og undertekster: columns 0 audio, 1 subtitles (+ "Tilpass"), 2 style. */
+void PlayerUi::tracks_input(uint32_t p, const NuvioStatus &st, std::vector<OsdCommand> &out)
 {
-    const std::vector<Tab> ts = tabs();
-    m_tab = std::min(m_tab, (int)ts.size() - 1);
-    const Tab tab = ts[m_tab];
-    int rows = 0;
-    if (tab == TabAudio)
-        rows = (int)st.audio.size();
-    else if (tab == TabSubs)
-        rows = 1 + nuvio_subs_count() + 1 + (m_advanced ? 5 : 0);   /* off, tracks, Avansert, style */
-    else if (tab == TabEpisodes)
-        rows = (int)m_req->episodes.size();
-    m_dirty = true;
-
-    if (m_row < 0) {
-        if (p & NUVIO_BTN_LEFT)
-            m_tab = std::max(0, m_tab - 1), m_advanced = false;
-        else if (p & NUVIO_BTN_RIGHT)
-            m_tab = std::min((int)ts.size() - 1, m_tab + 1), m_advanced = false;
-        else if ((p & (NUVIO_BTN_DOWN | NUVIO_BTN_CROSS)) && rows > 0)
-            m_row = 0, m_scroll = 0;
-        else if (p & (NUVIO_BTN_UP | NUVIO_BTN_CIRCLE))
-            m_panel = false;
-        return;
-    }
-    if (p & NUVIO_BTN_UP) {
-        m_row--;
-        return;
-    }
-    if (p & NUVIO_BTN_DOWN) {
-        m_row = std::min(rows - 1, m_row + 1);
-        return;
-    }
+    const int na = (int)st.audio.size(), ns = nuvio_subs_count();
+    const int rows[3] = {na, ns + 2, 5};   /* subtitles: Av, tracks, Tilpass */
+    int &r = m_rows[m_col];
     if (p & NUVIO_BTN_CIRCLE) {
-        if (m_advanced && tab == TabSubs && m_row > nuvio_subs_count() + 1) {
-            m_advanced = false;
-            m_row = nuvio_subs_count() + 1;
+        if (m_col == 2) {
+            m_style_open = false;
+            m_col = 1;
         } else {
-            m_row = -1;
+            m_overlay = Overlay::None;
         }
-        return;
+    } else if (p & NUVIO_BTN_UP) {
+        r = std::max(0, r - 1);
+    } else if (p & NUVIO_BTN_DOWN) {
+        r = std::min(std::max(0, rows[m_col] - 1), r + 1);
+    } else if (m_col == 2 && (p & (NUVIO_BTN_LEFT | NUVIO_BTN_RIGHT | NUVIO_BTN_CROSS))) {
+        const int d = (p & NUVIO_BTN_LEFT) ? -1 : 1;
+        nuvio_sub_style s;
+        nuvio_subs_get_style(&s);
+        switch (r) {
+        case 0: {
+            const int ms = std::max(-30000, std::min(30000, nuvio_subs_delay_ms() + d * 100));
+            out.push_back({OsdCmd::SubtitleDelay, (double)ms});
+            return;
+        }
+        case 1: s.size_pct = std::max(50, std::min(200, s.size_pct + d * 10)); break;
+        case 2: s.offset_pct = std::max(0.f, std::min(40.f, s.offset_pct + d * 2.f)); break;
+        case 3: {
+            const float steps[] = {0.f, 0.25f, 0.5f, 0.75f};
+            int i = 0;
+            for (int k = 0; k < 4; k++)
+                if (std::fabs(s.background - steps[k]) < 0.05f)
+                    i = k;
+            s.background = steps[(i + d + 4) % 4];
+            break;
+        }
+        case 4: s.outline = !s.outline; break;
+        }
+        nuvio_subs_set_style(&s);
+        out.push_back({OsdCmd::SubtitleStyle});
+    } else if (p & NUVIO_BTN_LEFT) {
+        if (m_col > 0)
+            m_col--;
+    } else if (p & NUVIO_BTN_RIGHT) {
+        if (m_col == 0)
+            m_col = 1;
+        else if (m_col == 1 && m_style_open)
+            m_col = 2;
+    } else if (p & NUVIO_BTN_CROSS) {
+        if (m_col == 0 && r < na) {
+            out.push_back({OsdCmd::SelectAudio, 0, r});
+        } else if (m_col == 1) {
+            if (r == ns + 1) {
+                m_style_open = true;   /* "Tilpass undertekster" */
+                m_col = 2;
+                m_rows[2] = 0;
+            } else {
+                out.push_back({OsdCmd::SelectSubtitle, 0, r - 1});   /* row 0 = Av */
+            }
+        }
     }
-    const int dir = (p & NUVIO_BTN_RIGHT) ? 1 : (p & NUVIO_BTN_LEFT) ? -1 : 0;
-    const bool cross = (p & NUVIO_BTN_CROSS) != 0;
-    if (tab == TabAudio && cross && m_row < (int)st.audio.size()) {
-        out.push_back({OsdCmd::SelectAudio, 0, m_row});
-    } else if (tab == TabEpisodes && cross && m_row < (int)m_req->episodes.size()) {
-        const NuvioEpisode &e = m_req->episodes[m_row];
-        OsdCommand c{OsdCmd::PlayEpisode};
-        c.season = e.season;
-        c.episode = e.episode;
-        out.push_back(c);
-    } else if (tab == TabSubs) {
-        const int n = nuvio_subs_count();
-        if (m_row == 0 && cross) {
-            out.push_back({OsdCmd::SelectSubtitle, 0, -1});
-        } else if (m_row <= n && cross) {
-            out.push_back({OsdCmd::SelectSubtitle, 0, m_row - 1});
-        } else if (m_row == n + 1 && cross) {
-            m_advanced = !m_advanced;
-        } else if (m_row > n + 1 && (dir || cross)) {
-            const int d = dir ? dir : 1;
-            nuvio_sub_style s;
-            nuvio_subs_get_style(&s);
-            switch (m_row - n - 2) {
-            case 0: {
-                const int ms = std::max(-30000, std::min(30000, nuvio_subs_delay_ms() + d * 100));
-                out.push_back({OsdCmd::SubtitleDelay, (double)ms});
-                return;
+}
+
+/* Episoder: column 0 the seasons, 1 the episodes of the season shown. */
+void PlayerUi::episodes_input(uint32_t p, std::vector<OsdCommand> &out)
+{
+    const std::vector<int> ss = seasons();
+    const std::vector<int> eps = episodes_in(m_ep_season);
+    int si = (int)(std::find(ss.begin(), ss.end(), m_ep_season) - ss.begin());
+    if (p & NUVIO_BTN_CIRCLE) {
+        /* Back one level: the episodes, then the seasons, then out. */
+        if (m_ep_col == 1) m_ep_col = 0;
+        else m_overlay = Overlay::None;
+    } else if (p & NUVIO_BTN_LEFT) {
+        m_ep_col = 0;
+    } else if (p & NUVIO_BTN_RIGHT) {
+        m_ep_col = 1;
+    } else if (p & (NUVIO_BTN_UP | NUVIO_BTN_DOWN)) {
+        const int d = (p & NUVIO_BTN_DOWN) ? 1 : -1;
+        if (m_ep_col == 0) {
+            si = std::max(0, std::min((int)ss.size() - 1, si + d));
+            if (ss[si] != m_ep_season) {
+                m_ep_season = ss[si];
+                m_ep_index = 0;
+                m_ep_scroll.snap(0);
             }
-            case 1: s.size_pct = std::max(50, std::min(200, s.size_pct + d * 10)); break;
-            case 2: s.offset_pct = std::max(0.f, std::min(40.f, s.offset_pct + d * 2.f)); break;
-            case 3: {
-                const float steps[] = {0.f, 0.25f, 0.5f, 0.75f};
-                int i = 0;
-                for (int k = 0; k < 4; k++)
-                    if (std::fabs(s.background - steps[k]) < 0.05f)
-                        i = k;
-                s.background = steps[(i + d + 4) % 4];
-                break;
-            }
-            case 4: s.outline = !s.outline; break;
-            }
-            nuvio_subs_set_style(&s);
-            out.push_back({OsdCmd::SubtitleStyle});
+        } else {
+            m_ep_index = std::max(0, std::min((int)eps.size() - 1, m_ep_index + d));
+        }
+    } else if (p & NUVIO_BTN_CROSS) {
+        if (m_ep_col == 0) {
+            m_ep_col = 1;
+        } else if (m_ep_index < (int)eps.size()) {
+            const NuvioEpisode &e = m_req->episodes[eps[m_ep_index]];
+            OsdCommand c{OsdCmd::PlayEpisode};
+            c.season = e.season;
+            c.episode = e.episode;
+            out.push_back(c);
+            m_overlay = Overlay::None;
         }
     }
 }
@@ -318,69 +383,97 @@ void PlayerUi::input(const nuvio_input_state &in, const NuvioStatus &st, std::ve
             out.push_back({OsdCmd::Stop});
         return;
     }
-    if (m_panel) {
-        panel_input(p, st, out);
-        show_controls(now);
+    if (m_overlay == Overlay::Tracks) {
+        tracks_input(p, st, out);
+        return;
+    }
+    if (m_overlay == Overlay::Episodes) {
+        episodes_input(p, out);
+        return;
+    }
+    if (p & (NUVIO_BTN_L1 | NUVIO_BTN_R1)) {   /* quick jumps, as on Netflix: 10 s back / forward */
+        const double from = m_seeking ? m_seek_target : st.position;
+        const double to = from + ((p & NUVIO_BTN_R1) ? 10.0 : -10.0);
+        m_seeking = false;
+        out.push_back({OsdCmd::SeekTo, std::max(0.0, std::min(st.duration - 1, to))});
+        show_controls(now, Zone::Bar);
+        return;
+    }
+    if (p & (NUVIO_BTN_L2 | NUVIO_BTN_R2)) {   /* rewind / fast forward: scrub, faster while held */
+        seek_step((p & NUVIO_BTN_R2) ? 1 : -1, st, now);
+        return;
+    }
+    if (p & NUVIO_BTN_SQUARE) {
+        open_overlay(Overlay::Tracks);
         return;
     }
     const int skip = current_skip(st);
+    const bool on_bar = !m_controls || m_zone == Zone::Bar;
+
     if (p & NUVIO_BTN_CROSS) {
         if (m_seeking) {
             out.push_back({OsdCmd::SeekTo, m_seek_target});
             m_seeking = false;
-        } else if (skip >= 0) {
+        } else if (on_bar && skip >= 0) {
             m_skip_done[skip] = true;
             out.push_back({OsdCmd::SeekTo, m_req->skips[skip].end});
-        } else if (next_card(st)) {
+        } else if (on_bar && next_card(st)) {
             m_card_dismissed = true;
             out.push_back({OsdCmd::PlayNext});
+        } else if (m_controls && m_zone == Zone::Buttons) {
+            const std::vector<Button> bs = buttons();
+            switch (bs[std::min(m_button, (int)bs.size() - 1)]) {
+            case Button::PlayPause:
+                out.push_back({OsdCmd::TogglePause});
+                show_controls(now, Zone::Buttons);
+                break;
+            case Button::Episodes: open_overlay(Overlay::Episodes); break;
+            case Button::Tracks: open_overlay(Overlay::Tracks); break;
+            case Button::Next: out.push_back({OsdCmd::PlayNext}); break;
+            }
         } else {
             out.push_back({OsdCmd::TogglePause});
             m_flash_icon = st.paused ? "play" : "pause";
             a_flash.snap(1.f);
-            show_controls(now);
+            show_controls(now, Zone::Bar);
         }
         return;
     }
     if (p & (NUVIO_BTN_LEFT | NUVIO_BTN_RIGHT)) {
-        seek_step((p & NUVIO_BTN_RIGHT) ? 1 : -1, st, now);
-        return;
-    }
-    if (p & (NUVIO_BTN_L1 | NUVIO_BTN_R1)) {   /* quick jumps: -10 s / +30 s */
-        const double to = st.position + ((p & NUVIO_BTN_R1) ? 30.0 : -10.0);
-        out.push_back({OsdCmd::SeekTo, std::max(0.0, std::min(st.duration - 1, to))});
-        show_controls(now);
+        const int d = (p & NUVIO_BTN_RIGHT) ? 1 : -1;
+        if (m_controls && m_zone == Zone::Buttons) {
+            m_button = std::max(0, std::min((int)buttons().size() - 1, m_button + d));
+            show_controls(now, Zone::Buttons);
+        } else {
+            seek_step(d, st, now);
+        }
         return;
     }
     if (p & NUVIO_BTN_DOWN) {
-        m_panel = true;
-        m_row = -1;
-        m_advanced = false;
-        show_controls(now);
+        if (m_controls && m_zone == Zone::Bar && !m_seeking)
+            m_zone = Zone::Buttons;
+        show_controls(now, Zone::Buttons);
         return;
     }
-    if (p & NUVIO_BTN_SQUARE) {   /* straight to the subtitles */
-        m_panel = true;
-        const std::vector<Tab> ts = tabs();
-        m_tab = (int)(std::find(ts.begin(), ts.end(), TabSubs) - ts.begin());
-        m_row = 0;
-        show_controls(now);
+    if (p & NUVIO_BTN_UP) {
+        if (m_controls && m_zone == Zone::Buttons)
+            m_zone = Zone::Bar;
+        show_controls(now, Zone::Bar);
         return;
     }
-    if (p & (NUVIO_BTN_UP | NUVIO_BTN_OPTIONS | NUVIO_BTN_TOUCHPAD)) {
-        show_controls(now);
+    if (p & (NUVIO_BTN_OPTIONS | NUVIO_BTN_TOUCHPAD)) {
+        show_controls(now, Zone::Buttons);
         return;
     }
     if (p & NUVIO_BTN_CIRCLE) {
-        if (m_seeking) {
+        if (m_seeking)
             m_seeking = false;                 /* cancel the scrub */
-        } else if (next_card(st)) {
+        else if (next_card(st))
             m_card_dismissed = true;           /* watch the credits */
-        } else if (m_controls && !st.paused) {
-            m_controls = false;                /* first Back hides, as on Apple TV */
-        } else {
+        else if (m_controls && !st.paused)
+            m_controls = false;                /* first Back hides */
+        else
             out.push_back({OsdCmd::Stop});
-        }
     }
 }
 
@@ -389,19 +482,146 @@ bool PlayerUi::wants_frame(const NuvioStatus &st)
     if (m_dirty)
         return true;
     const bool moving = a_controls.value != a_controls.target || a_loading.value != a_loading.target ||
-                        a_panel.value != a_panel.target || a_skip.value != a_skip.target ||
+                        a_overlay.value != a_overlay.target || a_skip.value != a_skip.target ||
                         a_next.value != a_next.target || a_spinner.value != a_spinner.target ||
                         a_toast.value != a_toast.target || a_error.value != a_error.target ||
-                        a_flash.value > 0.f;
-    /* Paused with the controls up, the clock and countdowns still tick. */
+                        a_flash.value > 0.f || m_ep_scroll.value != m_ep_scroll.target;
     static double last_second = 0;
     const bool second = std::floor(st.now) != std::floor(last_second);
     last_second = st.now;
+    /* art::animating(): an image still loading or fading in (the episode stills). */
     return moving || m_seeking || (second && (m_controls || m_card_since >= 0)) || a_loading.value > 0.f ||
-           st.buffering;
+           st.buffering || ((m_overlay != Overlay::None || a_next.value > 0.f) && art::animating());
 }
 
 /* ---- drawing ---------------------------------------------------------------------- */
+
+/* A glass panel over the dimmed picture (the app's look). */
+static void glass(const gfx::Rect &r, float a)
+{
+    gfx::shadow(r, 28, 46, 0.7f * a, 18);
+    gfx::fill(r, alpha(0xdc1c1c22u, a), 28);
+    gfx::fill({r.x, r.y, r.w, 1.5f}, alpha(0x24ffffffu, a));   /* a hairline of light on top */
+}
+
+void PlayerUi::draw_bar(const NuvioStatus &st, float a)
+{
+    const float x0 = kPad, x1 = W - kPad - 150, w = x1 - x0;
+    const double d = st.duration > 0 ? st.duration : 1;
+    const double pos = m_seeking ? m_seek_target : st.position;
+    const bool focus = m_zone == Zone::Bar || m_seeking;
+    const float h = focus ? 12.f : 8.f;
+    const float y = kBarY - h / 2;
+    gfx::fill({x0, y, w, h}, alpha(0x38ffffffu, a), h / 2);
+    gfx::fill({x0, y, w * (float)std::min(1.0, st.buffered / d), h}, alpha(0x47ffffffu, a), h / 2);
+    for (const NuvioSkip &k : m_req->skips) {   /* intro, recap, credits */
+        const float sx = x0 + w * (float)(k.start / d), ex = x0 + w * (float)(std::min(k.end, d) / d);
+        gfx::fill({sx, y, std::max(2.f, ex - sx), h}, alpha(0x8c00a4dcu, a), 0);
+    }
+    const float px = x0 + w * (float)std::min(1.0, pos / d);
+    gfx::fill({x0, y, px - x0, h}, alpha(0xffffffffu, a), h / 2);
+    const float hd = focus ? (m_seeking ? 34.f : 28.f) : 18.f;
+    gfx::shadow({px - hd / 2, kBarY - hd / 2, hd, hd}, hd / 2, 10, 0.5f * a, 2);
+    gfx::fill({px - hd / 2, kBarY - hd / 2, hd, hd}, alpha(0xffffffffu, a), hd / 2);
+    gfx::text(W - kPad, kBarY + 9, "\xE2\x88\x92" + fmt_time(d - pos), {gfx::SemiBold, 26}, alpha(kText, a), 2);
+
+    if (m_seeking) {   /* the time under the playhead */
+        const float bx = std::max(x0 + 80, std::min(x1 - 80, px));
+        const std::string t = fmt_time(pos);
+        const gfx::TextStyle bs{gfx::Bold, 28};
+        const float tw = gfx::text_width(t, bs) + 36;
+        const gfx::Rect r{bx - tw / 2, kBarY - 84, tw, 52};
+        glass(r, a);
+        gfx::text(bx, r.y + 37, t, bs, alpha(kText, a), 1);
+    }
+}
+
+void PlayerUi::draw_controls(const NuvioStatus &st)
+{
+    const float a = smoothstep(a_controls.value);
+    if (a <= 0.f)
+        return;
+    gfx::fill_vgradient({0, 0, W, 240}, alpha(0x99000000u, a), 0x00000000u);
+    gfx::fill_vgradient({0, H - 420, W, 420}, 0x00000000u, alpha(0xe0000000u, a));
+
+    /* Top: the logo and the clock. */
+    if (const gfx::Texture *logo = m_req->logo.empty() ? nullptr : art::get(m_req->logo, 800, 300)) {
+        const float iw = (float)gfx::texture_width(logo), ih = (float)gfx::texture_height(logo);
+        const float k = std::min(300.f / iw, 84.f / ih);
+        gfx::image({kPad, 60 + (84 - ih * k), iw * k, ih * k}, logo, a, 0, false);
+    }
+    if (m_req->prefs.show_clock)
+        gfx::text(W - kPad, 104, clock_at(0), {gfx::SemiBold, 28}, alpha(kText2, a), 2);
+
+    /* Bottom: the title line, with the end time on the right. */
+    const float ty = kBarY - 52;
+    float x = kPad;
+    x += gfx::text(x, ty, m_req->header_title(), {gfx::Bold, 30, 900}, alpha(kText, a));
+    std::string sub;
+    if (m_req->season > 0 && m_req->episode > 0) {
+        char b[64];
+        std::snprintf(b, sizeof b, "S%d:E%d", m_req->season, m_req->episode);
+        sub = b;
+        if (!m_req->episode_title.empty())
+            sub += " \xC2\xB7 " + m_req->episode_title;
+    }
+    if (!sub.empty())
+        gfx::text(x + 18, ty, sub, {gfx::Medium, 26, W - x - 500}, alpha(kText2, a));
+    if (st.duration > 0)
+        gfx::text(W - kPad, ty, "Slutter kl. " + clock_at(st.duration - st.position), {gfx::Medium, 22},
+                  alpha(kText3, a), 2);
+
+    draw_bar(st, a);
+
+    /* The button row (Netflix TV): icon + label pills, the focused one white. */
+    const std::vector<Button> bs = buttons();
+    m_button = std::min(m_button, (int)bs.size() - 1);
+    float bx = kPad - 14;
+    const float by = H - 128, bh = 60;
+    for (size_t i = 0; i < bs.size(); i++) {
+        std::string label;
+        switch (bs[i]) {
+        case Button::PlayPause: label = st.paused ? "Spill av" : "Pause"; break;
+        case Button::Episodes: label = "Episoder"; break;
+        case Button::Tracks: label = "Lyd og undertekster"; break;
+        case Button::Next: label = "Neste episode"; break;
+        }
+        const gfx::TextStyle ls{gfx::SemiBold, 23};
+        const float bw = 26 + 28 + 12 + gfx::text_width(label, ls) + 26;
+        const bool focus = m_zone == Zone::Buttons && (int)i == m_button;
+        const gfx::Rect r{bx, by, bw, bh};
+        if (focus) {
+            gfx::shadow(r, bh / 2, 20, 0.45f * a, 8);
+            gfx::fill(r, alpha(0xfff5f5f7u, a), bh / 2);
+        }
+        const uint32_t fg = alpha(focus ? 0xff0b0b0fu : kText2, a);
+        const float ix = r.x + 26, cy = r.y + bh / 2;
+        switch (bs[i]) {
+        case Button::PlayPause:
+            if (st.paused)
+                play_glyph(ix + 4, cy, 20, fg);
+            else
+                pause_glyph(ix + 12, cy, 20, fg);
+            break;
+        case Button::Episodes:   /* a stack of cards */
+            gfx::fill({ix + 4, cy - 11, 22, 3}, fg, 1.5f);
+            gfx::fill({ix + 1, cy - 6, 28, 17}, fg, 3);
+            break;
+        case Button::Tracks:     /* a speech bubble with lines */
+            gfx::fill({ix, cy - 11, 30, 21}, fg, 5);
+            gfx::fill({ix + 5, cy + 9, 7, 6}, fg, 1);
+            gfx::fill({ix + 6, cy - 5, 18, 2.5f}, alpha(focus ? 0xfff5f5f7u : 0xff141418u, a), 1);
+            gfx::fill({ix + 6, cy + 1, 12, 2.5f}, alpha(focus ? 0xfff5f5f7u : 0xff141418u, a), 1);
+            break;
+        case Button::Next:
+            play_glyph(ix + 2, cy, 18, fg);
+            gfx::fill({ix + 22, cy - 10, 4, 20}, fg, 1);
+            break;
+        }
+        gfx::text(ix + 28 + 12, cy + 8, label, ls, fg);
+        bx += bw + 8;
+    }
+}
 
 void PlayerUi::draw_loading(const NuvioStatus &st)
 {
@@ -442,85 +662,6 @@ void PlayerUi::draw_loading(const NuvioStatus &st)
     gfx::pop_opacity();
 }
 
-void PlayerUi::draw_bar(const NuvioStatus &st, float a)
-{
-    const float x0 = kPad, w = W - 2 * kPad;
-    const double d = st.duration > 0 ? st.duration : 1;
-    const double pos = m_seeking ? m_seek_target : st.position;
-    const float h = m_seeking ? 14.f : kBarH;
-    const float y = kBarY - h / 2;
-    gfx::fill({x0, y, w, h}, alpha(0x38ffffffu, a), h / 2);
-    gfx::fill({x0, y, w * (float)std::min(1.0, st.buffered / d), h}, alpha(0x47ffffffu, a), h / 2);
-    for (const NuvioSkip &k : m_req->skips) {   /* intro, recap, credits */
-        const float sx = x0 + w * (float)(k.start / d), ex = x0 + w * (float)(std::min(k.end, d) / d);
-        gfx::fill({sx, y, std::max(2.f, ex - sx), h}, alpha(0x8c00a4dcu, a), 0);
-    }
-    const float px = x0 + w * (float)std::min(1.0, pos / d);
-    gfx::fill({x0, y, px - x0, h}, alpha(0xffffffffu, a), h / 2);
-    const float hd = m_seeking ? 34.f : 26.f;
-    gfx::shadow({px - hd / 2, kBarY - hd / 2, hd, hd}, hd / 2, 10, 0.5f * a, 2);
-    gfx::fill({px - hd / 2, kBarY - hd / 2, hd, hd}, alpha(0xffffffffu, a), hd / 2);
-
-    /* Elapsed · ends at · remaining (concept .times). */
-    const gfx::TextStyle ts{gfx::SemiBold, 24};
-    gfx::text(x0, H - 62, fmt_time(pos), ts, alpha(kText2, a));
-    gfx::text(x0 + w, H - 62, "\xE2\x88\x92" + fmt_time(d - pos), ts, alpha(kText2, a), 2);
-    if (st.duration > 0)
-        gfx::text(W / 2, H - 62, "Slutter kl. " + clock_at(d - pos), {gfx::Medium, 24}, alpha(kText3, a), 1);
-
-    /* The scrub bubble: time (and a trickplay frame when the server has them). */
-    if (m_seeking) {
-        const float bx = std::max(x0 + 80, std::min(x0 + w - 80, px));
-        const std::string t = fmt_time(pos);
-        const gfx::TextStyle bs{gfx::Bold, 28};
-        const float tw = gfx::text_width(t, bs) + 32;
-        const gfx::Rect r{bx - tw / 2, kBarY - 80, tw, 50};
-        gfx::fill(r, alpha(0xd9000000u, a), 12);
-        gfx::text(bx, r.y + 36, t, bs, alpha(kText, a), 1);
-    }
-}
-
-void PlayerUi::draw_controls(const NuvioStatus &st)
-{
-    const float a = smoothstep(a_controls.value);
-    if (a <= 0.f)
-        return;
-    gfx::fill_vgradient({0, 0, W, 260}, alpha(0xb3000000u, a), 0x00000000u);
-    gfx::fill_vgradient({0, H - 340, W, 340}, 0x00000000u, alpha(0xd9000000u, a));
-
-    /* Top: the logo (or the title) and the episode line; the clock. */
-    float sub_y = 160;
-    if (const gfx::Texture *logo = m_req->logo.empty() ? nullptr : art::get(m_req->logo, 800, 300)) {
-        const float iw = (float)gfx::texture_width(logo), ih = (float)gfx::texture_height(logo);
-        const float k = std::min(420.f / iw, 110.f / ih);
-        gfx::image({kPad, 70 + (110 - ih * k), iw * k, ih * k}, logo, a, 0, false);
-        sub_y = 222;
-    } else {
-        gfx::text(kPad, 118, m_req->header_title(), {gfx::Bold, 44, 1100}, alpha(kText, a));
-    }
-    std::string sub;
-    if (m_req->season > 0 && m_req->episode > 0) {
-        char b[64];
-        std::snprintf(b, sizeof b, "S%d:E%d", m_req->season, m_req->episode);
-        sub = b;
-        if (!m_req->episode_title.empty())
-            sub += " \xC2\xB7 " + m_req->episode_title;
-    } else {
-        sub = m_req->year;
-        if (!m_req->runtime.empty())
-            sub += (sub.empty() ? "" : " \xC2\xB7 ") + m_req->runtime;
-    }
-    gfx::text(kPad, sub_y, sub, {gfx::Medium, 25, 1100}, alpha(kText2, a));
-    if (m_req->prefs.show_clock)
-        gfx::text(W - kPad, 108, clock_at(0), {gfx::SemiBold, 28}, alpha(kText2, a), 2);
-
-    /* Play state, left of the bar's start; hints on the right. */
-    if (st.paused)
-        play_glyph(kPad, kBarY - 58, 22, alpha(kText, a));
-    gfx::text(W - kPad, kBarY - 44, "\xE2\x86\x93 Info, lyd og undertekster", {gfx::Medium, 20}, alpha(kText3, a), 2);
-    draw_bar(st, a);
-}
-
 void PlayerUi::draw_skip_next(const NuvioStatus &st)
 {
     /* Skip intro / recap: a white pill, Cross acts (concept .skip.focus). */
@@ -533,7 +674,7 @@ void PlayerUi::draw_skip_next(const NuvioStatus &st)
                     : m_req->skips[k].type == "preview" ? "Hopp over forhåndsvisning" : "Hopp over intro";
         const gfx::TextStyle st2{gfx::Bold, 26};
         const float w = gfx::text_width(label, st2) + 72;
-        const float y = H - 200 - (1.f - a_skip.value) * 20 - (m_controls ? 30 : 0);
+        const float y = H - 350 - (1.f - a_skip.value) * 20 + (m_controls ? 0 : 200);
         const gfx::Rect r{W - kPad - w, y, w, 72};
         gfx::push_opacity(a_skip.value);
         gfx::shadow(r, 14, 24, 0.5f, 10);
@@ -547,11 +688,10 @@ void PlayerUi::draw_skip_next(const NuvioStatus &st)
     a_next.to(card ? 1.f : 0.f);
     if (a_next.value > 0.01f && m_req->has_next) {
         const NuvioEpisode &n = m_req->next;
-        const gfx::Rect r{W - kPad - 560, H - 230 - (1.f - a_next.value) * 20 - (m_controls ? 40 : 0), 560, 156};
+        const gfx::Rect r{W - kPad - 560, H - 440 - (1.f - a_next.value) * 20 + (m_controls ? 0 : 290), 560, 156};
         gfx::push_opacity(a_next.value);
-        gfx::shadow(r, 20, 30, 0.6f, 12);
-        gfx::fill(r, kGlass, 20);
-        art::draw({r.x + 18, r.y + 18, 213, 120}, n.thumbnail, "", 480, 270, 10);
+        glass(r, 1.f);
+        art::draw({r.x + 18, r.y + 18, 213, 120}, n.thumbnail, n.blurhash, 480, 270, 10);
         const float tx = r.x + 250;
         gfx::text(tx, r.y + 44, "NESTE EPISODE", {gfx::Bold, 17}, kText3);
         char title[256];
@@ -571,120 +711,191 @@ void PlayerUi::draw_skip_next(const NuvioStatus &st)
     }
 }
 
-void PlayerUi::draw_panel(const NuvioStatus &st)
+/* Lyd og undertekster: a glass panel with an audio column and a subtitle
+ * column; "Tilpass undertekster" opens style and timing in a third. */
+void PlayerUi::draw_tracks(const NuvioStatus &st, float a)
 {
-    a_panel.to(m_panel ? 1.f : 0.f);
-    const float a = smoothstep(a_panel.value);
-    if (a <= 0.01f)
-        return;
-    const std::vector<Tab> ts = tabs();
-    const int tab_i = std::min(m_tab, (int)ts.size() - 1);
-    const Tab tab = ts[tab_i];
-    const float pw = 1100, ph = 560;
-    const gfx::Rect r{W / 2 - pw / 2, 60 - (1.f - a) * (ph + 80), pw, ph};
-    gfx::push_opacity(a);
-    gfx::fill({0, 0, W, H}, 0x59000000u);   /* the picture dims behind the panel */
-    gfx::shadow(r, 28, 40, 0.7f, 16);
-    gfx::fill(r, kGlass, 28);
+    const gfx::Rect r{160, 120, W - 320, H - 240};
+    glass(r, a);
+    gfx::text(r.x + 56, r.y + 86, "Lyd og undertekster", {gfx::Bold, 40}, alpha(kText, a));
 
-    /* Tabs. */
-    static const char *const names[] = {"Info", "Lyd", "Undertekster", "Episoder"};
-    float x = r.x + 40;
-    for (size_t i = 0; i < ts.size(); i++) {
-        const gfx::TextStyle st2{gfx::SemiBold, 24};
-        const float w = gfx::text_width(names[ts[i]], st2) + 52;
-        const bool active = (int)i == tab_i, focus = active && m_row < 0;
-        gfx::fill({x, r.y + 34, w, 54}, focus ? 0xfff5f5f7u : active ? 0x33ffffffu : 0x14ffffffu, 27);
-        gfx::text(x + w / 2, r.y + 69, names[ts[i]], st2, focus ? 0xff0b0b0fu : active ? kText : kText2, 1);
-        x += w + 10;
-    }
+    const float top = r.y + 150, row_h = 62;
+    const int visible = 10;
+    const float cols[3] = {r.x + 56, r.x + 640, r.x + 1180};
+    const float widths[3] = {520, 480, 380};
+    const char *heads[3] = {"Lyd", "Undertekster", "Tilpass"};
+    for (int c = 0; c < (m_style_open ? 3 : 2); c++)
+        gfx::text(cols[c] + 18, top, heads[c], {gfx::SemiBold, 22}, alpha(kText3, a));
 
-    const float lx = r.x + 40, lw = pw - 80, ly = r.y + 120, row_h = 58;
-    const int visible = 7;
-    if (m_row >= 0) {
-        if (m_row < m_scroll)
-            m_scroll = m_row;
-        if (m_row >= m_scroll + visible)
-            m_scroll = m_row - visible + 1;
-    } else {
-        m_scroll = 0;
-    }
-    auto row = [&](int i, const std::string &label, const std::string &right, bool selected, bool dim = false) {
-        if (i < m_scroll || i >= m_scroll + visible)
-            return;
-        const float y = ly + (i - m_scroll) * (row_h + 4);
-        const bool focus = i == m_row;
-        if (focus)
-            gfx::fill({lx, y, lw, row_h}, 0xfff5f5f7u, 12);
-        const uint32_t fg = focus ? 0xff0b0b0fu : dim ? kText3 : kText2;
-        gfx::text(lx + 22, y + 38, label, {selected ? gfx::Bold : gfx::Medium, 24, lw - 260}, fg);
-        if (!right.empty())
-            gfx::text(lx + lw - 22 - (selected ? 34 : 0), y + 38, right, {gfx::Medium, 21}, focus ? 0x990b0b0fu : kText3, 2);
-        if (selected)
-            gfx::text(lx + lw - 22, y + 38, "\xE2\x9C\x93", {gfx::Bold, 24}, focus ? 0xff0b0b0fu : kText, 2);
+    auto column = [&](int c, int n, auto label_of) {
+        int &sel_row = m_rows[c];
+        sel_row = std::max(0, std::min(std::max(0, n - 1), sel_row));
+        const int first = std::max(0, std::min(sel_row - visible / 2, n - visible));
+        for (int i = first; i < n && i < first + visible; i++) {
+            std::string label, right;
+            bool selected = false, dim = false;
+            label_of(i, label, right, selected, dim);
+            const float y = top + 30 + (i - first) * (row_h + 4);
+            const bool focus = c == m_col && i == sel_row;
+            if (focus) {
+                gfx::shadow({cols[c], y, widths[c], row_h}, 14, 16, 0.4f * a, 6);
+                gfx::fill({cols[c], y, widths[c], row_h}, alpha(0xfff5f5f7u, a), 14);
+            }
+            const uint32_t fg = focus ? 0xff0b0b0fu : selected ? kText : dim ? kText3 : kText2;
+            float lx = cols[c] + 18;
+            if (selected) {   /* a check, drawn: two bars */
+                gfx::fill({lx, y + row_h / 2 - 1, 8, 3}, alpha(fg, a), 1.5f);
+                gfx::fill({lx + 6, y + row_h / 2 - 8, 3, 13}, alpha(fg, a), 1.5f);
+            }
+            lx += 28;
+            gfx::text(lx, y + 40, label, {selected ? gfx::Bold : gfx::Medium, 25, widths[c] - 60 - (right.empty() ? 0 : 150)},
+                      alpha(fg, a));
+            if (!right.empty())
+                gfx::text(cols[c] + widths[c] - 18, y + 39, right, {gfx::Medium, 20},
+                          alpha(focus ? 0x990b0b0fu : kText3, a), 2);
+        }
     };
 
-    if (tab == TabInfo) {
-        const std::string title = m_req->header_title() +
-                                  (m_req->header_subtitle().empty() ? "" : "  \xC2\xB7  " + m_req->header_subtitle());
-        gfx::text(lx, ly + 30, title, {gfx::Bold, 28, lw}, kText);
-        gfx::text(lx, ly + 76, m_req->description, {gfx::Regular, 22, lw, 4, 32}, kText2);
-        gfx::text(lx, ly + 240, "Avspilling", {gfx::SemiBold, 20}, kText3);
-        gfx::text(lx, ly + 272, m_req->stream_title, {gfx::Medium, 22, lw}, kText);
-        if (!st.quality_line.empty())
-            gfx::text(lx, ly + 306, st.quality_line, {gfx::Medium, 22, lw}, kText2);
-    } else if (tab == TabAudio) {
-        if (st.audio.empty())
-            gfx::text(lx, ly + 40, "Ingen andre lydspor", {gfx::Medium, 24}, kText3);
-        for (size_t i = 0; i < st.audio.size(); i++) {
-            const NuvioAudioTrack &t = st.audio[i];
-            std::string label = language_name(t.lang);
-            if (!t.title.empty() && t.title != t.codec)
-                label += "  \xC2\xB7  " + t.title;
-            row((int)i, label, t.codec + (t.channels.empty() ? "" : " " + t.channels), (int)i == st.audio_active);
+    /* Audio. */
+    const int na = (int)st.audio.size();
+    if (na == 0)
+        gfx::text(cols[0] + 18, top + 72, "Ingen andre lydspor", {gfx::Medium, 24}, alpha(kText3, a));
+    column(0, na, [&](int i, std::string &label, std::string &right, bool &sel, bool &) {
+        const NuvioAudioTrack &t = st.audio[i];
+        label = language_name(t.lang);
+        if (!t.title.empty() && t.title != t.codec)
+            label += " \xC2\xB7 " + t.title;
+        right = t.codec + (t.channels.empty() ? "" : " " + t.channels);
+        sel = i == st.audio_active;
+    });
+
+    /* Subtitles: Av, the tracks, then "Tilpass undertekster". */
+    const int ns = nuvio_subs_count(), cur = nuvio_subs_selected();
+    column(1, ns + 2, [&](int i, std::string &label, std::string &right, bool &sel, bool &dim) {
+        if (i == 0) {
+            label = "Av";
+            sel = cur < 0;
+            return;
         }
-    } else if (tab == TabSubs) {
-        const int n = nuvio_subs_count(), sel = nuvio_subs_selected();
-        row(0, "Av", "", sel < 0);
-        for (int i = 0; i < n; i++) {
-            nuvio_sub_track t;
-            if (nuvio_subs_track(i, &t) != 0)
-                continue;
-            std::string label = language_name(t.lang);
-            std::string right;
-            if (t.forced) right += "Tvungen  ";
-            if (t.hearing_impaired) right += "SDH  ";
-            if (t.bitmap) right += "Bilde  ";
-            if (t.external) right += "Ekstern  ";
-            if (t.title[0] && std::string(t.title) != label)
-                label += "  \xC2\xB7  " + std::string(t.title);
-            row(i + 1, label, right, i == sel, t.state < 0);
+        if (i == ns + 1) {
+            label = "Tilpass undertekster \xE2\x80\xBA";
+            return;
         }
-        row(n + 1, m_advanced ? "Avansert  \xE2\x96\xB4" : "Avansert  \xE2\x96\xBE", "Stil og timing", false);
-        if (m_advanced) {
-            nuvio_sub_style s;
-            nuvio_subs_get_style(&s);
-            char v[64];
-            std::snprintf(v, sizeof v, "\xE2\x80\xB9  %+.1f s  \xE2\x80\xBA", nuvio_subs_delay_ms() / 1000.0);
-            row(n + 2, "Forsinkelse", v, false);
-            std::snprintf(v, sizeof v, "\xE2\x80\xB9  %d %%  \xE2\x80\xBA", s.size_pct);
-            row(n + 3, "Størrelse", v, false);
-            std::snprintf(v, sizeof v, "\xE2\x80\xB9  %.0f %%  \xE2\x80\xBA", s.offset_pct);
-            row(n + 4, "Posisjon", v, false);
-            std::snprintf(v, sizeof v, "\xE2\x80\xB9  %s  \xE2\x80\xBA", s.background < 0.05f ? "Av" : (std::to_string((int)(s.background * 100)) + " %").c_str());
-            row(n + 5, "Bakgrunn", v, false);
-            row(n + 6, "Kontur", s.outline ? "På" : "Av", false);
-        }
-    } else if (tab == TabEpisodes) {
-        for (size_t i = 0; i < m_req->episodes.size(); i++) {
-            const NuvioEpisode &e = m_req->episodes[i];
-            char label[300];
-            std::snprintf(label, sizeof label, "%d. %s", e.episode, e.title.c_str());
-            const bool here = e.season == m_req->season && e.episode == m_req->episode;
-            row((int)i, label, e.watched ? "Sett" : "", here);
-        }
+        nuvio_sub_track t;
+        if (nuvio_subs_track(i - 1, &t) != 0)
+            return;
+        label = language_name(t.lang);
+        if (t.title[0] && std::string(t.title) != label)
+            label += " \xC2\xB7 " + std::string(t.title);
+        if (t.forced) right += "Tvungen ";
+        if (t.hearing_impaired) right += "SDH ";
+        if (t.bitmap) right += "Bilde ";
+        if (t.external) right += "Ekstern";
+        sel = i - 1 == cur;
+        dim = t.state < 0;
+    });
+
+    /* Style and timing. */
+    if (m_style_open) {
+        nuvio_sub_style s;
+        nuvio_subs_get_style(&s);
+        column(2, 5, [&](int i, std::string &label, std::string &right, bool &, bool &) {
+            char v[48];
+            switch (i) {
+            case 0: label = "Forsinkelse"; std::snprintf(v, sizeof v, "\xE2\x80\xB9 %+.1f s \xE2\x80\xBA", nuvio_subs_delay_ms() / 1000.0); break;
+            case 1: label = "Størrelse"; std::snprintf(v, sizeof v, "\xE2\x80\xB9 %d %% \xE2\x80\xBA", s.size_pct); break;
+            case 2: label = "Posisjon"; std::snprintf(v, sizeof v, "\xE2\x80\xB9 %.0f %% \xE2\x80\xBA", s.offset_pct); break;
+            case 3:
+                label = "Bakgrunn";
+                if (s.background < 0.05f)
+                    std::snprintf(v, sizeof v, "\xE2\x80\xB9 Av \xE2\x80\xBA");
+                else
+                    std::snprintf(v, sizeof v, "\xE2\x80\xB9 %d %% \xE2\x80\xBA", (int)(s.background * 100));
+                break;
+            default: label = "Kontur"; std::snprintf(v, sizeof v, "%s", s.outline ? "På" : "Av"); break;
+            }
+            right = v;
+        });
     }
-    gfx::pop_opacity();
+    gfx::text(r.x + 56, r.y + r.h - 40, "\xE2\x97\x8B lukk", {gfx::Medium, 20}, alpha(kText3, a));
+}
+
+/* Episoder: seasons on the left, the season's episodes as a list of stills
+ * with title, runtime, synopsis and progress; "Spiller nå" on this one. */
+void PlayerUi::draw_episodes(float a, float dt)
+{
+    const gfx::Rect r{160, 120, W - 320, H - 240};
+    glass(r, a);
+    gfx::text(r.x + 56, r.y + 86, "Episoder", {gfx::Bold, 40}, alpha(kText, a));
+    gfx::text(r.x + 56 + gfx::text_width("Episoder", {gfx::Bold, 40}) + 22, r.y + 86, m_req->header_title(),
+              {gfx::Medium, 26, 900}, alpha(kText3, a));
+
+    const std::vector<int> ss = seasons();
+    const float top = r.y + 140;
+    for (size_t i = 0; i < ss.size() && i < 12; i++) {
+        char label[32];
+        if (ss[i] == 0)
+            std::snprintf(label, sizeof label, "Spesialer");
+        else
+            std::snprintf(label, sizeof label, "Sesong %d", ss[i]);
+        const float y = top + i * 66;
+        const bool active = ss[i] == m_ep_season, focus = active && m_ep_col == 0;
+        if (focus)
+            gfx::fill({r.x + 40, y, 280, 58}, alpha(0xfff5f5f7u, a), 14);
+        else if (active)
+            gfx::fill({r.x + 40, y, 280, 58}, alpha(0x24ffffffu, a), 14);
+        gfx::text(r.x + 64, y + 38, label, {active ? gfx::Bold : gfx::Medium, 25},
+                  alpha(focus ? 0xff0b0b0fu : active ? kText : kText2, a));
+    }
+
+    const std::vector<int> eps = episodes_in(m_ep_season);
+    const float lx = r.x + 360, lw = r.w - 400, row_h = 178;
+    const float view_h = r.h - 180;
+    m_ep_index = std::min(m_ep_index, std::max(0, (int)eps.size() - 1));
+    m_ep_scroll.to(std::max(0.f, std::min(std::max(0.f, eps.size() * row_h - view_h), (m_ep_index - 1) * row_h)));
+    m_ep_scroll.step(dt, 12.f);
+    gfx::push_scissor({lx - 20, top - 10, lw + 40, view_h + 10});
+    for (size_t i = 0; i < eps.size(); i++) {
+        const float y = top + i * row_h - m_ep_scroll.value;
+        if (y > top + view_h || y + row_h < top - 10)
+            continue;
+        const NuvioEpisode &e = m_req->episodes[eps[i]];
+        const bool focus = m_ep_col == 1 && (int)i == m_ep_index;
+        const bool here = e.season == m_req->season && e.episode == m_req->episode;
+        const gfx::Rect row{lx, y, lw, row_h - 14};
+        if (focus) {
+            gfx::shadow(row, 18, 20, 0.45f * a, 8);
+            gfx::fill(row, alpha(0x2effffffu, a), 18);
+            gfx::fill({row.x, row.y, 4, row.h}, alpha(0xfff5f5f7u, a), 2);
+        }
+        const gfx::Rect th{lx + 18, y + 12, 250, 140};
+        gfx::push_opacity(a);
+        art::draw(th, e.thumbnail, e.blurhash, 480, 270, 10);
+        if (e.progress > 0 && e.progress < 100) {
+            gfx::fill({th.x + 10, th.y + th.h - 14, th.w - 20, 5}, 0x47ffffffu, 2.5f);
+            gfx::fill({th.x + 10, th.y + th.h - 14, (th.w - 20) * (float)(e.progress / 100), 5}, 0xffffffffu, 2.5f);
+        }
+        gfx::pop_opacity();
+        const float tx = th.x + th.w + 26;
+        char title[300];
+        std::snprintf(title, sizeof title, "%d. %s", e.episode, e.title.c_str());
+        float hx = tx + gfx::text(tx, y + 48, title, {gfx::Bold, 26, lw - 520}, alpha(focus ? kText : kText2, a));
+        if (here) {
+            gfx::fill({hx + 14, y + 24, 128, 30}, alpha(0xe600a4dcu, a), 15);
+            gfx::text(hx + 78, y + 46, "SPILLER NÅ", {gfx::Bold, 16}, alpha(kText, a), 1);
+        } else if (e.watched) {
+            gfx::fill({hx + 14, y + 24, 62, 30}, alpha(0x33ffffffu, a), 15);
+            gfx::text(hx + 45, y + 46, "Sett", {gfx::SemiBold, 17}, alpha(kText, a), 1);
+        }
+        gfx::text(lx + lw - 24, y + 48, e.runtime, {gfx::Medium, 20}, alpha(kText3, a), 2);
+        gfx::text(tx, y + 88, e.overview.empty() ? "Ingen beskrivelse." : e.overview,
+                  {gfx::Regular, 21, lw - 320, 2, 30}, alpha(kText3, a));
+    }
+    gfx::pop_scissor();
+    if (eps.empty())
+        gfx::text(lx, top + 50, "Ingen episoder i denne sesongen.", {gfx::Medium, 24}, alpha(kText3, a));
+    gfx::text(r.x + 56, r.y + r.h - 40, "\xE2\x9C\x95 spill av   \xC2\xB7   \xE2\x97\x8B lukk", {gfx::Medium, 20},
+              alpha(kText3, a));
 }
 
 void PlayerUi::draw_error(const NuvioStatus &st)
@@ -709,12 +920,15 @@ void PlayerUi::draw(const NuvioStatus &st)
     const float dt = (float)std::min(0.1, std::max(0.0, st.now - m_last));
     m_last = st.now;
     m_dirty = false;
+    art::tick();   /* the player's loop owns the frame: uploads and eviction run here */
 
+    const bool overlay = m_overlay != Overlay::None;
     a_loading.to(st.started || !st.error.empty() ? 0.f : 1.f);
     a_loading.step(dt, 8.f);
-    a_controls.to(m_controls || m_seeking || m_panel || st.paused ? 1.f : 0.f);
+    a_controls.to((m_controls || m_seeking || st.paused) && !overlay ? 1.f : 0.f);
     a_controls.step(dt, 12.f);
-    a_panel.step(dt, 12.f);
+    a_overlay.to(overlay ? 1.f : 0.f);
+    a_overlay.step(dt, 12.f);
     a_skip.step(dt, 12.f);
     a_next.step(dt, 10.f);
     a_error.step(dt, 10.f);
@@ -724,13 +938,14 @@ void PlayerUi::draw(const NuvioStatus &st)
     a_toast.step(dt, 10.f);
     a_flash.to(0.f);
     a_flash.step(dt, 4.f);
+    m_ep_scroll.step(dt, 12.f);
 
     draw_loading(st);
     draw_controls(st);
-    draw_skip_next(st);
+    if (!overlay)
+        draw_skip_next(st);
 
-    /* Play / pause flash in the centre (concept .center-ico). */
-    if (a_flash.value > 0.01f) {
+    if (a_flash.value > 0.01f) {   /* play / pause, flashed in the centre */
         const float k = 0.85f + 0.15f * a_flash.value, d = 140 * k;
         gfx::push_opacity(a_flash.value);
         gfx::fill({W / 2 - d / 2, H / 2 - d / 2, d, d}, 0x8c000000u, d / 2);
@@ -741,8 +956,7 @@ void PlayerUi::draw(const NuvioStatus &st)
         gfx::pop_opacity();
     }
 
-    /* Buffering: twelve dots chasing round (the Apple TV spinner). */
-    if (a_spinner.value > 0.01f) {
+    if (a_spinner.value > 0.01f) {   /* twelve dots chasing round */
         gfx::push_opacity(a_spinner.value);
         for (int i = 0; i < 12; i++) {
             const float ang = (float)i / 12.f * 6.2832f;
@@ -753,18 +967,27 @@ void PlayerUi::draw(const NuvioStatus &st)
         gfx::pop_opacity();
     }
 
-    draw_panel(st);
+    /* Overlays: the picture dims, a glass panel rises into place. */
+    const float oa = smoothstep(a_overlay.value);
+    if (oa > 0.01f) {
+        gfx::fill({0, 0, W, H}, alpha(0x8c000000u, oa));
+        gfx::push_opacity(1.f);
+        if (m_overlay_drawn == Overlay::Tracks)
+            draw_tracks(st, oa);
+        else if (m_overlay_drawn == Overlay::Episodes)
+            draw_episodes(oa, dt);
+        gfx::pop_opacity();
+    }
 
     if (a_toast.value > 0.01f && !m_toast.empty()) {
         const gfx::TextStyle ts{gfx::SemiBold, 22};
         const float w = gfx::text_width(m_toast, ts) + 60;
         const gfx::Rect r{W / 2 - w / 2, 50 - (1.f - a_toast.value) * 20, w, 58};
         gfx::push_opacity(a_toast.value);
-        gfx::fill(r, kGlass, 29);
+        glass(r, 1.f);
         gfx::text(W / 2, r.y + 38, m_toast, ts, kText, 1);
         gfx::pop_opacity();
     }
     draw_error(st);
 }
-
 } // namespace ui

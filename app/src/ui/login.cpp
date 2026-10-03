@@ -273,8 +273,7 @@ void Login::draw(double now, float dt)
 
     gfx::fill({0, 0, gfx::W, gfx::H}, kBg);
     gfx::fill_vgradient({0, 0, gfx::W, gfx::H}, 0x40302048u, 0x00000000u);
-    gfx::fill({kX, 140, 58, 58}, 0xff7f80d0u, 17);
-    gfx::text(kX + 74, 190, "jelly5", {gfx::Bold, 64}, kText);
+    draw_brand(kX, 190, 60);
 
     auto lift = [&](const std::string &k, bool f) { return m_lifts.step(k, f, dt, &anim); };
     if (m_step == ServerStep) {

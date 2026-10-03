@@ -21,7 +21,7 @@ namespace {
 constexpr int kTimeout = 15;
 constexpr const char *kVersion = "0.0.1";
 constexpr const char *kFields = "Overview,Genres";            /* rows: what the UI shows */
-constexpr const char *kItemFields = "Overview,Genres,MediaStreams,Taglines,People,Studios,ChildCount";
+constexpr const char *kItemFields = "Overview,Genres,MediaStreams,Taglines,People,Studios,ChildCount,ProductionLocations";
 
 std::string str_of(const cJSON *o, const char *key)
 {
@@ -139,6 +139,10 @@ Item item_of(const cJSON *o)
     if (it.type == "Episode" && !it.primary_tag.empty())
         it.thumb_blurhash = it.primary_blurhash;
     it.collection_type = str_of(o, "CollectionType");
+    it.premiere_date = str_of(o, "PremiereDate");
+    cJSON_ArrayForEach(g, cJSON_GetObjectItemCaseSensitive(o, "ProductionLocations"))
+        if (cJSON_IsString(g))
+            it.locations.push_back(g->valuestring);
     return it;
 }
 
@@ -537,6 +541,16 @@ std::vector<Item> Client::similar(const std::string &id, int limit)
     std::string body;
     if (!get_json("/Items/" + id + "/Similar?userId=" + user_id_ + "&limit=" + std::to_string(limit) +
                       "&fields=" + kFields, &body))
+        return {};
+    return items_of(body);
+}
+
+std::vector<Item> Client::person_items(const std::string &person_id, const std::string &types, int limit)
+{
+    std::string body;
+    if (!get_json("/Items?userId=" + user_id_ + "&PersonIds=" + person_id + "&IncludeItemTypes=" + types +
+                      "&Recursive=true&SortBy=PremiereDate,ProductionYear,SortName&SortOrder=Descending&Limit=" +
+                      std::to_string(limit) + "&fields=" + kFields, &body))
         return {};
     return items_of(body);
 }

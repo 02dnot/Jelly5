@@ -36,6 +36,8 @@ struct Item {
     std::string logo_owner, backdrop_owner, thumb_owner;
     std::string primary_blurhash, backdrop_blurhash, thumb_blurhash;
     std::string collection_type;              /* views: movies, tvshows, music ... */
+    std::string premiere_date;                /* ISO date; a person's birth date */
+    std::vector<std::string> locations;       /* a person's birthplace */
 };
 
 struct MediaStream {
@@ -143,6 +145,8 @@ public:
     bool item(const std::string &id, Item *out, Detail *detail = nullptr);
     std::vector<Item> seasons(const std::string &series_id);
     std::vector<Item> similar(const std::string &id, int limit);
+    /* What a person is in, in this library: types e.g. "Movie" or "Series", newest first. */
+    std::vector<Item> person_items(const std::string &person_id, const std::string &types, int limit);
     bool set_favorite(const std::string &id, bool favorite);
     std::vector<Segment> segments(const std::string &item_id);
 

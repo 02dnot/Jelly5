@@ -84,6 +84,12 @@ private:
 
 std::string poster_url(jf::Client &c, const jf::Item &it, int width);
 
+/* The brand: the mark (a rounded gradient square with a white J) and the
+ * "Jelly5" wordmark, with its left edge at x and the text on baseline.
+ * size is the wordmark's font size. Returns the total width. */
+float draw_brand(float x, float baseline, float size, float opacity = 1.f, bool glow = false);
+float brand_width(float size);
+
 /* Landscape art for an item: an episode's still, else a thumb, else a backdrop. */
 std::string landscape_url(jf::Client &c, const jf::Item &it, int width);
 std::string landscape_blurhash(const jf::Item &it);

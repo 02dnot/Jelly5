@@ -22,6 +22,7 @@
 #include "ui/home.h"
 #include "ui/library.h"
 #include "ui/nav.h"
+#include "ui/person.h"
 #include "ui/login.h"
 #include "ui/profiles.h"
 #include "ui/search.h"
@@ -483,7 +484,10 @@ void shell_input(uint32_t p, jf::Item *play, bool *chose, bool *from_start)
             target.logo_owner = a.item.logo_owner;
             target.logo_tag = a.item.logo_tag;
         }
-        s_stack.emplace_back(new ui::Detail(*s_client, target));
+        if (target.type == "Person")
+            s_stack.emplace_back(new ui::Person(*s_client, target));
+        else
+            s_stack.emplace_back(new ui::Detail(*s_client, target));
         s_stack.back()->activate();
         break;
     }
@@ -513,11 +517,7 @@ void shell_input(uint32_t p, jf::Item *play, bool *chose, bool *from_start)
 /* ---- drawing (GPU, src/gfx) ------------------------------------------------------ */
 void draw_wordmark(float cx, float baseline, float size)
 {
-    const gfx::TextStyle st{gfx::Bold, size};
-    const float m = size * 0.9f, gap = size * 0.3f;
-    const float x = cx - (m + gap + gfx::text_width("jelly5", st)) / 2;
-    gfx::fill({x, baseline - m * 0.82f, m, m}, 0xff7f80d0u, m * 0.29f);
-    gfx::text(x + m + gap, baseline, "jelly5", st, 0xfff5f5f7u);
+    ui::draw_brand(cx - ui::brand_width(size) / 2, baseline, size);
 }
 
 void draw_status(const std::string &title, const std::string &line, double t, const std::string &hint = "")
@@ -545,13 +545,9 @@ void draw_splash(double t, float a)
     gfx::fill({0, 0, gfx::W, gfx::H}, 0xff07070au);
     gfx::fill_vgradient({0, 0, gfx::W, gfx::H}, 0x26402a5cu, 0x14003c55u);
     const float pulse = 0.5f + 0.5f * std::sin((float)t * 2.2f);
-    const gfx::TextStyle st{gfx::Bold, 110};
-    const float m = 104, gap = 34;
-    const float x = gfx::W / 2 - (m + gap + gfx::text_width("jelly5", st)) / 2;
-    const gfx::Rect mark{x, 540 - m / 2 - 10, m, m};
-    gfx::shadow(mark, 30, 40, 0.25f + 0.25f * pulse, 0);   /* a soft glow under the mark */
-    gfx::fill_vgradient(mark, 0xffaa5cc3u, 0xff00a4dcu, 30);
-    gfx::text(x + m + gap, 540 + 38, "jelly5", st, 0xfff5f5f7u);
+    gfx::push_opacity(0.85f + 0.15f * pulse);
+    ui::draw_brand(gfx::W / 2 - ui::brand_width(110) / 2, 578, 110, 1.f, true);
+    gfx::pop_opacity();
     gfx::pop_opacity();
 }
 
@@ -571,7 +567,10 @@ bool draw_frame(double t, float dt)
             s_home->set_model(s_state.model);
             s_movies->set_view(s_state.movies_view);
             s_shows->set_view(s_state.shows_view);
-            s_nav.set_user(s_client->user_name());
+            const std::string &tag = s_client->user_image_tag();
+            s_nav.set_user(s_client->user_name(),
+                           tag.empty() ? "" : s_client->server() + "/Users/" + s_client->user_id() +
+                                                  "/Images/Primary?tag=" + tag + "&fillWidth=440");
         }
     }
     art::tick();

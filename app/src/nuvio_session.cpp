@@ -90,6 +90,9 @@ NuvioEpisode episode_of(const cJSON *e)
     ep.released_label = str_of(e, "releasedLabel");
     ep.released = bool_of(e, "released", true);
     ep.watched = bool_of(e, "watched", false);
+    ep.progress = num_of(e, "progress", 0.0);
+    ep.runtime = str_of(e, "runtime");
+    ep.blurhash = str_of(e, "blurhash");
     return ep;
 }
 

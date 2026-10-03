@@ -27,6 +27,9 @@ struct NuvioEpisode {
     std::string title, thumbnail, video_id, overview, released_label;
     bool released = true;
     bool watched = false;
+    double progress = 0;           /* Jelly5: percent watched (0..100) */
+    std::string runtime;           /* Jelly5: "23 min" */
+    std::string blurhash;          /* Jelly5: the still's placeholder */
 };
 
 struct NuvioSubtitleRef {

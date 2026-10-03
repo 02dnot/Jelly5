@@ -2350,6 +2350,16 @@ void evo_agc_runtime_set_player_mode(int is_player)
     /* a new file decides HDR10 by its own first frame, not the last file's */
     g_agc_dev.last_video_trc = -1;
     if (is_player) {
+#ifdef JELLY5_VERSION
+        /* Jelly5: no CPU clear of the scanout buffers here - one of them is
+         * on screen (the hand-off frame: the title's still), and blanking it
+         * flashed black before the first picture. The player clears the
+         * backbuffer on the GPU every frame (evo_agc_runtime_clear_black). */
+        for (int b = 0; b < 2; ++b)
+            g_agc_dev.video_pts[b] = INT64_MIN;
+        memset(g_agc_dev.stage_cache, 0, sizeof(g_agc_dev.stage_cache));
+        return;
+#endif
         /* Clear both scanout buffers once upon entering player mode so letterbox borders are dark */
         for (int b = 0; b < 2; ++b) {
             uint32_t *buf = (uint32_t *)g_agc_dev.scanout_buffers[b];

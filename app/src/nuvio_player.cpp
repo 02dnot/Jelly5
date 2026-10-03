@@ -1014,10 +1014,9 @@ extern "C" void nuvio_player_run(const char *json)
     ui_image_clear();
     s_osd.end();
     update_hdr(false);
+    /* Jelly5: no black frame on the way out - the last picture stays up until
+     * the app draws its own first frame, which follows at once. */
     evo_agc_runtime_set_player_mode(0);
-    evo_agc_runtime_frame_begin();
-    evo_agc_runtime_clear_black();
-    evo_agc_runtime_present();
     nuvio_control_set_playing(0);
     nuvio_input_close();
     evo_boot_log_flush();

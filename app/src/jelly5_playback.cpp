@@ -106,6 +106,9 @@ cJSON *episode_json(jf::Client &c, const jf::Item &e)
     cJSON_AddStringToObject(o, "videoId", e.id.c_str());
     cJSON_AddStringToObject(o, "overview", e.overview.c_str());
     cJSON_AddItemToObject(o, "watched", cJSON_CreateBool(e.played));
+    cJSON_AddNumberToObject(o, "progress", e.played_percent);
+    cJSON_AddStringToObject(o, "runtime", runtime_label(e.runtime_ticks).c_str());
+    cJSON_AddStringToObject(o, "blurhash", e.primary_blurhash.c_str());
     return o;
 }
 
@@ -179,7 +182,7 @@ std::string request_json(jf::Client &c, const jf::Item &it, const jf::Playback &
         for (size_t i = 0; i < episodes.size(); i++) {
             if (episodes[i].id == it.id)
                 here = i;
-            if (episodes[i].parent_index == it.parent_index)
+            if (i < 400)   /* every season: the player's picker switches between them */
                 cJSON_AddItemToArray(eps, episode_json(c, episodes[i]));
         }
         cJSON_AddItemToObject(o, "episodes", eps);
@@ -187,8 +190,29 @@ std::string request_json(jf::Client &c, const jf::Item &it, const jf::Playback &
             cJSON_AddItemToObject(o, "nextEpisode", episode_json(c, episodes[here + 1]));
     }
 
+    /* Segments come from the server's detection (Intro Skipper), which can be
+     * badly wrong (two-story cartoons get minutes-long "credits" mid-episode).
+     * Only plausible ones are used: an intro early and at most 3 min; credits
+     * ending near the end and no longer than 3 min or 12 % of the runtime. */
+    const double runtime = (double)it.runtime_ticks / jf::kTicksPerSecond;
+    auto plausible = [runtime](const jf::Segment &sg) {
+        const double len = sg.end - sg.start;
+        if (len <= 0 || runtime <= 0)
+            return len > 0;
+        const std::string t = lower(sg.type);
+        if (t == "outro" || t == "credits")
+            return len <= std::max(180.0, 0.12 * runtime) && sg.end >= runtime - 120.0;
+        if (t == "intro" || t == "recap")
+            return len <= 180.0 && sg.start <= runtime * 0.4;
+        return true;
+    };
     cJSON *skips = cJSON_CreateArray();
     for (const auto &sg : segs) {
+        if (!plausible(sg)) {
+            evo_bt("jelly5: ignoring implausible %s segment %.0f-%.0f s (runtime %.0f s)", sg.type.c_str(), sg.start,
+                   sg.end, runtime);
+            continue;
+        }
         cJSON *k = cJSON_CreateObject();
         const std::string t = lower(sg.type);
         cJSON_AddStringToObject(k, "type", t == "outro" ? "outro" : t.c_str());

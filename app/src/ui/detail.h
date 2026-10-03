@@ -29,8 +29,7 @@ public:
         jf::Item target;              /* what Play plays (a series: its next episode) */
         bool have_target = false;
         std::vector<jf::Item> seasons;
-        std::vector<jf::Item> episodes;
-        std::string episodes_for;     /* the season the episodes belong to */
+        std::vector<jf::Item> all_episodes;   /* every season's, fetched with the page */
         std::vector<jf::Item> similar;
     };
     Detail(jf::Client &client, const jf::Item &item);
@@ -55,7 +54,9 @@ private:
         Content c;
     };
 
-    void load_episodes(const std::string &season_id);
+    /* The focused season's episodes, from all_episodes (no request: instant). */
+    void select_episodes();
+    void season_moved();
     static Content fetch(jf::Client &client, const jf::Item &base);
     std::vector<Zone> zones() const;
     std::vector<Button> buttons() const;
@@ -71,9 +72,10 @@ private:
     Zone m_zone = Buttons;
     int m_button = 0;
     int m_season = 0, m_episode = 0, m_cast = 0, m_similar = 0;
-    double m_season_changed = -1, m_now = 0;
-    bool m_season_pending = false;
+    double m_now = 0;
     bool m_season_picked = false;      /* the viewer moved the picker (else follow the target) */
+    std::vector<jf::Item> m_eps;       /* the focused season's episodes */
+    std::string m_followed;            /* the target already brought into view */
 
     Anim m_page;                       /* page scroll */
     Anim m_enter;                      /* fade in over the screen below */

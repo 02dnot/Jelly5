@@ -30,6 +30,25 @@ std::string poster_url(jf::Client &c, const jf::Item &it, int width)
     return c.image_url(it.id, "Primary", it.primary_tag, width);
 }
 
+float brand_width(float size)
+{
+    return size * 0.95f + size * 0.3f + gfx::text_width("Jelly5", {gfx::Bold, size});
+}
+
+float draw_brand(float x, float baseline, float size, float opacity, bool glow)
+{
+    const float m = size * 0.95f;                     /* the mark's side */
+    const gfx::Rect mark{x, baseline - m * 0.84f, m, m};
+    gfx::push_opacity(opacity);
+    if (glow)
+        gfx::shadow(mark, m * 0.29f, m * 0.4f, 0.45f, 0);
+    gfx::fill_vgradient(mark, 0xffaa5cc3u, 0xff00a4dcu, m * 0.29f);
+    gfx::text(mark.x + m * 0.5f, mark.y + m * 0.5f + m * 0.27f, "J", {gfx::Bold, m * 0.74f}, 0xffffffffu, 1);
+    const float w = gfx::text(x + m + size * 0.3f, baseline, "Jelly5", {gfx::Bold, size}, kText);
+    gfx::pop_opacity();
+    return m + size * 0.3f + w;
+}
+
 std::string landscape_url(jf::Client &c, const jf::Item &it, int width)
 {
     if (it.type == "Episode" && !it.primary_tag.empty())

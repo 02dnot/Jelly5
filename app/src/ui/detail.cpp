@@ -121,7 +121,7 @@ Detail::Content Detail::fetch(jf::Client &c, const jf::Item &base)
     jf::Detail detail;
     jf::Item item = base;
     bool got = false;
-    std::vector<jf::Item> similar, seasons, resume, next;
+    std::vector<jf::Item> similar, seasons, resume, next, all_episodes;
     const bool series = base.type == "Series";
     std::vector<std::thread> jobs;
     jobs.emplace_back([&] { got = c.item(base.id, &item, &detail); });
@@ -130,6 +130,7 @@ Detail::Content Detail::fetch(jf::Client &c, const jf::Item &base)
         jobs.emplace_back([&] { seasons = c.seasons(base.id); });
         jobs.emplace_back([&] { resume = c.resume(1, base.id); });
         jobs.emplace_back([&] { next = c.next_up(1, base.id); });
+        jobs.emplace_back([&] { all_episodes = c.episodes(base.id, std::string()); });
     }
     for (auto &j : jobs)
         j.join();
@@ -140,14 +141,15 @@ Detail::Content Detail::fetch(jf::Client &c, const jf::Item &base)
     }
     out.similar = std::move(similar);
     out.seasons = std::move(seasons);
+    out.all_episodes = std::move(all_episodes);
     if (!series) {
         out.target = out.item;
         out.have_target = true;
     } else {
         /* Play continues a started episode, else the next one, else the first. */
         std::vector<jf::Item> &t = !resume.empty() ? resume : next;
-        if (t.empty())
-            t = c.episodes(base.id, std::string());
+        if (t.empty() && !out.all_episodes.empty())
+            t.push_back(out.all_episodes.front());
         if (!t.empty()) {
             out.target = t.front();
             out.have_target = true;
@@ -211,24 +213,32 @@ void Detail::activate()
         Content fresh = fetch(*c, base);
         cache_put(base.id, fresh);
         std::lock_guard<std::mutex> g(d->lock);
-        /* Keep the season's episodes already shown; the rest is replaced. */
-        fresh.episodes = std::move(d->c.episodes);
-        fresh.episodes_for = d->c.episodes_for;
         d->c = std::move(fresh);
     }).detach();
 }
 
-void Detail::load_episodes(const std::string &season_id)
+void Detail::select_episodes()
 {
-    std::shared_ptr<Data> d = m_data;
-    jf::Client *c = &m_client;
-    const std::string series = m_view.item.id;
-    std::thread([d, c, series, season_id] {
-        std::vector<jf::Item> eps = c->episodes(series, season_id);
-        std::lock_guard<std::mutex> g(d->lock);
-        d->c.episodes = std::move(eps);
-        d->c.episodes_for = season_id;
-    }).detach();
+    m_eps.clear();
+    if (m_view.seasons.empty())
+        return;
+    m_season = std::max(0, std::min(m_season, (int)m_view.seasons.size() - 1));
+    const jf::Item &season = m_view.seasons[m_season];
+    for (const jf::Item &e : m_view.all_episodes)
+        if (e.season_id == season.id || (e.season_id.empty() && e.parent_index == season.index))
+            m_eps.push_back(e);
+}
+
+/* The picker moved: its season's episodes show at once, on the episode to
+ * continue when it is in that season, else the first. */
+void Detail::season_moved()
+{
+    select_episodes();
+    m_episode = 0;
+    for (size_t i = 0; i < m_eps.size(); i++)
+        if (m_view.have_target && m_eps[i].id == m_view.target.id)
+            m_episode = (int)i;
+    m_scroll[Episodes].snap(row_target(m_episode, (int)m_eps.size(), kEpW, kEpGap));
 }
 
 std::vector<Detail::Zone> Detail::zones() const
@@ -236,7 +246,7 @@ std::vector<Detail::Zone> Detail::zones() const
     std::vector<Zone> z{Buttons};
     if (!m_view.seasons.empty()) {
         z.push_back(Seasons);
-        if (!m_view.episodes.empty())
+        if (!m_eps.empty())
             z.push_back(Episodes);
     }
     if (!cast_of(m_view.detail).empty())
@@ -290,13 +300,18 @@ Action Detail::input(uint32_t p)
         auto move = [d](int &i, int n) { i = std::max(0, std::min(n - 1, i + d)); };
         switch (m_zone) {
         case Buttons: move(m_button, nb); break;
-        case Seasons:
+        case Seasons: {
+            const int before = m_season;
             move(m_season, (int)m_view.seasons.size());
-            m_season_changed = m_now;
-            m_season_pending = true;
+            m_season_picked = true;
+            if (m_season != before)
+                season_moved();
+            break;
+        }
+        case Episodes:
+            move(m_episode, (int)m_eps.size());
             m_season_picked = true;
             break;
-        case Episodes: move(m_episode, (int)m_view.episodes.size()); break;
         case Cast: move(m_cast, (int)cast_of(m_view.detail).size()); break;
         case Similar: move(m_similar, (int)m_view.similar.size()); break;
         default: break;
@@ -322,11 +337,24 @@ Action Detail::input(uint32_t p)
             break;
         }
         case Episodes:
-            if (m_episode < (int)m_view.episodes.size()) {
+            if (m_episode < (int)m_eps.size()) {
                 a.kind = Action::Play;
-                a.item = m_view.episodes[m_episode];
+                a.item = m_eps[m_episode];
             }
             break;
+        case Cast: {
+            const std::vector<jf::Person> cast = cast_of(m_view.detail);
+            if (m_cast < (int)cast.size()) {
+                const jf::Person &p = cast[m_cast];
+                a.kind = Action::Open;
+                a.item.id = p.id;
+                a.item.name = p.name;
+                a.item.type = "Person";
+                a.item.primary_tag = p.image_tag;
+                a.item.primary_blurhash = p.blurhash;
+            }
+            break;
+        }
         case Similar:
             if (m_similar < (int)m_view.similar.size()) {
                 a.kind = Action::Open;
@@ -518,7 +546,7 @@ void Detail::draw_sections(float dt)
                 const gfx::TextStyle st{gfx::SemiBold, 23};
                 const float w = gfx::text_width(s.name, st) + 56;
                 const bool focus = m_zone == Seasons && (int)i == m_season;
-                const bool active = s.id == m_view.episodes_for;
+                const bool active = (int)i == m_season;
                 const float k = focus ? 1.08f : 1.f;
                 const gfx::Rect r{x - w * (k - 1) / 2, y - 54 * (k - 1) / 2, w * k, 54 * k};
                 gfx::fill(r, focus ? 0xfff5f5f7u : active ? 0x33ffffffu : 0x14ffffffu, r.h / 2);
@@ -530,15 +558,15 @@ void Detail::draw_sections(float dt)
     }
 
     /* Episodes: stills with title, runtime and overview. */
-    if (!m_view.episodes.empty()) {
+    if (!m_eps.empty()) {
         const float y = zone_top(Episodes) - off;
-        m_scroll[Episodes].to(row_target(m_episode, (int)m_view.episodes.size(), kEpW, kEpGap));
+        m_scroll[Episodes].to(row_target(m_episode, (int)m_eps.size(), kEpW, kEpGap));
         if (m_scroll[Episodes].step(dt, 12.f))
             m_animating = true;
         if (vis(y, kEpisodesH)) {
             for (int pass = 0; pass < 2; pass++)
-                for (size_t i = 0; i < m_view.episodes.size(); i++) {
-                    const jf::Item &e = m_view.episodes[i];
+                for (size_t i = 0; i < m_eps.size(); i++) {
+                    const jf::Item &e = m_eps[i];
                     const bool focus = m_zone == Episodes && (int)i == m_episode;
                     if ((pass == 0) == focus)
                         continue;
@@ -652,35 +680,21 @@ void Detail::draw(double now, float dt)
     }
     const jf::Item &it = m_view.item;
 
-    /* Seasons: start on the target's season; load episodes when the picker settles. */
+    /* Seasons: until the viewer moves the picker, follow the season and
+     * episode to continue; episodes come from the page's own data. */
     if (!m_view.seasons.empty()) {
-        if (!m_season_picked && m_view.have_target) {
+        if (!m_season_picked && m_view.have_target && m_view.target.id != m_followed &&
+            !m_view.all_episodes.empty()) {
+            /* Once per target (and again after a playback changes it). */
             for (size_t i = 0; i < m_view.seasons.size(); i++)
                 if (m_view.seasons[i].id == m_view.target.season_id)
                     m_season = (int)i;
+            season_moved();
+            m_followed = m_view.target.id;
+        } else {
+            select_episodes();
         }
-        m_season = std::min(m_season, (int)m_view.seasons.size() - 1);
-        const std::string want = m_view.seasons[m_season].id;
-        if (m_view.episodes_for != want && (!m_season_pending || now - m_season_changed > 0.25)) {
-            if (m_season_pending || m_view.episodes_for.empty()) {
-                m_season_pending = false;
-                {
-                    std::lock_guard<std::mutex> g(m_data->lock);
-                    m_data->c.episodes_for = want;   /* in flight: do not ask twice */
-                }
-                load_episodes(want);
-                /* Land on the target episode in its season, else the first. */
-                m_episode = 0;
-                m_scroll[Episodes].snap(0);
-            }
-        }
-        if (!m_season_picked && m_view.have_target && !m_view.episodes.empty())
-            for (size_t i = 0; i < m_view.episodes.size(); i++)
-                if (m_view.episodes[i].id == m_view.target.id && m_episode == 0) {
-                    m_episode = (int)i;
-                    m_scroll[Episodes].snap(row_target(m_episode, (int)m_view.episodes.size(), kEpW, kEpGap));
-                }
-        m_episode = std::min(m_episode, std::max(0, (int)m_view.episodes.size() - 1));
+        m_episode = std::min(m_episode, std::max(0, (int)m_eps.size() - 1));
     }
     const std::vector<Zone> zs = zones();
     if (std::find(zs.begin(), zs.end(), m_zone) == zs.end())

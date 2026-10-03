@@ -4,6 +4,7 @@
  */
 #include "ui/nav.h"
 
+#include "gfx/art.h"
 #include "gfx/gfx.h"
 #include "ui/screen.h"
 
@@ -26,8 +27,7 @@ void Nav::draw(float a, int active, int focus, float dt, bool *animating)
     const float cy = 66 + slide;
 
     /* Wordmark. */
-    gfx::fill({kPad, cy - 15, 30, 30}, alpha(0xff7f80d0u, a), 9);
-    gfx::text(kPad + 42, cy + 12, "jelly5", {gfx::Bold, 34}, alpha(kText, a));
+    draw_brand(kPad, cy + 12, 34, a);
 
     /* The tab pill, centred. */
     const gfx::TextStyle st{gfx::SemiBold, 25};
@@ -75,9 +75,16 @@ void Nav::draw(float a, int active, int focus, float dt, bool *animating)
     /* The avatar is the Settings target: a white ring when focused or open. */
     if (focus == Settings || (focus < 0 && active == Settings))
         gfx::fill({gfx::W - kPad - 65, cy - 35, 70, 70}, alpha(focus == Settings ? 0xfff5f5f7u : 0x66ffffffu, a), 35);
-    gfx::fill({gfx::W - kPad - 60, cy - 30, 60, 60}, alpha(0xff6e7fd6u, a), 30);
+    /* The initial on the brand gradient (as in Hvem ser på?); the picture fades in over it.
+     * Jellyfin has no BlurHash for users. */
+    const gfx::Rect av{gfx::W - kPad - 60, cy - 30, 60, 60};
+    gfx::fill_vgradient(av, alpha(0xffaa5cc3u, a), alpha(0xff00a4dcu, a), 30);
     const std::string initial = m_user.empty() ? "?" : m_user.substr(0, 1);
     gfx::text(gfx::W - kPad - 30, cy + 10, initial, {gfx::Bold, 28}, alpha(kText, a), 1);
+    if (!m_avatar.empty()) {
+        art::draw(av, m_avatar, "", 440, 440, 30, a, 0);
+        if (art::animating() && animating) *animating = true;
+    }
     gfx::text(gfx::W - kPad - 84, cy + 9, clock, {gfx::SemiBold, 26}, alpha(kText2, a), 2);
 }
 

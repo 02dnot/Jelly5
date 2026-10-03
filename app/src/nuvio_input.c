@@ -162,10 +162,11 @@ void nuvio_input_poll(nuvio_input_state *out)
     out->released = s_last & ~now_buttons;
     out->held = now_buttons;
 
-    /* Auto-repeat for one held direction. */
+    /* Auto-repeat for one held direction (L2/R2 too: they scrub in the player). */
     {
-        const uint32_t dir = now_buttons & NUVIO_BTN_DPAD;
-        if (out->pressed & NUVIO_BTN_DPAD) {
+        const uint32_t kRepeat = NUVIO_BTN_DPAD | NUVIO_BTN_L2 | NUVIO_BTN_R2;
+        const uint32_t dir = now_buttons & kRepeat;
+        if (out->pressed & kRepeat) {
             s_dir_since = t;
             s_next_repeat = t + REPEAT_DELAY;
         } else if (dir && t >= s_next_repeat && s_dir_since > 0.0) {
