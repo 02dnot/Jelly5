@@ -38,8 +38,10 @@ void glass_panel(const gfx::Rect &r, float radius, float a, bool shadow)
         return;
     if (shadow)
         gfx::shadow(r, radius, 46, 0.6f * a, 18);
-    const bool frosted = gfx::backdrop_blur(r, radius, 18.f, a);
-    if (frosted) {   /* Liquid Glass: clear, a sheen from above, a lit rim */
+    const int glass = gfx::backdrop_blur(r, radius, 18.f, a);
+    if (glass == 2)
+        return;   /* the shader drew the whole pane */
+    if (glass == 1) {   /* Liquid Glass: clear, a sheen from above, a lit rim */
         gfx::fill(r, alpha(0x4d0c0c12u, a), radius);
         gfx::fill_vgradient({r.x, r.y, r.w, r.h * 0.45f}, alpha(0x1affffffu, a), 0x00000000u, radius);
         gfx::rim(r, radius, 0.9f * a);

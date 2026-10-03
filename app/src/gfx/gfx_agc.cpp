@@ -489,29 +489,79 @@ static bool blur_pass(const Texture &src, float sigma, bool horizontal)
     return true;
 }
 
-bool backdrop_blur(const Rect &r, float radius, float sigma, float opacity)
+/* The liquid glass pane in one pass (app/shaders/liquid_glass.pipe) over the
+ * scissored pane: refraction at the rim, vibrancy, tint, lit rim and sheen. */
+static bool glass_pass(const Texture &src, const Rect &r, float radius, float opacity)
+{
+    SceAgcCommandBuffer *cb = evo_agc_runtime_get_current_cb();
+    evo_agc_transient_ring_t *ring = evo_agc_runtime_get_transient_ring();
+    const uint32_t slot = evo_agc_runtime_get_current_slot();
+    const evo_agc_user_data_layout_t ud = evo_agc_runtime_get_user_data_layout(EVO_AGC_PIPE_UI_GLASS);
+    if (!cb || !ring || ud.ps_count == 0 || ud.ps_count > 16 || ud.ps_const_table_dword < 0 ||
+        ud.ps_texture_table_dword < 0 || ud.vs_count > 16)
+        return false;
+    evo_agc_transient_slice_t consts, cdesc, tdesc, ib;
+    if (evo_agc_transient_ring_alloc(ring, slot, 5u * 16u, 16, &consts) != EVO_AGC_TRANSIENT_OK ||
+        evo_agc_transient_ring_alloc(ring, slot, 16u, 16, &cdesc) != EVO_AGC_TRANSIENT_OK ||
+        evo_agc_transient_ring_alloc(ring, slot, 48u, 16, &tdesc) != EVO_AGC_TRANSIENT_OK ||
+        evo_agc_transient_ring_alloc(ring, slot, 12u, 16, &ib) != EVO_AGC_TRANSIENT_OK) {
+        evo_agc_runtime_note_drop(0);
+        return false;
+    }
+    float *c = (float *)consts.cpu;
+    const float s = s_scale;
+    const float k[20] = {
+        r.x * s, r.y * s, (r.x + r.w) * s, (r.y + r.h) * s,              /* uRect */
+        radius * s, 16.f * s, 1.f / (float)src.w, 1.f / (float)src.h,    /* uShape: radius, bevel */
+        -0.55f, -0.83f, 0.85f, 10.f * s,                                 /* uLight: dir, rim, refraction */
+        1.35f, 1.08f, 0.18f, opacity,                                    /* uTone: saturation, brightness, tint */
+        0.06f, 0.06f, 0.08f, 0.07f,                                      /* uTint: colour, sheen */
+    };
+    std::memcpy(c, k, sizeof k);
+    evo_agc_build_constant_vsharp((uint32_t *)cdesc.cpu, consts.gpu_addr, 5u * 16u);
+    std::memset(tdesc.cpu, 0, 48u);
+    if (!build_tsharp(&src, (uint32_t *)tdesc.cpu))
+        return false;
+    evo_agc_build_ssharp((uint32_t *)tdesc.cpu + 8, 1, 1);
+    std::memcpy(ib.cpu, kQuad, sizeof kQuad);
+
+    evo_agc_runtime_bind_pipeline(EVO_AGC_PIPE_UI_GLASS);
+    evo_agc_runtime_set_blend(EVO_AGC_BLEND_PREMULTIPLIED);
+    uint32_t vs_user[16] = {0};
+    evo_agc_writer_set_user_data_gs(cb, vs_user, ud.vs_count);
+    uint32_t ps_user[16] = {0};
+    ps_user[ud.ps_const_table_dword] = (uint32_t)cdesc.gpu_addr;
+    ps_user[ud.ps_texture_table_dword] = (uint32_t)tdesc.gpu_addr;
+    evo_agc_writer_set_user_data_ps(cb, ps_user, ud.ps_count);
+    evo_agc_writer_draw_index_modifier(cb, 6, (const uint16_t *)(uintptr_t)ib.gpu_addr,
+                                       evo_agc_runtime_get_pipe_draw_modifier(EVO_AGC_PIPE_UI_GLASS));
+    evo_agc_runtime_note_draw();
+    return true;
+}
+
+int backdrop_blur(const Rect &r, float radius, float sigma, float opacity)
 {
     if (opacity <= 0.f || !evo_agc_has_layers() || !evo_agc_runtime_pipeline_valid(EVO_AGC_PIPE_UI_BLUR))
-        return false;
+        return 0;
     /* Panel pixels: the rect, and the rect grown by the blur's reach for the first pass. */
     const float sp = sigma * s_scale, reach = 3.f * sp + 2.f;
     const int x0 = std::max(0, (int)std::floor(r.x * s_scale)), y0 = std::max(0, (int)std::floor(r.y * s_scale));
     const int x1 = std::min(s_pw, (int)std::ceil((r.x + r.w) * s_scale));
     const int y1 = std::min(s_ph, (int)std::ceil((r.y + r.h) * s_scale));
     if (x1 <= x0 || y1 <= y0)
-        return false;
+        return 0;
     const int gy0 = std::max(0, (int)(y0 - reach)), gy1 = std::min(s_ph, (int)(y1 + reach));
 
     evo_agc_layer_surface_t *h = nullptr, *v = nullptr;
     evo_agc_runtime_set_scissor(x0, gy0, x1 - x0, gy1 - gy0);   /* layers clear what is scissored */
     if (evo_agc_layer_acquire(&h) != 0 || !h) {
         restore_scissor();
-        return false;
+        return 0;
     }
     if (evo_agc_layer_acquire(&v) != 0 || !v) {
         evo_agc_layer_release(h);
         restore_scissor();
-        return false;
+        return 0;
     }
     evo_agc_layer_surface_t scan;
     evo_agc_get_scanout_layer(&scan);
@@ -539,8 +589,14 @@ bool backdrop_blur(const Rect &r, float radius, float sigma, float opacity)
     ok = ok && blur_pass(src_h, sp, false);
     evo_agc_flush_color_target();
     evo_agc_set_layer_target(nullptr);                  /* back on the scanout */
+    int result = ok ? 1 : 0;
+    if (ok && evo_agc_runtime_pipeline_valid(EVO_AGC_PIPE_UI_GLASS)) {   /* the real glass */
+        evo_agc_runtime_set_scissor(x0, y0, x1 - x0, y1 - y0);
+        if (glass_pass(out_v, r, radius, opacity))
+            result = 2;
+    }
     restore_scissor();
-    if (ok) {
+    if (result == 1) {
         /* The blurred backdrop into the panel's rounded shape, as through a lens: a
          * little magnified inside, and along the straight edges what lies just outside
          * is drawn in, bent toward the rim. */
@@ -566,7 +622,7 @@ bool backdrop_blur(const Rect &r, float radius, float sigma, float opacity)
     }
     evo_agc_layer_release(h);
     evo_agc_layer_release(v);
-    return ok;
+    return result;
 }
 
 void rim(const Rect &r, float radius, float opacity)

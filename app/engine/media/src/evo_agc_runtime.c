@@ -4,6 +4,13 @@
 #endif
 #include "evo_agc_shader_header.h"
 #include "evo_agc_pipes.h"
+/* Jelly5: built by tools/shaders/build.sh; until then the glass is drawn without it. */
+#if defined(__has_include)
+#if __has_include("liquid_glass_pipe.h")
+#include "liquid_glass_pipe.h"
+#define JELLY5_HAVE_GLASS_PIPE 1
+#endif
+#endif
 #include "evo_boot_log.h"
 #include "evo_direct_mem.h"
 #include "evo_hw.h"
@@ -1323,6 +1330,15 @@ int evo_agc_runtime_init(int width, int height, int hdr)
             evo_boot_log("agc pipe ui_backdrop_blur unavailable (rc=%d); "
                          "backdrop-filter is off", brc);
     }
+#ifdef JELLY5_HAVE_GLASS_PIPE
+    {   /* Jelly5: the liquid glass pane; optional like the blur. */
+        int grc = compile_agc_pipeline(&g_agc_dev.pipelines[EVO_AGC_PIPE_UI_GLASS],
+                                       shader_storage, &shader_storage_used,
+                                       &liquid_glass_metadata, "liquid_glass");
+        if (grc != 0)
+            evo_boot_log("agc pipe liquid_glass unavailable (rc=%d)", grc);
+    }
+#endif
 
     /* Quad index buffer for fullscreen video drawing */
     size_t qat = (shader_storage_used + 255u) & ~255u;

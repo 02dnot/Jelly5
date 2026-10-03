@@ -1,0 +1,132 @@
+; Jelly5 — Jellyfin for PS5
+; SPDX-License-Identifier: GPL-3.0-or-later
+;
+; liquid_glass - a pane of glass over the picture, after Apple's Liquid Glass.
+;
+; Drawn as a fullscreen quad scissored to the pane, after gfx::backdrop_blur has
+; left the blurred backdrop in a layer (sampled here as uSource, in the same
+; canvas coordinates as the target). Per pixel, from the pane's rounded shape:
+;   - coverage, anti-aliased on the signed distance to the rounded box;
+;   - refraction: within the bevel the backdrop is sampled from further out
+;     along the outward normal, so the picture bends at the rim like a lens;
+;   - vibrancy: saturation and brightness lifted, then a light tint;
+;   - a specular rim lit from the light direction (and a faint opposite glint),
+;     and a soft sheen from above.
+; Output is premultiplied (the runtime sets premultiplied blending).
+;
+; Built by tools/shaders/build.sh (amdllpc, gfx1013) into
+; app/engine/shaders/agc/liquid_glass_pipe.h.
+
+[Version]
+version = 65
+
+[VsGlsl]
+#version 450
+
+layout(location = 0) out vec2 vUV;
+
+void main() {
+    vec2 p = vec2(float(gl_VertexIndex & 1), float((gl_VertexIndex >> 1) & 1));
+    vUV = vec2(p.x, 1.0 - p.y);
+    gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
+}
+
+[VsInfo]
+entryPoint = main
+
+[FsGlsl]
+#version 450
+
+layout(set = 0, binding = 0, std140) uniform GlassConstants {
+    vec4 uRect;    /* the pane: x0, y0, x1, y1 in target pixels */
+    vec4 uShape;   /* x = corner radius px, y = bevel px, z = 1/target width, w = 1/target height */
+    vec4 uLight;   /* xy = direction toward the light, z = rim strength, w = refraction px */
+    vec4 uTone;    /* x = saturation, y = brightness, z = tint amount, w = opacity */
+    vec4 uTint;    /* rgb = tint colour, a = sheen strength */
+} g;
+
+layout(set = 1, binding = 0) uniform sampler2D uSource;
+
+layout(location = 0) in vec2 vUV;
+layout(location = 0) out vec4 out_color;
+
+void main() {
+    vec2 px = vec2(vUV.x / g.uShape.z, vUV.y / g.uShape.w);
+    vec2 lo = g.uRect.xy, hi = g.uRect.zw;
+    vec2 c = 0.5 * (lo + hi), half_size = 0.5 * (hi - lo);
+    float r = min(g.uShape.x, min(half_size.x, half_size.y));
+
+    /* Signed distance to the rounded box (negative inside) and its outward normal. */
+    vec2 rel = px - c;
+    vec2 q = abs(rel) - (half_size - vec2(r));
+    vec2 qo = max(q, vec2(0.0));
+    float d = length(qo) + min(max(q.x, q.y), 0.0) - r;
+    vec2 n;
+    if (qo.x > 0.0 || qo.y > 0.0)
+        n = normalize(qo);
+    else
+        n = q.x > q.y ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
+    n *= sign(rel + vec2(1e-4));
+
+    float coverage = clamp(0.5 - d, 0.0, 1.0);
+    if (coverage <= 0.0)
+        discard;
+
+    /* Refraction: 0 deep inside, strongest at the rim (a smooth bevel). */
+    float bevel = max(g.uShape.y, 1.0);
+    float t = clamp(-d / bevel, 0.0, 1.0);
+    float bend = (1.0 - t) * (1.0 - t);
+    vec2 sample_px = px + n * bend * g.uLight.w;
+    vec3 col = texture(uSource, sample_px * g.uShape.zw).rgb;
+
+    /* Vibrancy, then the tint. */
+    float luma = dot(col, vec3(0.2126, 0.7152, 0.0722));
+    col = mix(vec3(luma), col, g.uTone.x) * g.uTone.y;
+    col = mix(col, g.uTint.rgb, g.uTone.z);
+
+    /* Specular rim: a thin lit line, brightest facing the light. */
+    float rim_band = 1.0 - smoothstep(0.0, 2.6, -d);
+    float lit = dot(n, normalize(g.uLight.xy));
+    float spec = rim_band * (0.22 + 0.78 * max(lit, 0.0) + 0.35 * max(-lit, 0.0)) * g.uLight.z;
+    /* A broader soft glow inside the lit edge. */
+    spec += (1.0 - smoothstep(0.0, bevel, -d)) * max(lit, 0.0) * 0.10 * g.uLight.z;
+    /* Sheen from above. */
+    float from_top = (px.y - lo.y) / max(hi.y - lo.y, 1.0);
+    col += vec3(spec + (1.0 - smoothstep(0.0, 0.5, from_top)) * g.uTint.a);
+
+    float a = coverage * g.uTone.w;
+    out_color = vec4(clamp(col, 0.0, 1.0) * a, a);
+}
+
+[FsInfo]
+entryPoint = main
+
+[ResourceMapping]
+; Both resources belong to the fragment stage (visibility 64), as in
+; ui_backdrop_blur: the constants and the backdrop sampler.
+userDataNode[0].visibility = 64
+userDataNode[0].type = DescriptorTableVaPtr
+userDataNode[0].offsetInDwords = 0
+userDataNode[0].sizeInDwords = 1
+userDataNode[0].next[0].type = DescriptorConstBuffer
+userDataNode[0].next[0].offsetInDwords = 0
+userDataNode[0].next[0].sizeInDwords = 4
+userDataNode[0].next[0].set = 0
+userDataNode[0].next[0].binding = 0
+userDataNode[1].visibility = 64
+userDataNode[1].type = DescriptorTableVaPtr
+userDataNode[1].offsetInDwords = 1
+userDataNode[1].sizeInDwords = 1
+userDataNode[1].next[0].type = DescriptorCombinedTexture
+userDataNode[1].next[0].offsetInDwords = 0
+userDataNode[1].next[0].sizeInDwords = 12
+userDataNode[1].next[0].set = 1
+userDataNode[1].next[0].binding = 0
+
+[GraphicsPipelineState]
+topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST
+nggState.enableNgg = 1
+nggState.enableGsUse = 0
+colorBuffer[0].format = VK_FORMAT_R8G8B8A8_UNORM
+colorBuffer[0].channelWriteMask = 15
+colorBuffer[0].blendEnable = 0

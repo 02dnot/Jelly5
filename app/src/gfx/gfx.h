@@ -69,7 +69,9 @@ void image(const Rect &r, const Texture *t, float opacity = 1, float radius = 0,
 /* Frosted glass: blurs what is already drawn under r (Gaussian, sigma in logical
  * pixels) and puts it back into r's rounded shape. Draw the panel's tint over
  * it. false (nothing drawn) when the GPU has no room for it this frame. */
-bool backdrop_blur(const Rect &r, float radius, float sigma = 24.f, float opacity = 1.f);
+/* Returns 0 (nothing drawn), 1 (the blurred backdrop, as through a lens: draw a
+ * tint and rim over it) or 2 (the whole liquid glass pane, by its shader). */
+int backdrop_blur(const Rect &r, float radius, float sigma = 24.f, float opacity = 1.f);
 /* The lit rim of a glass pane: a thin line of light around r's rounded shape. */
 void rim(const Rect &r, float radius, float opacity = 1.f);
 /* Part of a texture (u, v in 0..1), e.g. one thumbnail of a sheet. */
