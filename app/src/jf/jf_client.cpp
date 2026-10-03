@@ -109,6 +109,7 @@ Item item_of(const cJSON *o)
     it.played_percent = num_of(ud, "PlayedPercentage", 0);
     it.played = bool_of(ud, "Played");
     it.favorite = bool_of(ud, "IsFavorite");
+    it.local_trailers = (int)num_of(o, "LocalTrailerCount", 0);
     const cJSON *g;
     cJSON_ArrayForEach(g, cJSON_GetObjectItemCaseSensitive(o, "Genres"))
         if (cJSON_IsString(g))
@@ -571,6 +572,22 @@ bool Client::set_favorite(const std::string &id, bool favorite)
                                   server_ + "/UserFavoriteItems/" + id + "?userId=" + user_id_,
                                   {auth_header()}, "", kTimeout);
     return r.ok();
+}
+
+std::vector<Item> Client::local_trailers(const std::string &id)
+{
+    std::string body;
+    if (!get_json("/Items/" + id + "/LocalTrailers?userId=" + user_id_, &body))
+        return {};
+    /* A bare array, not {"Items": [...]}. */
+    std::vector<Item> out;
+    if (cJSON *j = cJSON_Parse(body.c_str())) {
+        const cJSON *t;
+        cJSON_ArrayForEach(t, j)
+            out.push_back(item_of(t));
+        cJSON_Delete(j);
+    }
+    return out;
 }
 
 bool Client::set_played(const std::string &id, bool played)

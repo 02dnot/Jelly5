@@ -18,11 +18,18 @@
 #include "nanosvg/nanosvg.h"
 #include "nanosvg/nanosvgrast.h"
 
+#include "evo_readdir.h"
+
+#include <dirent.h>
 #include <pthread.h>
 #include <setjmp.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <time.h>
+#include <unistd.h>
 
 #define SLOTS 128   /* < 256: a handle keeps the slot in its low byte */
 #define MAX_FETCH (16 * 1024 * 1024)
@@ -215,9 +222,181 @@ int ui_image_decode(const uint8_t *d, size_t n, int max_w, int max_h, ui_image *
     return 0;
 }
 
+/* ---- Jelly5: the disk cache ----------------------------------------------------
+ *
+ * Jellyfin's image URLs carry the image's tag, which changes when the image
+ * does: such a response never goes stale, so it is kept on disk and the next
+ * launch draws from there instead of the network. Only tagged image URLs are
+ * kept (never trickplay sheets or anything carrying a token). The cache lives
+ * in the app's own data (/download0, 256 MB quota) and keeps under CACHE_CAP,
+ * dropping the oldest files first. */
+
+#define CACHE_DIR "/download0/jelly5/img"
+#define CACHE_CAP (96ull * 1024 * 1024)
+
+static pthread_mutex_t s_cache_lock = PTHREAD_MUTEX_INITIALIZER;
+static int s_cache_ready;
+static unsigned long long s_cache_bytes;
+
+static int cacheable(const char *url)
+{
+    return strstr(url, "/Images/") && strstr(url, "tag=") && !strstr(url, "ApiKey") &&
+           !strstr(url, "api_key") && !strstr(url, "/Trickplay/");
+}
+
+static void cache_path(const char *url, char *out, size_t cap)
+{
+    uint64_t h = 1469598103934665603ull;   /* FNV-1a */
+    for (const unsigned char *p = (const unsigned char *)url; *p; p++)
+        h = (h ^ *p) * 1099511628211ull;
+    snprintf(out, cap, CACHE_DIR "/%016llx.img", (unsigned long long)h);
+}
+
+typedef struct cache_file {
+    char name[32];
+    time_t mtime;
+    off_t size;
+} cache_file;
+
+static int by_age(const void *a, const void *b)
+{
+    const time_t x = ((const cache_file *)a)->mtime, y = ((const cache_file *)b)->mtime;
+    return x < y ? -1 : x > y;
+}
+
+/* Sums the cache; over the cap, drops the oldest until it is at 3/4 of it. */
+static void cache_trim(void)
+{
+    evo_dir_t *d = evo_opendir(CACHE_DIR);   /* opendir() is refused in the app sandbox */
+    if (!d)
+        return;
+    size_t n = 0, cap = 0;
+    cache_file *files = NULL;
+    unsigned long long total = 0;
+    struct dirent *e;
+    while ((e = evo_readdir(d))) {
+        if (!strstr(e->d_name, ".img") || strlen(e->d_name) >= sizeof files[0].name)
+            continue;
+        char path[160];
+        snprintf(path, sizeof path, CACHE_DIR "/%s", e->d_name);
+        struct stat st;
+        if (stat(path, &st) != 0)
+            continue;
+        if (n == cap) {
+            cap = cap ? cap * 2 : 512;
+            cache_file *nf = (cache_file *)realloc(files, cap * sizeof *files);
+            if (!nf)
+                break;
+            files = nf;
+        }
+        snprintf(files[n].name, sizeof files[n].name, "%s", e->d_name);
+        files[n].mtime = st.st_mtime;
+        files[n].size = st.st_size;
+        total += (unsigned long long)st.st_size;
+        n++;
+    }
+    evo_closedir(d);
+    if (total > CACHE_CAP && n) {
+        qsort(files, n, sizeof *files, by_age);
+        for (size_t i = 0; i < n && total > CACHE_CAP * 3 / 4; i++) {
+            char path[160];
+            snprintf(path, sizeof path, CACHE_DIR "/%s", files[i].name);
+            if (unlink(path) == 0)
+                total -= (unsigned long long)files[i].size;
+        }
+    }
+    free(files);
+    s_cache_bytes = total;
+}
+
+static uint8_t *cache_read(const char *url, size_t *len)
+{
+    char path[160];
+    cache_path(url, path, sizeof path);
+    FILE *f = fopen(path, "rb");
+    if (!f)
+        return NULL;
+    uint8_t *buf = NULL;
+    if (fseek(f, 0, SEEK_END) == 0) {
+        const long n = ftell(f);
+        if (n > 0 && n <= MAX_FETCH && fseek(f, 0, SEEK_SET) == 0 && (buf = (uint8_t *)malloc((size_t)n))) {
+            if (fread(buf, 1, (size_t)n, f) == (size_t)n) {
+                *len = (size_t)n;
+            } else {
+                free(buf);
+                buf = NULL;
+            }
+        }
+    }
+    fclose(f);
+    if (!buf)
+        unlink(path);        /* unreadable: fetch it again */
+    return buf;
+}
+
+static void cache_write(const char *url, const uint8_t *data, size_t len)
+{
+    char path[160], tmp[176];
+    cache_path(url, path, sizeof path);
+    snprintf(tmp, sizeof tmp, "%s.%p", path, (void *)pthread_self());
+    FILE *f = fopen(tmp, "wb");
+    if (!f)
+        return;
+    const int ok = fwrite(data, 1, len, f) == len;
+    if (fclose(f) != 0 || !ok || rename(tmp, path) != 0) {
+        unlink(tmp);
+        return;
+    }
+    pthread_mutex_lock(&s_cache_lock);
+    s_cache_bytes += len;
+    if (s_cache_bytes > CACHE_CAP)
+        cache_trim();
+    pthread_mutex_unlock(&s_cache_lock);
+}
+
+/* A cached file that did not decode is dropped (the next request fetches it). */
+static void cache_forget(const char *url)
+{
+    if (!cacheable(url))
+        return;
+    char path[160];
+    cache_path(url, path, sizeof path);
+    unlink(path);
+}
+
+static void cache_init(void)
+{
+    pthread_mutex_lock(&s_cache_lock);
+    if (!s_cache_ready) {
+        mkdir("/download0/jelly5", 0777);
+        mkdir(CACHE_DIR, 0777);
+        cache_trim();
+        s_cache_ready = 1;
+    }
+    pthread_mutex_unlock(&s_cache_lock);
+}
+
 /* ---- fetching ------------------------------------------------------------------ */
 
+static uint8_t *fetch_network(const char *url, size_t *len);
+
 static uint8_t *fetch(const char *url, size_t *len)
+{
+    *len = 0;
+    const int keep = cacheable(url);
+    if (keep) {
+        cache_init();
+        uint8_t *hit = cache_read(url, len);
+        if (hit)
+            return hit;
+    }
+    uint8_t *data = fetch_network(url, len);
+    if (data && keep)
+        cache_write(url, data, *len);
+    return data;
+}
+
+static uint8_t *fetch_network(const char *url, size_t *len)
 {
     AVIOContext *io = NULL;
     AVDictionary *opts = NULL;
@@ -286,8 +465,10 @@ static void *worker(void *arg)
         free(data);
         if (ok && blur > 0)
             ui_image_blur(&img, blur);
-        if (!ok)
+        if (!ok) {
             evo_bt("image: FAILED %.100s", url);
+            cache_forget(url);
+        }
 
         pthread_mutex_lock(&s_lock);
         if (next->discard || next->state != LOADING) {

@@ -141,6 +141,13 @@ Detail::Content Detail::fetch(jf::Client &c, const jf::Item &base)
     }
     for (auto &j : jobs)
         j.join();
+    if (got && item.local_trailers > 0) {
+        const std::vector<jf::Item> trailers = c.local_trailers(base.id);
+        if (!trailers.empty()) {
+            out.trailer = trailers.front();
+            out.have_trailer = true;
+        }
+    }
     if (got) {
         out.item = item;
         out.detail = std::move(detail);
@@ -284,6 +291,8 @@ std::vector<Detail::Button> Detail::buttons() const
         b.push_back(PlayButton);
     if (m_view.have_target && m_view.target.position_ticks > 0)
         b.push_back(RestartButton);
+    if (m_view.have_trailer)
+        b.push_back(TrailerButton);
     if (m_view.item.type != "BoxSet")
         b.push_back(WatchedButton);
     b.push_back(FavouriteButton);
@@ -390,6 +399,9 @@ Action Detail::input(uint32_t p)
                 a.kind = Action::Changed;
                 a.item = m_view.item;
                 apply_local(ch, true);
+            } else if (btn == TrailerButton) {
+                a.kind = Action::PlayFromStart;
+                a.item = m_view.trailer;
             } else if (m_view.have_target) {
                 a.kind = btn == RestartButton ? Action::PlayFromStart : Action::Play;
                 a.item = m_view.target;
@@ -534,6 +546,8 @@ void Detail::draw_top(float y0, float dt)
             w = gfx::text_width(m_view.item.played ? "Sett" : "Merk som sett", st) + 64 + 34;
         if (bs[i] == RestartButton)
             w = gfx::text_width("Fra start", st) + 64;
+        if (bs[i] == TrailerButton)
+            w = gfx::text_width("Trailer", st) + 64;
         if (bs[i] == PlayButton)
             w = 40 + 30 + 14 + gfx::text_width(label, st) + (pct >= 0 ? 14 + 90 + 14 + gfx::text_width(sub, {gfx::Medium, 24}) : 0) + 40;
         const float k = 1.f + 0.08f * lift;
@@ -556,6 +570,8 @@ void Detail::draw_top(float y0, float dt)
             }
         } else if (bs[i] == RestartButton) {
             gfx::text(r.x + r.w / 2, cy + 9, "Fra start", st, fg, 1);
+        } else if (bs[i] == TrailerButton) {
+            gfx::text(r.x + r.w / 2, cy + 9, "Trailer", st, fg, 1);
         } else if (bs[i] == WatchedButton) {
             /* A check from small squares along its two strokes. */
             const bool seen = m_view.item.played;

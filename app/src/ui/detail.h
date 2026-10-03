@@ -32,6 +32,8 @@ public:
         std::vector<jf::Item> seasons;
         std::vector<jf::Item> all_episodes;   /* every season's, fetched with the page */
         std::vector<jf::Item> similar;
+        jf::Item trailer;             /* its first local trailer, when it has one */
+        bool have_trailer = false;
     };
     Detail(jf::Client &client, const jf::Item &item);
 
@@ -48,7 +50,7 @@ public:
 
 private:
     enum Zone { Buttons, Seasons, Episodes, Cast, Similar, ZoneCount };
-    enum Button { PlayButton, RestartButton, WatchedButton, FavouriteButton };
+    enum Button { PlayButton, RestartButton, TrailerButton, WatchedButton, FavouriteButton };
 
     struct Data {
         std::mutex lock;

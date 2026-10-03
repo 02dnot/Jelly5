@@ -29,6 +29,7 @@ struct Item {
     int64_t position_ticks = 0;               /* resume point */
     double played_percent = 0;
     bool played = false, favorite = false;
+    int local_trailers = 0;                   /* trailer files next to the title */
     std::vector<std::string> genres;
 
     /* Image owners and tags (an episode's logo/backdrop belong to its series). */
@@ -166,6 +167,8 @@ public:
     std::vector<Item> person_items(const std::string &person_id, const std::string &types, int limit);
     bool set_favorite(const std::string &id, bool favorite);
     bool set_played(const std::string &id, bool played);
+    /* A title's own trailer files (YouTube trailers are not played: not Jellyfin's). */
+    std::vector<Item> local_trailers(const std::string &id);
     /* Drops the resume point: the title leaves "Fortsett å se". */
     bool clear_position(const std::string &id);
     /* Min liste: the user's favourite movies, series and collections, newest first. */

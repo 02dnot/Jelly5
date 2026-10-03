@@ -723,7 +723,8 @@ bool draw_frame(double t, float dt)
 /* What a chosen item plays: a series starts at its next episode. */
 bool resolve_playable(jf::Item *item)
 {
-    if (item->type == "Movie" || item->type == "Episode" || item->type == "Video")
+    if (item->type == "Movie" || item->type == "Episode" || item->type == "Video" || item->type == "Trailer" ||
+        item->type == "MusicVideo")
         return true;
     if (item->type == "Season") {
         /* A season (the "recently added" rows group episodes by season):
