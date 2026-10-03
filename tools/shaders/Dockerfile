@@ -11,7 +11,7 @@
 #
 #   tools/shaders/build.sh            (builds the image if needed, then the pipes)
 
-FROM --platform=linux/amd64 ubuntu:24.04
+FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -59,12 +59,12 @@ RUN curl -fsSL -o /tmp/dxc.tar.gz \
     && ln -sf "$(find /opt/dxc -name dxc -type f -perm -u+x | head -1)" /usr/local/bin/dxc \
     && test -x /usr/local/bin/dxc
 
-# Four compile jobs and one link: the AMDGPU backend's largest units need 2-4 GB each.
+# Three compile jobs and one link (with 16 GB for Docker): the AMDGPU backend's largest units need 2-4 GB each.
 RUN cmake -G Ninja -S ${AMDLLPC_SRC}/drivers/xgl -B ${AMDLLPC_SRC}/build \
       -DCMAKE_BUILD_TYPE=Release -DVKI_BUILD_TOOLS=ON \
       -DVKI_RAY_TRACING=OFF -DLLPC_RAY_TRACING=OFF \
-      -DLLVM_PARALLEL_COMPILE_JOBS=4 -DLLVM_PARALLEL_LINK_JOBS=1 \
-    && cmake --build ${AMDLLPC_SRC}/build --target amdllpc -j4 \
+      -DLLVM_PARALLEL_COMPILE_JOBS=3 -DLLVM_PARALLEL_LINK_JOBS=1 \
+    && cmake --build ${AMDLLPC_SRC}/build --target amdllpc -j3 \
     && find ${AMDLLPC_SRC}/build -name amdllpc -type f -perm -u+x -exec install -m 0755 {} /usr/local/bin/amdllpc \; \
     && find ${AMDLLPC_SRC} -name "libspvgen*.so" -exec install -m 0755 {} /usr/local/lib/ \; \
     && ldconfig && test -x /usr/local/bin/amdllpc && amdllpc --version \

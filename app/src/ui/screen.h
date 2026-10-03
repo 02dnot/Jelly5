@@ -125,6 +125,10 @@ std::string poster_url(jf::Client &c, const jf::Item &it, int width);
  * size is the wordmark's font size. Returns the total width. */
 float draw_brand(float x, float baseline, float size, float opacity = 1.f, bool glow = false);
 
+/* Apple TV's living backdrop: t covering full, slowly zooming in (6 % over 30 s
+ * from age 0) and drifting toward a corner chosen by key. */
+void draw_drift(const gfx::Rect &full, const gfx::Texture *t, float opacity, double age, const std::string &key);
+
 /* Frosted glass (Apple TV's panels): a soft shadow, what lies under r blurred,
  * a tint over it and a hairline of light along the top. The tint is lighter
  * when the blur is there (the colours behind show through) and the old solid

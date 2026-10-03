@@ -31,6 +31,7 @@
 #include "ui/person.h"
 #include "ui/login.h"
 #include "ui/profiles.h"
+#include "ui/screensaver.h"
 #include "ui/search.h"
 #include "ui/settings_screen.h"
 #include "ui/syncplay_screen.h"
@@ -54,6 +55,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <map>
+#include <set>
 #include <memory>
 #include <mutex>
 #include <pthread.h>
@@ -552,6 +554,33 @@ struct Origin {
     const ui::Screen *page = nullptr;
 };
 Origin s_origin;
+ui::Screensaver s_saver;
+constexpr double kSaverAfter = 300.0;   /* 5 minutes without a button */
+
+/* The screensaver's slides: every backdrop on the home screen, once. */
+std::vector<ui::Screensaver::Slide> saver_slides()
+{
+    std::vector<ui::Screensaver::Slide> out;
+    std::set<std::string> seen;
+    std::lock_guard<std::mutex> g(s_state.lock);
+    auto add = [&](const jf::Item &it) {
+        const std::string url = s_client->image_url(it.backdrop_owner, "Backdrop", it.backdrop_tag, 1920);
+        if (url.empty() || !seen.insert(url).second)
+            return;
+        const bool ep = it.type == "Episode";
+        std::string line = it.year ? std::to_string(it.year) : std::string();
+        if (!it.genres.empty())
+            line += (line.empty() ? "" : "  \xC2\xB7  ") + it.genres[0];
+        out.push_back({url, it.backdrop_blurhash, ep ? it.series_name : it.name, line});
+    };
+    for (const jf::Item &it : s_state.model.hero)
+        add(it);
+    for (const ui::HomeRow &r : s_state.model.rows)
+        if (r.kind != ui::HomeRow::Libraries)
+            for (const jf::Item &it : r.items)
+                add(it);
+    return out;
+}
 std::vector<jf::Item> s_queue;                      /* what the chosen Play hands over as a queue */
 size_t s_queue_start = 0;
 int s_tab = ui::Nav::Home;
@@ -937,6 +966,11 @@ bool draw_frame(double t, float dt)
     art::tick();
     gfx::begin_frame();
     bool animating = true;
+    if (s_saver.on() && phase == Phase::Home) {
+        s_saver.draw(t);
+        gfx::end_frame();
+        return true;
+    }
     switch (phase) {
     case Phase::Connecting:
     case Phase::Loading:
@@ -1227,6 +1261,21 @@ int main()
         if (gate.kind != Gate::None)
             open_gate(gate);
 
+        /* The screensaver: on after a while without a button; any button wakes the
+         * app and is only that. */
+        static double last_input = now_s();
+        if (in.pressed) {
+            last_input = now_s();
+            if (s_saver.on()) {
+                s_saver.stop();
+                in.pressed = 0;
+                animating = true;
+            }
+        } else if (!s_saver.on() && phase == Phase::Home && !ime::active() && now_s() - last_input > kSaverAfter) {
+            s_saver.start(saver_slides(), now_s() - t0);
+            animating = true;
+        }
+
         jf::Item chosen;
         bool chose = false, from_start = false, shuffle = false;
         if (in.pressed) {
@@ -1291,6 +1340,8 @@ int main()
             usleep(8000);
             last = now_s();
         }
+        if (s_saver.on())
+            usleep(25000);   /* the screensaver drifts slowly: ~30 frames a second is plenty */
         /* Once a minute, what the app holds (idle too): anything that only grows
          * shows here over a long session. */
         {
