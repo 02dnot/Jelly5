@@ -84,7 +84,7 @@ bool Library::square() const
     return t == "MusicAlbum" || t == "MusicArtist" || t == "Playlist";
 }
 
-int Library::pill_count() const { return (m_sources.size() > 1 ? (int)m_sources.size() : 0) + kNumSorts + 1; }
+int Library::pill_count() const { return (m_sources.size() > 1 ? (int)m_sources.size() : 0) + 1; }   /* + the sort & filter button */
 
 bool Library::by_name() const { return m_sort == kSortByName && source().types != "MusicArtist"; }
 
@@ -218,9 +218,9 @@ Action Library::input(uint32_t p)
         else if (p & NUVIO_BTN_RIGHT)
             m_pill = std::min(pill_count() - 1, m_pill + 1);
         else if (p & NUVIO_BTN_CROSS) {
-            if (m_pill == ns + kNumSorts) {   /* Filter: the sheet */
+            if (m_pill == ns) {   /* the sort & filter button: the sheet, on the current sort */
                 m_filter_open = true;
-                m_filter_row = 0;
+                m_filter_row = m_sort;
                 m_filter_a.to(1.f);
                 std::shared_ptr<Data> d = m_data;
                 bool need;
@@ -249,9 +249,6 @@ Action Library::input(uint32_t p)
                     }
                     reload();
                 }
-            } else if (m_pill - ns != m_sort) {
-                m_sort = m_pill - ns;
-                reload();
             }
         } else if (p & NUVIO_BTN_DOWN) {
             if (count > 0)
@@ -290,7 +287,7 @@ Action Library::input(uint32_t p)
             m_index -= kCols;
         else {   /* up to the nearest pills: the left half to the libraries, the right to the sorts */
             m_in_pills = true;
-            m_pill = ns > 0 && col < kCols / 2 ? m_source : ns + m_sort;
+            m_pill = ns > 0 && col < kCols / 2 ? m_source : ns;
         }
     } else if (p & NUVIO_BTN_CIRCLE) {
         /* Back: to the top of the grid, then to the sort row. */
@@ -298,7 +295,7 @@ Action Library::input(uint32_t p)
             m_index = col;
         else {
             m_in_pills = true;
-            m_pill = ns > 0 ? m_source : m_sort;
+            m_pill = ns > 0 ? m_source : ns;
         }
     } else if (p & NUVIO_BTN_CROSS) {
         std::lock_guard<std::mutex> g(m_data->lock);
@@ -326,7 +323,14 @@ void Library::filter_input(uint32_t p)
         return;
     }
     if (p & NUVIO_BTN_DOWN) {
-        m_filter_row = std::min((int)FRowCount - 1, m_filter_row + 1);
+        m_filter_row = std::min(kNumSorts + (int)FRowCount - 1, m_filter_row + 1);
+        return;
+    }
+    if (m_filter_row < kNumSorts) {   /* Sorter etter: Cross picks */
+        if ((p & NUVIO_BTN_CROSS) && m_filter_row != m_sort) {
+            m_sort = m_filter_row;
+            reload();
+        }
         return;
     }
     int ngenres;
@@ -339,7 +343,7 @@ void Library::filter_input(uint32_t p)
         return;
     const Filters was = m_filters;
     auto cycle = [dir](int i, int n) { return n > 0 ? ((i + dir) % n + n) % n : 0; };
-    switch (m_filter_row) {
+    switch (m_filter_row - kNumSorts) {
     case FUnplayed: m_filters.unplayed = !m_filters.unplayed; break;
     case FFavorites: m_filters.favorites = !m_filters.favorites; break;
     case FGenre: m_filters.genre = cycle(m_filters.genre, ngenres + 1); break;
@@ -366,45 +370,59 @@ void Library::draw_filters(float dt)
         std::lock_guard<std::mutex> g(m_data->lock);
         genres = m_data->genres;
     }
+    /* One sheet: Sorter etter (pick one, a check on it), then Filter. */
     gfx::fill({0, 0, gfx::W, gfx::H}, alpha(0x99000000u, a));
-    const float w = 760, row_h = 72, h = 120 + FRowCount * (row_h + 6) + 80;
+    const float w = 760, row_h = 62, gap = 4, head = 56;
+    const int rows = kNumSorts + FRowCount;
+    const float h = 40 + 2 * head + rows * (row_h + gap) + 90;
     const gfx::Rect r{(gfx::W - w) / 2, (gfx::H - h) / 2 + 24 * (1.f - a), w, h};
     glass_panel(r, 28, a);
-    gfx::text(r.x + 48, r.y + 76, T("Filtrer"), {gfx::Bold, 36}, alpha(kText, a));
-    const float top = r.y + 110;
-    m_filter_drop.to({r.x + 30, top + m_filter_row * (row_h + 6), w - 60, row_h}, m_filter_row, r.x, r.y);
+    auto row_y = [&](int i) { return r.y + 40 + head + i * (row_h + gap) + (i >= kNumSorts ? head : 0); };
+    gfx::text(r.x + 60, r.y + 40 + head - 16, T("Sorter etter"), {gfx::Bold, 22}, alpha(kText3, a));
+    gfx::text(r.x + 60, row_y(kNumSorts) - 16, T("Filter"), {gfx::Bold, 22}, alpha(kText3, a));
+    m_filter_drop.to({r.x + 30, row_y(m_filter_row), w - 60, row_h}, m_filter_row, r.x, r.y);
     m_filter_drop.draw(dt, a, &m_animating, 16);
-    for (int i = 0; i < FRowCount; i++) {
+    for (int i = 0; i < rows; i++) {
         const bool focus = i == m_filter_row;
-        const float y = top + i * (row_h + 6), cy = y + row_h / 2 + 9;
+        const float cy = row_y(i) + row_h / 2 + 9;
         std::string label, value;
-        switch (i) {
-        case FUnplayed: label = T("Bare usette"); value = m_filters.unplayed ? T("På") : T("Av"); break;
-        case FFavorites: label = T("Bare favoritter"); value = m_filters.favorites ? T("På") : T("Av"); break;
-        case FGenre:
-            label = T("Sjanger");
-            value = m_filters.genre > 0 && m_filters.genre <= (int)genres.size() ? genres[m_filters.genre - 1]
-                                                                                  : std::string(T("Alle"));
-            break;
-        case FDecade: {
-            label = T("Tiår");
-            char b[32];
-            std::snprintf(b, sizeof b, T("%d-tallet"), kDecades[m_filters.decade]);
-            value = m_filters.decade > 0 ? std::string(b) : std::string(T("Alle"));
-            break;
+        bool check = false;
+        if (i < kNumSorts) {
+            label = T(kSorts[i].label);
+            check = i == m_sort;
+        } else {
+            switch (i - kNumSorts) {
+            case FUnplayed: label = T("Bare usette"); value = m_filters.unplayed ? T("På") : T("Av"); break;
+            case FFavorites: label = T("Bare favoritter"); value = m_filters.favorites ? T("På") : T("Av"); break;
+            case FGenre:
+                label = T("Sjanger");
+                value = m_filters.genre > 0 && m_filters.genre <= (int)genres.size() ? genres[m_filters.genre - 1]
+                                                                                      : std::string(T("Alle"));
+                break;
+            case FDecade: {
+                label = T("Tiår");
+                char b[32];
+                std::snprintf(b, sizeof b, T("%d-tallet"), kDecades[m_filters.decade]);
+                value = m_filters.decade > 0 ? std::string(b) : std::string(T("Alle"));
+                break;
+            }
+            case FReset: label = T("Nullstill filtre"); break;
+            }
         }
-        case FReset: label = T("Nullstill filtre"); break;
-        }
-        gfx::text(r.x + 60, cy, label, {focus ? gfx::Bold : gfx::SemiBold, 26}, alpha(focus ? kText : kText2, a));
+        gfx::text(r.x + 60, cy, label, {focus || check ? gfx::Bold : gfx::SemiBold, 25},
+                  alpha(focus || check ? kText : kText2, a));
+        if (check)
+            draw_check(r.x + w - 76, cy - 9, 22, alpha(kText, a));
         if (!value.empty()) {
+            const int fr = i - kNumSorts;
             const bool on = value != T("Av") && value != T("Alle");
-            gfx::text(r.x + w - 60 - (focus && i >= FGenre ? 30 : 0), cy, value, {gfx::Medium, 24, 330},
+            gfx::text(r.x + w - 60 - (focus && fr >= FGenre ? 30 : 0), cy, value, {gfx::Medium, 23, 330},
                       alpha(on ? kText : kText3, a), 2);
-            if (focus && (i == FGenre || i == FDecade))
+            if (focus && (fr == FGenre || fr == FDecade))
                 gfx::text(r.x + w - 56, cy, "\xE2\x80\xBA", {gfx::Bold, 30}, alpha(kText2, a), 2);
         }
     }
-    draw_pad_hints(r.x + 60, r.y + r.h - 42, {{PadButton::Cross, T("Endre")}, {PadButton::Circle, T("Ferdig")}}, 0, 26,
+    draw_pad_hints(r.x + 60, r.y + r.h - 42, {{PadButton::Cross, T("Velg")}, {PadButton::Circle, T("Ferdig")}}, 0, 26,
                    a);
 }
 
@@ -564,44 +582,36 @@ void Library::draw(double now, float dt)
             std::snprintf(cnt, sizeof cnt, T("%d titler"), total);
             gfx::text(kPad + tw + 20, hy, cnt, {gfx::Medium, 24}, alpha(kText3, ha));
         }
-        /* The sorts: a glass bar on the right, and the filter pill after it; the
-         * drop on the focused or picked sort (or on Filter while it is focused). */
-        const gfx::TextStyle st{gfx::SemiBold, 23};
+        /* Sorting and filters behind one round glass button on the right (an icon:
+         * tapering lines), what is in force written small beside it. */
         const int nf = active_filters();
-        std::string flabel = T("Filter");
+        const float bd = 66, bx = gfx::W - kPad - bd, by = hy - 44;
+        const gfx::Rect btn{bx, by, bd, bd};
+        glass_panel(btn, bd / 2, ha, false);
+        const bool here = m_focused && m_in_pills && m_pill == ns;
+        if (here)
+            m_sort_drop.to(btn, 0, 0, hy);
+        else
+            m_sort_drop.hide();
+        m_sort_drop.draw(dt, ha, &m_animating);
+        const float icx = bx + bd / 2, icy = by + bd / 2;
+        for (int k = 0; k < 3; k++) {   /* three bars, each shorter: sort & filter */
+            const float lw = 30 - k * 9;
+            gfx::fill({icx - lw / 2, icy - 10 + k * 9, lw, 3.5f}, alpha(kText, ha), 1.75f);
+        }
+        if (nf > 0) {   /* how many filters are on */
+            const gfx::Rect badge{bx + bd - 22, by - 4, 26, 26};
+            gfx::fill(badge, alpha(0xff0a84ffu, ha), 13);
+            gfx::text(badge.x + 13, badge.y + 19, std::to_string(nf), {gfx::Bold, 17}, alpha(kText, ha), 1);
+        }
+        std::string state = T(kSorts[m_sort].label);
         if (nf > 0)
-            flabel += " \xC2\xB7 " + std::to_string(nf);
-        const float fw = gfx::text_width(flabel, st) + 56;
-        float sw[kNumSorts], bw = 12;
-        for (int i = 0; i < kNumSorts; i++) {
-            sw[i] = gfx::text_width(T(kSorts[i].label), st) + 56;
-            bw += sw[i] + 6;
+            state += std::string("  \xC2\xB7  ") + (nf == 1 ? T("1 filter") : std::to_string(nf) + T(" filtre"));
+        gfx::text(bx - 18, hy, state, {gfx::Medium, 22, 520}, alpha(here ? kText2 : kText3, ha), 2);
+        if (by_name() && !m_in_pills) {   /* A-Å: the letter jump, shown where it works */
+            const float sw = gfx::text_width(state, {gfx::Medium, 22, 520});
+            draw_pad_hints(bx - 18 - sw, hy + 44, {{PadButton::L1, ""}, {PadButton::R1, T("Hopp til bokstav")}}, 0, 22, ha);
         }
-        const float fx = gfx::W - kPad - fw - 6;
-        const float sx0 = fx - 18 - bw + 6;
-        glass_panel({sx0 - 6, hy - 44, bw, 66}, 33, ha, false);
-        glass_panel({fx - 6, hy - 44, fw + 12, 66}, 33, ha, false);
-        const bool here = m_focused && m_in_pills && m_pill >= ns;
-        const int on = here ? m_pill - ns : m_sort;
-        float x = sx0;
-        for (int i = 0; i < kNumSorts; i++) {
-            if (i == on)
-                m_sort_drop.to({x, hy - 38, sw[i], 54}, i, 0, hy);
-            x += sw[i] + 6;
-        }
-        if (on == kNumSorts)
-            m_sort_drop.to({fx, hy - 38, fw, 54}, kNumSorts, 0, hy);
-        m_sort_drop.draw(dt, ha * (here ? 1.f : 0.4f), &m_animating);
-        x = sx0;
-        for (int i = 0; i < kNumSorts; i++) {
-            gfx::text(x + sw[i] / 2, hy - 38 + 27 + 8, T(kSorts[i].label), i == on ? gfx::TextStyle{gfx::Bold, 23} : st,
-                      alpha(i == on ? kText : kText2, ha), 1);
-            x += sw[i] + 6;
-        }
-        gfx::text(fx + fw / 2, hy - 38 + 27 + 8, flabel, on == kNumSorts || nf > 0 ? gfx::TextStyle{gfx::Bold, 23} : st,
-                  alpha(on == kNumSorts || nf > 0 ? kText : kText2, ha), 1);
-        if (by_name() && !m_in_pills)   /* A-Å: the letter jump, shown where it works */
-            draw_pad_hints(sx0, hy + 48, {{PadButton::L1, ""}, {PadButton::R1, T("Hopp til bokstav")}}, 0, 22, ha);
     }
 
     /* The grid, clipped below the header. */
