@@ -86,9 +86,61 @@ void Home::activate()
     }
 }
 
+/* A change from the options sheet, shown at once (the rows reload behind it). */
+void Home::apply(const UserDataChange &c)
+{
+    for (HomeRow &row : m_model.rows) {
+        for (jf::Item &it : row.items)
+            apply_change(it, c);
+        auto gone = [&](const jf::Item &it) {
+            if (it.id != c.id)
+                return false;
+            if (row.kind == HomeRow::Resume)
+                return c.resume_cleared || c.played_set;
+            if (row.kind == HomeRow::NextUp)
+                return c.played_set && c.played;
+            if (row.kind == HomeRow::MyList)
+                return c.favorite_set && !c.favorite;
+            return false;
+        };
+        row.items.erase(std::remove_if(row.items.begin(), row.items.end(), gone), row.items.end());
+    }
+    for (jf::Item &it : m_model.hero)
+        apply_change(it, c);
+    /* Rows left empty go; focus stays in range. */
+    for (size_t r = 0; r < m_model.rows.size();)
+        if (m_model.rows[r].items.empty()) {
+            m_model.rows.erase(m_model.rows.begin() + r);
+            m_cols.erase(m_cols.begin() + r);
+            m_scroll.erase(m_scroll.begin() + r);
+            if (m_row > (int)r)
+                m_row--;
+        } else {
+            r++;
+        }
+    if (m_row >= (int)m_model.rows.size())
+        m_row = (int)m_model.rows.size() - 1;
+    if (m_row < 0 && m_model.hero.empty() && !m_model.rows.empty())
+        m_row = 0;
+    if (m_row >= 0)
+        m_cols[m_row] = std::min(m_cols[m_row], (int)m_model.rows[m_row].items.size() - 1);
+    m_focus_changed = m_now;
+}
+
 Action Home::input(uint32_t p)
 {
     Action action;
+    if (m_menu.active()) {
+        m_menu.input(p, &action);
+        if (action.kind == Action::Changed)
+            apply(action.change);
+        return action;
+    }
+    if (p & NUVIO_BTN_TRIANGLE) {
+        if (const jf::Item *f = focused_item())
+            m_menu.open(*f, m_row >= 0 && m_model.rows[m_row].kind == HomeRow::Resume);
+        return action;
+    }
     const int nrows = (int)m_model.rows.size();
     const int before_row = m_row;
     const int before_col = m_row >= 0 ? m_cols[m_row] : 0;
@@ -449,6 +501,7 @@ void Home::draw(double now, float dt)
     }
 
     draw_rows(dt);
+    m_menu.draw(dt, &m_animating);
 
     if (art::animating())
         m_animating = true;

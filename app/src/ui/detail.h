@@ -5,8 +5,9 @@
  * The detail page (concept: .detail): backdrop, logo, metadata and badges,
  * tagline, overview, Play / From start / Favourite, credits; then, for a
  * series, the season picker and the season's episodes; cast and crew; more
- * like this. The page slides up as focus moves down and the backdrop dims.
- * Circle goes back to the buttons, then off the page.
+ * like this. A collection (BoxSet) lists its titles instead. The page slides
+ * up as focus moves down and the backdrop dims. Circle goes back to the
+ * buttons, then off the page. Triangle on an episode marks it watched.
  */
 #pragma once
 
@@ -47,7 +48,7 @@ public:
 
 private:
     enum Zone { Buttons, Seasons, Episodes, Cast, Similar, ZoneCount };
-    enum Button { PlayButton, RestartButton, FavouriteButton };
+    enum Button { PlayButton, RestartButton, WatchedButton, FavouriteButton };
 
     struct Data {
         std::mutex lock;
@@ -56,6 +57,7 @@ private:
 
     /* The focused season's episodes, from all_episodes (no request: instant). */
     void select_episodes();
+    void apply_local(const UserDataChange &ch, bool whole);
     void season_moved();
     static Content fetch(jf::Client &client, const jf::Item &base);
     std::vector<Zone> zones() const;

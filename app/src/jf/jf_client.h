@@ -135,7 +135,9 @@ public:
     std::vector<Item> next_up(int limit, const std::string &series_id = std::string());
     std::vector<Item> views();
     /* Random movies and series that have both a logo and a backdrop (the hero). */
-    std::vector<Item> featured(int limit);
+    std::vector<Item> featured(int limit, std::string *raw = nullptr);
+    /* The same from a response saved earlier (the hero is cached between launches). */
+    std::vector<Item> featured_from(const std::string &raw, int limit);
     std::vector<Item> latest(const std::string &parent_id, int limit);
     std::vector<Item> episodes(const std::string &series_id, const std::string &season_id);
     /* A library page: types e.g. "Movie" or "Series"; sort_by e.g. "DateCreated,SortName". */
@@ -148,6 +150,13 @@ public:
     /* What a person is in, in this library: types e.g. "Movie" or "Series", newest first. */
     std::vector<Item> person_items(const std::string &person_id, const std::string &types, int limit);
     bool set_favorite(const std::string &id, bool favorite);
+    bool set_played(const std::string &id, bool played);
+    /* Drops the resume point: the title leaves "Fortsett å se". */
+    bool clear_position(const std::string &id);
+    /* Min liste: the user's favourite movies, series and collections, newest first. */
+    std::vector<Item> favorites(int limit);
+    /* A folder's or collection's direct children, e.g. sort_by "PremiereDate,SortName". */
+    std::vector<Item> children(const std::string &parent_id, const std::string &sort_by, int limit);
     std::vector<Segment> segments(const std::string &item_id);
 
     /* audio_index < 0: the server's default track; subtitle_index -2: the

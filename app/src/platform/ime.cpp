@@ -215,6 +215,7 @@ void poll()
 
 void cancel()
 {
+    s_done = nullptr;   /* its owner may be going away: never call it */
     if (s_active)
         sceImeDialogAbort();
 }

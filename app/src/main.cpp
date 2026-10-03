@@ -106,13 +106,32 @@ struct State {
     std::string message;
     std::string server_name, server_version;
     ui::HomeModel model;
-    std::string movies_view, shows_view;
     GateRequest gate;                   /* a gate screen the main thread should open */
 };
 State s_state;
 unsigned s_model_version = 0, s_home_version = 0;   /* model published / taken by Home */
 std::atomic<unsigned> s_session{0};                 /* bumped on every account change */
-std::unique_ptr<jf::Client> s_client;
+
+/* One client per session, configured before anyone uses it and never changed or
+ * freed after: a request still running for the last account finishes on its own
+ * client (and its result is dropped), never on the new account's half-set one. */
+jf::Client *s_client = nullptr;
+std::vector<std::unique_ptr<jf::Client>> s_clients;
+std::string s_device;
+
+jf::Client *new_client(const std::string &server)
+{
+    s_clients.emplace_back(new jf::Client(server, s_device, "PlayStation 5"));
+    return s_clients.back().get();
+}
+
+jf::Client *client_for(const accounts::Account &a)
+{
+    jf::Client *c = new_client(a.server);
+    c->set_session(a.token, a.user_id, a.user_name);
+    c->note_image_tag(a.image_tag);
+    return c;
+}
 
 void set_phase(Phase p, const std::string &message = std::string())
 {
@@ -211,36 +230,89 @@ void request_gate(Gate kind, const std::string &server = std::string(), const st
     s_state.phase = Phase::Gate;
 }
 
+/* The hero's titles are cached per user between launches: the server's random
+ * pick takes over a second, so a start shows the last pick at once and fetches
+ * the next one behind it. */
+std::string hero_file(const jf::Client &c) { return "/download0/jelly5/hero-" + c.user_id() + ".json"; }
+
+std::string read_file(const std::string &path)
+{
+    std::string out;
+    if (FILE *f = std::fopen(path.c_str(), "rb")) {
+        char buf[16384];
+        size_t n;
+        while ((n = std::fread(buf, 1, sizeof buf, f)) > 0 && out.size() < (4u << 20))
+            out.append(buf, n);
+        std::fclose(f);
+    }
+    return out;
+}
+
+void write_file(const std::string &path, const std::string &data)
+{
+    mkdir("/download0/jelly5", 0777);
+    const std::string tmp = path + ".tmp";
+    if (FILE *f = std::fopen(tmp.c_str(), "wb")) {
+        const bool ok = std::fwrite(data.data(), 1, data.size(), f) == data.size();
+        std::fclose(f);
+        if (ok)
+            std::rename(tmp.c_str(), path.c_str());
+    }
+}
+
+void refresh_hero_cache(jf::Client &c, std::vector<jf::Item> *out)
+{
+    std::string raw;
+    std::vector<jf::Item> fresh = c.featured(6, &raw);
+    if (!fresh.empty())
+        write_file(hero_file(c), raw);
+    if (out)
+        *out = std::move(fresh);
+}
+
 /* Loads the home rows, all requests in parallel. With keep_hero the featured
  * titles are kept (a refresh after playback only needs the rows). */
-void load_home(bool keep_hero = false)
+void load_home(jf::Client &c, unsigned session, bool keep_hero = false)
 {
-    const unsigned session = s_session;
     {
         std::lock_guard<std::mutex> g(s_state.lock);
+        if (session != s_session)
+            return;
         if (s_state.phase != Phase::Home) {
             s_state.phase = Phase::Loading;
             s_state.message = "Henter biblioteket \xE2\x80\xA6";
         }
     }
-    jf::Client &c = *s_client;
-    std::vector<jf::Item> hero, resume, next, views;
+    std::vector<jf::Item> hero, resume, next, views, mylist;
     std::vector<std::thread> jobs;
-    if (!keep_hero)
-        jobs.emplace_back([&] { hero = c.featured(6); });
+    if (!keep_hero) {
+        hero = c.featured_from(read_file(hero_file(c)), 6);
+        if (hero.empty())
+            jobs.emplace_back([&] { refresh_hero_cache(c, &hero); });
+        else   /* the next launch's pick (the client outlives every request) */
+            std::thread([&c] { refresh_hero_cache(c, nullptr); }).detach();
+    }
     jobs.emplace_back([&] { resume = c.resume(20); });
     jobs.emplace_back([&] { next = c.next_up(20); });
     jobs.emplace_back([&] { views = c.views(); });
+    jobs.emplace_back([&] { mylist = c.favorites(30); });
     for (auto &j : jobs)
         j.join();
+    /* Video libraries only: music, books, photos and Live TV are not here (yet). */
+    auto video = [](const jf::Item &v) {
+        const std::string &t = v.collection_type;
+        return t == "movies" || t == "tvshows" || t == "homevideos" || t == "musicvideos" || t == "boxsets" ||
+               t.empty();
+    };
+    auto has_latest = [&](const jf::Item &v) { return video(v) && v.collection_type != "boxsets"; };
     std::vector<std::pair<std::string, std::vector<jf::Item>>> latest;
     for (const jf::Item &v : views)
-        if (v.collection_type == "movies" || v.collection_type == "tvshows")
+        if (has_latest(v))
             latest.push_back({"Nylig lagt til i " + v.name, {}});
     jobs.clear();
     size_t k = 0;
     for (const jf::Item &v : views)
-        if (v.collection_type == "movies" || v.collection_type == "tvshows") {
+        if (has_latest(v)) {
             auto *slot = &latest[k++].second;
             const std::string id = v.id;
             jobs.emplace_back([&c, slot, id] { *slot = c.latest(id, 20); });
@@ -253,22 +325,27 @@ void load_home(bool keep_hero = false)
         std::lock_guard<std::mutex> g(s_state.lock);
         m.hero = keep_hero ? s_state.model.hero : std::move(hero);
     }
-    if (!resume.empty()) m.rows.push_back({"Fortsett å se", std::move(resume), true});
-    if (!next.empty()) m.rows.push_back({"Neste episode", std::move(next), true});
+    using Row = ui::HomeRow;
+    if (!resume.empty()) m.rows.push_back({"Fortsett å se", std::move(resume), true, Row::Resume});
+    if (!next.empty()) m.rows.push_back({"Neste episode", std::move(next), true, Row::NextUp});
+    if (!mylist.empty()) m.rows.push_back({"Min liste", std::move(mylist), false, Row::MyList});
     for (auto &l : latest)
         if (!l.second.empty())
-            m.rows.push_back({l.first, std::move(l.second), false});
+            m.rows.push_back({l.first, std::move(l.second), false, Row::Latest});
+    /* The libraries themselves, when there is more than Filmer and Serier cover. */
+    std::vector<jf::Item> libs;
+    int movies = 0, shows = 0;
+    for (const jf::Item &v : views)
+        if (video(v)) {
+            libs.push_back(v);
+            movies += v.collection_type == "movies";
+            shows += v.collection_type == "tvshows";
+        }
+    if ((int)libs.size() > std::min(movies, 1) + std::min(shows, 1))
+        m.rows.push_back({"Biblioteker", std::move(libs), false, Row::Libraries});
     std::lock_guard<std::mutex> g(s_state.lock);
     if (session != s_session)
         return;   /* the account changed while this loaded */
-    s_state.movies_view.clear();
-    s_state.shows_view.clear();
-    for (const jf::Item &v : views) {
-        if (v.collection_type == "movies" && s_state.movies_view.empty())
-            s_state.movies_view = v.id;
-        if (v.collection_type == "tvshows" && s_state.shows_view.empty())
-            s_state.shows_view = v.id;
-    }
     s_state.model = std::move(m);
     s_model_version++;
     s_state.phase = Phase::Home;
@@ -278,16 +355,13 @@ void load_home(bool keep_hero = false)
 /* Signs in with a saved account (off the main thread): check the token, then
  * preferences, server info and the home rows. A rejected token asks for the
  * password again; an unreachable server is retried until the account changes. */
-void use_account(accounts::Account a)
+void use_account(jf::Client &c, unsigned session, accounts::Account a)
 {
-    const unsigned session = s_session;
-    jf::Client &c = *s_client;
-    c.set_server(a.server);
-    c.set_session(a.token, a.user_id, a.user_name);
-    c.note_image_tag(a.image_tag);
     set_phase(Phase::Connecting, "Kobler til " + (a.server_name.empty() ? a.server : a.server_name) + " \xE2\x80\xA6");
     while (session == s_session) {
         if (c.validate()) {
+            if (session != s_session)
+                return;   /* switched away meanwhile: leave "last account" and prefs alone */
             accounts::set_last(a.server, a.user_id);
             a.user_name = c.user_name();
             a.image_tag = c.user_image_tag();
@@ -301,7 +375,7 @@ void use_account(accounts::Account a)
                 s_state.server_version = version;
             }
             evo_bt("jelly5: signed in as %s on %s %s", c.user_name().c_str(), name.c_str(), version.c_str());
-            load_home();
+            load_home(c, session);
             return;
         }
         const std::string err = c.last_error();
@@ -317,12 +391,15 @@ void use_account(accounts::Account a)
     }
 }
 
+/* The account to start with, read before the first screens are made. */
+accounts::Account s_boot_account;
+bool s_boot_has_account = false;
+jf::Client *s_boot_client = nullptr;
+
 void *boot(void *)
 {
-    settings::load_local();
-    accounts::Account a;
-    if (accounts::last(&a))
-        use_account(a);
+    if (s_boot_has_account)
+        use_account(*s_boot_client, 0, s_boot_account);
     else if (!accounts::load().empty())
         request_gate(Gate::Profiles);
     else
@@ -357,8 +434,6 @@ void reset_screens()
     s_nav_focus = false;
     std::lock_guard<std::mutex> g(s_state.lock);
     s_state.model = ui::HomeModel();
-    s_state.movies_view.clear();
-    s_state.shows_view.clear();
     s_home_version = ~0u;
 }
 
@@ -378,11 +453,13 @@ void open_gate(const GateRequest &r)
 
 void switch_to(const accounts::Account &a)
 {
-    s_session++;
+    const unsigned session = ++s_session;
+    jf::Client *c = client_for(a);
+    s_client = c;
     reset_screens();
     s_gate = Gate::None;
     set_phase(Phase::Connecting, "Kobler til \xE2\x80\xA6");
-    std::thread([a] { use_account(a); }).detach();
+    std::thread([c, session, a] { use_account(*c, session, a); }).detach();
 }
 
 void gate_input(uint32_t p)
@@ -486,6 +563,9 @@ void shell_input(uint32_t p, jf::Item *play, bool *chose, bool *from_start)
         }
         if (target.type == "Person")
             s_stack.emplace_back(new ui::Person(*s_client, target));
+        else if (target.type == "CollectionFolder" || target.type == "UserView")
+            s_stack.emplace_back(new ui::Library(*s_client, target.name,
+                                                 ui::Library::types_for(target.collection_type), target.id, true));
         else
             s_stack.emplace_back(new ui::Detail(*s_client, target));
         s_stack.back()->activate();
@@ -495,6 +575,20 @@ void shell_input(uint32_t p, jf::Item *play, bool *chose, bool *from_start)
         if (!s_stack.empty())
             s_stack.pop_back();
         break;
+    case ui::Action::Changed: {   /* written, then Min liste, Fortsett å se and the rest follow */
+        jf::Client *c = s_client;
+        const unsigned session = s_session;
+        const ui::UserDataChange ch = a.change;
+        if (s_tab != ui::Nav::Home || !s_stack.empty())
+            s_home->apply(ch);   /* the home rows were not the screen it was made on */
+        std::thread([c, session, ch] {
+            if (ch.favorite_set) c->set_favorite(ch.id, ch.favorite);
+            if (ch.played_set) c->set_played(ch.id, ch.played);
+            if (ch.resume_cleared) c->clear_position(ch.id);
+            load_home(*c, session, true);
+        }).detach();
+        break;
+    }
     case ui::Action::SwitchUser:
         s_session++;
         open_gate({Gate::Profiles});
@@ -502,8 +596,8 @@ void shell_input(uint32_t p, jf::Item *play, bool *chose, bool *from_start)
         break;
     case ui::Action::SignOut: {
         accounts::forget(s_client->server(), s_client->user_id());
-        s_client->set_session("", "", "");
         s_session++;
+        s_client = new_client(s_client->server());   /* signed out; screens are remade on the next sign-in */
         const bool others = !accounts::load().empty();
         open_gate({others ? Gate::Profiles : Gate::Login, s_client->server(), "", false});
         set_phase(Phase::Gate);
@@ -565,8 +659,6 @@ bool draw_frame(double t, float dt)
         if (phase == Phase::Home && s_model_version != s_home_version) {
             s_home_version = s_model_version;
             s_home->set_model(s_state.model);
-            s_movies->set_view(s_state.movies_view);
-            s_shows->set_view(s_state.shows_view);
             const std::string &tag = s_client->user_image_tag();
             s_nav.set_user(s_client->user_name(),
                            tag.empty() ? "" : s_client->server() + "/Users/" + s_client->user_id() +
@@ -697,7 +789,9 @@ void play(jf::Item item, bool from_start)
     /* Back at once; positions and "next up" refresh behind the screen. */
     if (!s_stack.empty())
         s_stack.back()->activate();   /* a detail page reloads its progress */
-    std::thread([] { load_home(true); }).detach();
+    jf::Client *c = s_client;
+    const unsigned session = s_session;
+    std::thread([c, session] { load_home(*c, session, true); }).detach();
 }
 
 } // namespace
@@ -725,7 +819,10 @@ int main()
 
     char device[48];
     std::snprintf(device, sizeof device, "jelly5-ps5-%d", s_user);
-    s_client.reset(new jf::Client(JELLY5_SERVER, device, "PlayStation 5"));
+    s_device = device;
+    settings::load_local();
+    s_boot_has_account = accounts::last(&s_boot_account);
+    s_client = s_boot_client = s_boot_has_account ? client_for(s_boot_account) : new_client(JELLY5_SERVER);
     reset_screens();
 
     pthread_t w;

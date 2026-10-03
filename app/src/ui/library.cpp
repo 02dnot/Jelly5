@@ -33,18 +33,21 @@ constexpr int kNumSorts = 4;
 
 } // namespace
 
-Library::Library(jf::Client &client, std::string title, std::string types)
-    : m_client(client), m_title(std::move(title)), m_types(std::move(types))
+Library::Library(jf::Client &client, std::string title, std::string types, std::string view_id, bool pushed)
+    : m_client(client), m_title(std::move(title)), m_types(std::move(types)), m_view(std::move(view_id)),
+      m_pushed(pushed)
 {
     m_nav.snap(1.f);
 }
 
-void Library::set_view(const std::string &view_id)
+std::string Library::types_for(const std::string &collection_type)
 {
-    if (view_id == m_view)
-        return;
-    m_view = view_id;
-    reload();
+    if (collection_type == "movies") return "Movie";
+    if (collection_type == "tvshows") return "Series";
+    if (collection_type == "homevideos") return "Video";
+    if (collection_type == "musicvideos") return "MusicVideo";
+    if (collection_type == "boxsets") return "BoxSet";
+    return "Movie,Series,Video";   /* mixed */
 }
 
 void Library::activate()
@@ -53,7 +56,7 @@ void Library::activate()
     bool need;
     {
         std::lock_guard<std::mutex> g(m_data->lock);
-        need = m_data->total < 0 && !m_data->loading && !m_view.empty();
+        need = m_data->total < 0 && !m_data->loading;
     }
     if (need)
         load_more();
@@ -70,8 +73,7 @@ void Library::reload()
     }
     m_index = 0;
     m_scroll.snap(0);
-    if (!m_view.empty())
-        load_more();
+    load_more();
 }
 
 void Library::load_more()
@@ -109,6 +111,21 @@ Action Library::input(uint32_t p)
         std::lock_guard<std::mutex> g(m_data->lock);
         count = (int)m_data->items.size();
     }
+    if (m_menu.active()) {
+        m_menu.input(p, &a);
+        if (a.kind == Action::Changed) {
+            std::lock_guard<std::mutex> g(m_data->lock);
+            for (jf::Item &it : m_data->items)
+                apply_change(it, a.change);
+        }
+        return a;
+    }
+    if ((p & NUVIO_BTN_TRIANGLE) && !m_in_pills) {
+        std::lock_guard<std::mutex> g(m_data->lock);
+        if (m_index < (int)m_data->items.size())
+            m_menu.open(m_data->items[m_index], false);
+        return a;
+    }
     if (m_in_pills) {
         if (p & NUVIO_BTN_LEFT)
             m_pill = std::max(0, m_pill - 1);
@@ -122,7 +139,9 @@ Action Library::input(uint32_t p)
         } else if (p & NUVIO_BTN_DOWN) {
             if (count > 0)
                 m_in_pills = false;
-        } else if (p & (NUVIO_BTN_UP | NUVIO_BTN_CIRCLE)) {
+        } else if (p & NUVIO_BTN_CIRCLE) {
+            a.kind = m_pushed ? Action::Back : Action::ToNav;
+        } else if ((p & NUVIO_BTN_UP) && !m_pushed) {
             a.kind = Action::ToNav;
         }
         return a;
@@ -247,6 +266,7 @@ void Library::draw(double now, float dt)
     if (items.empty())
         gfx::text(gfx::W / 2, 560, loading || total < 0 ? "Henter \xE2\x80\xA6" : "Ingenting her ennå",
                   {gfx::Medium, 30}, kText2, 1);
+    m_menu.draw(dt, &m_animating);
     if (art::animating())
         m_animating = true;
 }

@@ -26,6 +26,15 @@ constexpr uint32_t kText3 = 0x6bebebf5;
 
 uint32_t alpha(uint32_t c, float a);
 
+/* What the viewer changed on a title (written to Jellyfin by the app; screens
+ * apply it to their own lists at once). */
+struct UserDataChange {
+    std::string id;
+    bool favorite_set = false, favorite = false;
+    bool played_set = false, played = false;
+    bool resume_cleared = false;
+};
+
 struct Action {
     enum Kind {
         None,
@@ -36,8 +45,10 @@ struct Action {
         Back,       /* leave this (pushed) screen */
         SwitchUser, /* to "Hvem ser på?" */
         SignOut,    /* forget this account's sign-in */
+        Changed,    /* change: write it, then refresh the home rows */
     } kind = None;
     jf::Item item;
+    UserDataChange change;
 };
 
 class Screen {

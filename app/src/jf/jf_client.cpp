@@ -404,7 +404,7 @@ std::vector<Item> Client::resume(int limit, const std::string &parent_id)
 {
     std::string body;
     if (!get_json("/UserItems/Resume?userId=" + user_id_ + "&limit=" + std::to_string(limit) +
-                      "&mediaTypes=Video&fields=" + kFields +
+                      "&mediaTypes=Video&enableTotalRecordCount=false&fields=" + kFields +
                       (parent_id.empty() ? std::string() : "&parentId=" + parent_id), &body))
         return {};
     return items_of(body);
@@ -430,12 +430,21 @@ std::vector<Item> Client::views()
     return items_of(body);
 }
 
-std::vector<Item> Client::featured(int limit)
+/* No total count: the server's count of a random recursive query doubles its time. */
+std::vector<Item> Client::featured(int limit, std::string *raw)
 {
     std::string body;
     if (!get_json("/Items?userId=" + user_id_ + "&IncludeItemTypes=Movie,Series&Recursive=true&SortBy=Random"
-                  "&ImageTypes=Logo,Backdrop&Limit=" + std::to_string(limit * 2) + "&fields=" + kFields, &body))
+                  "&ImageTypes=Logo,Backdrop&EnableTotalRecordCount=false&Limit=" + std::to_string(limit * 2) +
+                  "&fields=" + kFields, &body))
         return {};
+    if (raw)
+        *raw = body;
+    return featured_from(body, limit);
+}
+
+std::vector<Item> Client::featured_from(const std::string &body, int limit)
+{
     std::vector<Item> out;
     for (Item &it : items_of(body))
         if (!it.logo_tag.empty() && !it.backdrop_tag.empty() && it.logo_owner == it.id &&
@@ -487,8 +496,8 @@ std::vector<Item> Client::search(const std::string &term, int limit)
 {
     std::string body;
     if (!get_json("/Items?userId=" + user_id_ + "&searchTerm=" + url_escape(term) +
-                      "&IncludeItemTypes=Movie,Series&Recursive=true&Limit=" + std::to_string(limit) +
-                      "&fields=" + kFields, &body))
+                      "&IncludeItemTypes=Movie,Series&Recursive=true&EnableTotalRecordCount=false&Limit=" +
+                      std::to_string(limit) + "&fields=" + kFields, &body))
         return {};
     return items_of(body);
 }
@@ -549,7 +558,8 @@ std::vector<Item> Client::person_items(const std::string &person_id, const std::
 {
     std::string body;
     if (!get_json("/Items?userId=" + user_id_ + "&PersonIds=" + person_id + "&IncludeItemTypes=" + types +
-                      "&Recursive=true&SortBy=PremiereDate,ProductionYear,SortName&SortOrder=Descending&Limit=" +
+                      "&Recursive=true&SortBy=PremiereDate,ProductionYear,SortName&SortOrder=Descending"
+                      "&EnableTotalRecordCount=false&Limit=" +
                       std::to_string(limit) + "&fields=" + kFields, &body))
         return {};
     return items_of(body);
@@ -561,6 +571,40 @@ bool Client::set_favorite(const std::string &id, bool favorite)
                                   server_ + "/UserFavoriteItems/" + id + "?userId=" + user_id_,
                                   {auth_header()}, "", kTimeout);
     return r.ok();
+}
+
+bool Client::set_played(const std::string &id, bool played)
+{
+    HttpResponse r = http_request(played ? "POST" : "DELETE",
+                                  server_ + "/UserPlayedItems/" + id + "?userId=" + user_id_,
+                                  {auth_header()}, "", kTimeout);
+    return r.ok();
+}
+
+/* Jellyfin's resume list is everything with a position: clearing it removes the title
+ * (as "Remove from Continue Watching" does in Jellyfin's own clients). */
+bool Client::clear_position(const std::string &id)
+{
+    return post_json("/UserItems/" + id + "/UserData?userId=" + user_id_, "{\"PlaybackPositionTicks\":0}", nullptr);
+}
+
+std::vector<Item> Client::favorites(int limit)
+{
+    std::string body;
+    if (!get_json("/Items?userId=" + user_id_ + "&Filters=IsFavorite&IncludeItemTypes=Movie,Series,BoxSet"
+                  "&Recursive=true&SortBy=DateCreated,SortName&SortOrder=Descending&EnableTotalRecordCount=false"
+                  "&Limit=" + std::to_string(limit) + "&fields=" + kFields, &body))
+        return {};
+    return items_of(body);
+}
+
+std::vector<Item> Client::children(const std::string &parent_id, const std::string &sort_by, int limit)
+{
+    std::string body;
+    if (!get_json("/Items?userId=" + user_id_ + "&parentId=" + parent_id + "&SortBy=" + sort_by +
+                      "&EnableTotalRecordCount=false&Limit=" + std::to_string(limit) + "&fields=" + kFields, &body))
+        return {};
+    return items_of(body);
 }
 
 std::vector<Segment> Client::segments(const std::string &item_id)

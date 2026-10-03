@@ -23,6 +23,7 @@ public:
     /* app_client: only its device identity is used; the login runs on its own
      * client, so the account in use is untouched until this one succeeds. */
     Login(const jf::Client &app_client, const std::string &server, const std::string &user, bool can_cancel);
+    ~Login() override;
 
     void activate() override;
     Action input(uint32_t pressed) override;

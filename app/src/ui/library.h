@@ -4,10 +4,13 @@
  *
  * Movies / Series (concept: .library): a poster grid, six across, with sort
  * pills above and the focused title's colours as a blurred background. Pages
- * of 60 load in the background as the viewer nears the end.
+ * of 60 load in the background as the viewer nears the end. The tabs show
+ * every library of their kind; opened from Biblioteker it shows one library
+ * (pushed over the tab, Circle leaves it).
  */
 #pragma once
 
+#include "ui/item_menu.h"
 #include "ui/screen.h"
 
 #include <memory>
@@ -19,9 +22,12 @@ namespace ui {
 
 class Library : public Screen {
 public:
-    Library(jf::Client &client, std::string title, std::string types);
+    /* view_id empty: all libraries. pushed: opened over a tab (Circle goes back). */
+    Library(jf::Client &client, std::string title, std::string types, std::string view_id = std::string(),
+            bool pushed = false);
+    /* What a library of this collection type lists, e.g. "movies" -> "Movie". */
+    static std::string types_for(const std::string &collection_type);
 
-    void set_view(const std::string &view_id);
     void activate() override;
     Action input(uint32_t pressed) override;
     void draw(double now, float dt) override;
@@ -41,6 +47,8 @@ private:
 
     jf::Client &m_client;
     std::string m_title, m_types, m_view;
+    bool m_pushed = false;
+    ItemMenu m_menu;
     std::shared_ptr<Data> m_data = std::make_shared<Data>();
 
     int m_sort = 0;

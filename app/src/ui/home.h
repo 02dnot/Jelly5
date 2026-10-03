@@ -12,6 +12,7 @@
 
 #include "jf/jf_client.h"
 #include "ui/anim.h"
+#include "ui/item_menu.h"
 #include "ui/screen.h"
 
 #include <cstdint>
@@ -22,9 +23,11 @@
 namespace ui {
 
 struct HomeRow {
+    enum Kind { Resume, NextUp, MyList, Latest, Libraries };
     std::string title;
     std::vector<jf::Item> items;
     bool plays = false;     /* continue watching / next up: Cross plays; else it opens */
+    Kind kind = Latest;
 };
 
 struct HomeModel {
@@ -38,6 +41,8 @@ public:
 
     void set_model(HomeModel model);
     bool empty() const { return m_model.hero.empty() && m_model.rows.empty(); }
+    /* A change made here or on another screen, shown at once. */
+    void apply(const UserDataChange &c);
 
     void activate() override;
     Action input(uint32_t pressed) override;
@@ -80,6 +85,8 @@ private:
     std::string m_info_id;
     Anim m_info_alpha;
     double m_focus_changed = 0;
+
+    ItemMenu m_menu;                    /* Triangle on a title */
 
     bool m_animating = false;
     double m_now = 0;

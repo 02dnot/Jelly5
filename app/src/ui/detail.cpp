@@ -9,6 +9,7 @@
 
 #include "gfx/art.h"
 #include "nuvio_input.h"
+#include "ui/item_menu.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -111,6 +112,9 @@ std::mutex s_cache_lock;
 std::list<std::string> s_cache_order;
 std::map<std::string, std::shared_ptr<void>> s_cache;     /* holds Detail::Content */
 std::set<std::string> s_inflight;
+
+/* Per user: what one account has watched or liked never shows on another's page. */
+std::string cache_key(const jf::Client &c, const std::string &id) { return c.user_id() + "/" + id; }
 }
 
 /* Everything the page shows, the requests in parallel. */
@@ -122,10 +126,13 @@ Detail::Content Detail::fetch(jf::Client &c, const jf::Item &base)
     jf::Item item = base;
     bool got = false;
     std::vector<jf::Item> similar, seasons, resume, next, all_episodes;
-    const bool series = base.type == "Series";
+    const bool series = base.type == "Series", boxset = base.type == "BoxSet";
     std::vector<std::thread> jobs;
     jobs.emplace_back([&] { got = c.item(base.id, &item, &detail); });
-    jobs.emplace_back([&] { similar = c.similar(base.id, 16); });
+    if (boxset)   /* a collection's own titles take the place of "more like this" */
+        jobs.emplace_back([&] { similar = c.children(base.id, "PremiereDate,ProductionYear,SortName", 200); });
+    else
+        jobs.emplace_back([&] { similar = c.similar(base.id, 16); });
     if (series) {
         jobs.emplace_back([&] { seasons = c.seasons(base.id); });
         jobs.emplace_back([&] { resume = c.resume(1, base.id); });
@@ -142,7 +149,19 @@ Detail::Content Detail::fetch(jf::Client &c, const jf::Item &base)
     out.similar = std::move(similar);
     out.seasons = std::move(seasons);
     out.all_episodes = std::move(all_episodes);
-    if (!series) {
+    if (boxset) {
+        /* Play: the first title not yet watched, else the first. */
+        for (const jf::Item &t : out.similar)
+            if (!t.played) {
+                out.target = t;
+                out.have_target = true;
+                break;
+            }
+        if (!out.have_target && !out.similar.empty()) {
+            out.target = out.similar.front();
+            out.have_target = true;
+        }
+    } else if (!series) {
         out.target = out.item;
         out.have_target = true;
     } else {
@@ -158,34 +177,36 @@ Detail::Content Detail::fetch(jf::Client &c, const jf::Item &base)
     return out;
 }
 
-static void cache_put(const std::string &id, const Detail::Content &content);
+static void cache_put(const std::string &key, const Detail::Content &content);
 
 void Detail::prefetch(jf::Client &client, const jf::Item &item)
 {
-    if (item.id.empty() || (item.type != "Movie" && item.type != "Series"))
+    if (item.id.empty() || (item.type != "Movie" && item.type != "Series" && item.type != "BoxSet"))
         return;
     {
         std::lock_guard<std::mutex> g(s_cache_lock);
-        if (s_cache.count(item.id) || s_inflight.count(item.id) || s_inflight.size() >= 2)
+        const std::string key = cache_key(client, item.id);
+        if (s_cache.count(key) || s_inflight.count(key) || s_inflight.size() >= 2)
             return;
-        s_inflight.insert(item.id);
+        s_inflight.insert(key);
     }
     jf::Client *c = &client;
     const jf::Item base = item;
     std::thread([c, base] {
         Content content = fetch(*c, base);
-        cache_put(base.id, content);
+        const std::string key = cache_key(*c, base.id);
+        cache_put(key, content);
         std::lock_guard<std::mutex> g(s_cache_lock);
-        s_inflight.erase(base.id);
+        s_inflight.erase(key);
     }).detach();
 }
 
-static void cache_put(const std::string &id, const Detail::Content &content)
+static void cache_put(const std::string &key, const Detail::Content &content)
 {
     std::lock_guard<std::mutex> g(s_cache_lock);
-    s_cache[id] = std::make_shared<Detail::Content>(content);
-    s_cache_order.remove(id);
-    s_cache_order.push_front(id);
+    s_cache[key] = std::make_shared<Detail::Content>(content);
+    s_cache_order.remove(key);
+    s_cache_order.push_front(key);
     while (s_cache_order.size() > 40) {
         s_cache.erase(s_cache_order.back());
         s_cache_order.pop_back();
@@ -197,7 +218,7 @@ Detail::Detail(jf::Client &client, const jf::Item &item) : m_client(client)
     m_data->c.item = item;
     {
         std::lock_guard<std::mutex> g(s_cache_lock);
-        auto it = s_cache.find(item.id);
+        auto it = s_cache.find(cache_key(client, item.id));
         if (it != s_cache.end())
             m_data->c = *std::static_pointer_cast<Content>(it->second);   /* instant; refreshed below */
     }
@@ -211,7 +232,7 @@ void Detail::activate()
     const jf::Item base = m_view.item;
     std::thread([d, c, base] {
         Content fresh = fetch(*c, base);
-        cache_put(base.id, fresh);
+        cache_put(cache_key(*c, base.id), fresh);
         std::lock_guard<std::mutex> g(d->lock);
         d->c = std::move(fresh);
     }).detach();
@@ -258,9 +279,13 @@ std::vector<Detail::Zone> Detail::zones() const
 
 std::vector<Detail::Button> Detail::buttons() const
 {
-    std::vector<Button> b{PlayButton};
+    std::vector<Button> b;
+    if (m_view.have_target)
+        b.push_back(PlayButton);
     if (m_view.have_target && m_view.target.position_ticks > 0)
         b.push_back(RestartButton);
+    if (m_view.item.type != "BoxSet")
+        b.push_back(WatchedButton);
     b.push_back(FavouriteButton);
     return b;
 }
@@ -276,6 +301,28 @@ float Detail::zone_top(Zone z) const
         y += k == Seasons ? kSeasonsH : k == Episodes ? kEpisodesH : k == Cast ? kCastH : kSimilarH;
     }
     return y;
+}
+
+/* A change shown at once on this page (and in its cache). whole: the page's own
+ * title, so a series marks all its episodes. */
+void Detail::apply_local(const UserDataChange &ch, bool whole)
+{
+    std::lock_guard<std::mutex> g(m_data->lock);
+    Content &c = m_data->c;
+    apply_change(c.item, ch);
+    apply_change(c.target, ch);
+    for (jf::Item &e : c.all_episodes) {
+        apply_change(e, ch);
+        if (whole && ch.played_set && c.item.type == "Series") {
+            e.played = ch.played;
+            e.position_ticks = 0;
+            e.played_percent = 0;
+        }
+    }
+    for (jf::Item &t : c.similar)
+        apply_change(t, ch);
+    m_view = c;
+    select_episodes();
 }
 
 Action Detail::input(uint32_t p)
@@ -316,20 +363,33 @@ Action Detail::input(uint32_t p)
         case Similar: move(m_similar, (int)m_view.similar.size()); break;
         default: break;
         }
+    } else if ((p & NUVIO_BTN_TRIANGLE) && m_zone == Episodes && m_episode < (int)m_eps.size()) {
+        const jf::Item &e = m_eps[m_episode];
+        a.change.id = e.id;
+        a.change.played_set = true;
+        a.change.played = !e.played;
+        a.kind = Action::Changed;
+        a.item = e;
+        apply_local(a.change, false);
     } else if (p & NUVIO_BTN_CROSS) {
         switch (m_zone) {
         case Buttons: {
             const std::vector<Button> b = buttons();
             const Button btn = b[std::min(m_button, nb - 1)];
-            if (btn == FavouriteButton) {
-                const bool fav = !m_view.item.favorite;
-                {
-                    std::lock_guard<std::mutex> g(m_data->lock);
-                    m_data->c.item.favorite = fav;
+            if (btn == FavouriteButton || btn == WatchedButton) {
+                /* Shown here at once; the app writes it and refreshes the home rows. */
+                UserDataChange &ch = a.change;
+                ch.id = m_view.item.id;
+                if (btn == FavouriteButton) {
+                    ch.favorite_set = true;
+                    ch.favorite = !m_view.item.favorite;
+                } else {
+                    ch.played_set = true;
+                    ch.played = !m_view.item.played;
                 }
-                jf::Client *c = &m_client;
-                const std::string id = m_view.item.id;
-                std::thread([c, id, fav] { c->set_favorite(id, fav); }).detach();
+                a.kind = Action::Changed;
+                a.item = m_view.item;
+                apply_local(ch, true);
             } else if (m_view.have_target) {
                 a.kind = btn == RestartButton ? Action::PlayFromStart : Action::Play;
                 a.item = m_view.target;
@@ -470,6 +530,8 @@ void Detail::draw_top(float y0, float dt)
             }
         }
         float w = 76;
+        if (bs[i] == WatchedButton)
+            w = gfx::text_width(m_view.item.played ? "Sett" : "Merk som sett", st) + 64 + 34;
         if (bs[i] == RestartButton)
             w = gfx::text_width("Fra start", st) + 64;
         if (bs[i] == PlayButton)
@@ -494,6 +556,16 @@ void Detail::draw_top(float y0, float dt)
             }
         } else if (bs[i] == RestartButton) {
             gfx::text(r.x + r.w / 2, cy + 9, "Fra start", st, fg, 1);
+        } else if (bs[i] == WatchedButton) {
+            /* A check from small squares along its two strokes. */
+            const bool seen = m_view.item.played;
+            const uint32_t cc = seen ? (focus ? 0xff0a8f3cu : 0xff30d158u) : alpha(fg, 0.85f);
+            const float gx = r.x + 30 * k, gy = cy + 2;
+            for (int s = 0; s < 6; s++)
+                gfx::fill({gx + s * 1.6f, gy - 4 + s * 1.6f, 3.2f, 3.2f}, cc, 1.f);
+            for (int s = 0; s < 11; s++)
+                gfx::fill({gx + 8 + s * 1.6f, gy + 4 - s * 1.8f, 3.2f, 3.2f}, cc, 1.f);
+            gfx::text(r.x + 30 * k + 34, cy + 9, seen ? "Sett" : "Merk som sett", st, fg);
         } else {
             /* A heart from two discs and a stack of shrinking bars (no glyph needed). */
             const bool fav = m_view.item.favorite;
@@ -642,7 +714,8 @@ void Detail::draw_sections(float dt)
         if (m_scroll[Similar].step(dt, 12.f))
             m_animating = true;
         if (vis(y, kSimilarH)) {
-            gfx::text(kPad, y + 30, "Mer som dette", {gfx::Bold, 30}, 0xebffffffu);
+            gfx::text(kPad, y + 30, m_view.item.type == "BoxSet" ? "I denne samlingen" : "Mer som dette",
+                      {gfx::Bold, 30}, 0xebffffffu);
             for (int pass = 0; pass < 2; pass++)
                 for (size_t i = 0; i < m_view.similar.size(); i++) {
                     const jf::Item &s = m_view.similar[i];

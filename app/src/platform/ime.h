@@ -23,6 +23,7 @@ bool active();    /* the dialog is up (the app should ignore the pad meanwhile) 
 void request(Kind kind, const std::string &title, const std::string &initial,
              std::function<void(const std::string &)> done);
 void poll();
+/* Closes the dialog and drops the callback (call it before its owner is destroyed). */
 void cancel();
 
 } // namespace ime

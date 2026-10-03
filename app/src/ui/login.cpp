@@ -54,6 +54,9 @@ void Login::activate()
     ime::init();
 }
 
+/* The keyboard's callbacks point at this screen: close it with the screen. */
+Login::~Login() { ime::cancel(); }
+
 bool Login::take_result(accounts::Account *out)
 {
     std::lock_guard<std::mutex> g(m_shared->lock);
