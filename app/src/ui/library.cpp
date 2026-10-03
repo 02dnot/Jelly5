@@ -330,7 +330,7 @@ void Library::draw(double now, float dt)
                 continue;   /* focused poster last, over its neighbours */
             const float lift = m_lifts.step(items[i].id, f, dt, &m_animating);
             const gfx::Rect tile{kPad + c * (kPosterW + kColGap), y, kPosterW, tile_h};
-            draw_poster(m_client, items[i], tile, lift, 1.f);   /* title (and artist) under it */
+            draw_poster(m_client, items[i], tile, lift, 1.f, m_lifts.sheen(items[i].id, &m_animating));
         }
     }
     gfx::pop_scissor();

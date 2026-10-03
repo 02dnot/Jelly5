@@ -74,14 +74,26 @@ public:
 class Lifts {
 public:
     float step(const std::string &key, bool focused, float dt, bool *animating);
+    /* The focus sheen's progress on a card (0..1 while it sweeps, -1 otherwise);
+     * call after step(). */
+    float sheen(const std::string &key, bool *animating) const;
 
 private:
-    std::map<std::string, Anim> m_lift;
+    struct Lift {
+        Anim a;
+        float focused_for = -1;   /* seconds since it took focus, -1 unfocused */
+    };
+    std::map<std::string, Lift> m_lift;
 };
+
+/* tvOS's focus sheen: a soft band of light sweeping once across a focused card
+ * (progress 0..1). */
+void draw_sheen(const gfx::Rect &r, float radius, float progress, float opacity = 1.f);
 
 /* A 2:3 poster with blurhash placeholder, focus lift and shadow, and its title
  * under it (an album's artist, an episode's series below that). */
-void draw_poster(jf::Client &c, const jf::Item &it, const gfx::Rect &r, float lift, float opacity);
+void draw_poster(jf::Client &c, const jf::Item &it, const gfx::Rect &r, float lift, float opacity,
+                 float sheen = -1.f);
 
 /* The ambient background: the focused title's backdrop as a blur (its
  * BlurHash, upscaled), dimmed, cross-faded as focus moves. */
