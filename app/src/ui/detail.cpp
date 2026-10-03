@@ -808,7 +808,7 @@ void Detail::draw(double now, float dt)
     if (m_opened < 0)
         m_opened = now;
     m_enter.to(1.f);
-    if (m_enter.step(dt, 9.f))
+    if (m_enter.step(dt, 14.f))
         m_animating = true;
     {
         std::lock_guard<std::mutex> g(m_data->lock);
@@ -861,9 +861,7 @@ void Detail::draw(double now, float dt)
     if (m_content.step(dt, 12.f) || m_content.target < 1.f)
         m_animating = true;
     gfx::push_opacity(m_content.value);
-    /* The content rises the last 40 px into place as it comes in (the backdrop does not move). */
-    const float rise = (1.f - smoothstep(std::min(m_enter.value, m_content.value))) * 40.f;
-    draw_top(-m_page.value + rise, dt);
+    draw_top(-m_page.value, dt);
     draw_sections(dt);
     gfx::pop_opacity();
     if (art::animating())

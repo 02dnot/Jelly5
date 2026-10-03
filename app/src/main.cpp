@@ -1004,8 +1004,20 @@ bool draw_frame(double t, float dt)
                                                            : s_tab == ui::Nav::Search ? (ui::Screen *)s_search.get()
                                                                                       : (ui::Screen *)s_home.get());
                 below->draw(t, dt);
-                /* The page fades in over the screen below. From Home the backdrop is the same
-                 * picture under the same shades, so it stays put: only the content changes. */
+                /* The card it was opened from lifts a little toward the viewer and fades as
+                 * the page comes in: a hint of where the page came from, easy on the eye. */
+                if (s_origin.page == scr) {
+                    const ui::Screen::Card &c = s_origin.card;
+                    const float e = ui::smoothstep(std::min(1.f, enter * 1.4f));
+                    const float k = 1.f + 0.12f * e;
+                    const gfx::Rect r{c.rect.x - c.rect.w * (k - 1) / 2, c.rect.y - c.rect.h * (k - 1) / 2, c.rect.w * k,
+                                      c.rect.h * k};
+                    const float fade = 1.f - e;
+                    if (const gfx::Texture *tex = art::get(c.url, 640, 720))
+                        gfx::image(r, tex, fade, c.radius * k, true);
+                    else if (const gfx::Texture *bh = art::blurhash(c.blurhash))
+                        gfx::image(r, bh, fade, c.radius * k, true);
+                }
                 gfx::push_opacity(enter);
             }
             scr->draw(t, dt);
