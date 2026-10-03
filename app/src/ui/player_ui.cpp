@@ -536,14 +536,14 @@ void PlayerUi::input_local(const nuvio_input_state &in, const NuvioStatus &st, s
     }
     if (m_overlay == Overlay::Chapters) {   /* left/right through them, Cross jumps, Circle closes */
         const int n = (int)m_req->chapters.size();
-        if (p & NUVIO_BTN_LEFT)
+        if (p & (NUVIO_BTN_UP | NUVIO_BTN_LEFT))
             m_chap = std::max(0, m_chap - 1);
-        else if (p & NUVIO_BTN_RIGHT)
+        else if (p & (NUVIO_BTN_DOWN | NUVIO_BTN_RIGHT))
             m_chap = std::min(n - 1, m_chap + 1);
         else if ((p & NUVIO_BTN_CROSS) && m_chap < n) {
             out.push_back({OsdCmd::SeekTo, std::max(0.0, m_req->chapters[m_chap].start)});
             m_overlay = Overlay::None;
-        } else if (p & (NUVIO_BTN_CIRCLE | NUVIO_BTN_UP))
+        } else if (p & NUVIO_BTN_CIRCLE)
             m_overlay = Overlay::None;
         return;
     }
@@ -589,7 +589,7 @@ void PlayerUi::input_local(const nuvio_input_state &in, const NuvioStatus &st, s
             for (size_t i = 0; i < m_req->chapters.size(); i++)
                 if (m_req->chapters[i].start <= st.position + 0.5)
                     m_chap = (int)i;
-            m_chap_scroll.snap((float)std::max(0, m_chap - 1) * 404.f);
+            m_chap_scroll.snap((float)std::max(0, m_chap - 1) * 178.f);
             open_overlay(Overlay::Chapters);
             return;
         }
@@ -624,7 +624,7 @@ void PlayerUi::input_local(const nuvio_input_state &in, const NuvioStatus &st, s
                 for (size_t i = 0; i < m_req->chapters.size(); i++)
                     if (m_req->chapters[i].start <= st.position + 0.5)
                         m_chap = (int)i;
-                m_chap_scroll.snap((float)std::max(0, m_chap - 1) * 404.f);
+                m_chap_scroll.snap((float)std::max(0, m_chap - 1) * 178.f);
                 open_overlay(Overlay::Chapters);
                 break;
             }
@@ -791,62 +791,64 @@ bool PlayerUi::trick_thumb(const gfx::Rect &r, double pos, float a, float radius
     return true;
 }
 
-/* Kapitler: a glass strip along the bottom, a card per chapter (a trickplay frame a
- * few seconds in, its name and time), the drop on the focused one. */
+/* Kapitler: as the episode picker - one large glass panel, a row per chapter
+ * (its picture, number and name, where it starts), the drop on the focused one. */
 void PlayerUi::draw_chapters(const NuvioStatus &st, float a, float dt)
 {
     const std::vector<NuvioChapter> &ch = m_req->chapters;
     const int n = (int)ch.size();
     m_chap = std::max(0, std::min(n - 1, m_chap));
-    const gfx::Rect r{120, H - 500, W - 240, 420};
+    const gfx::Rect r{160, 120, W - 320, H - 240};
     glass(r, a);
-    gfx::text(r.x + 56, r.y + 74, T("Kapitler"), {gfx::Bold, 36}, alpha(kText, a));
-    const float cw = 384, chh = 216, gap = 20, top = r.y + 110, left = r.x + 56;
-    const float view = r.w - 112;
-    const float target = std::max(0.f, std::min(std::max(0.f, n * (cw + gap) - gap - view), (m_chap - 1) * (cw + gap)));
-    m_chap_scroll.to(target);
+    gfx::text(r.x + 56, r.y + 86, T("Kapitler"), {gfx::Bold, 40}, alpha(kText, a));
+    gfx::text(r.x + 56 + gfx::text_width(T("Kapitler"), {gfx::Bold, 40}) + 22, r.y + 86, m_req->header_title(),
+              {gfx::Medium, 26, 900}, alpha(kText3, a));
+    const float top = r.y + 140, lx = r.x + 40, lw = r.w - 80, row_h = 178, view_h = r.h - 180;
+    m_chap_scroll.to(std::max(0.f, std::min(std::max(0.f, n * row_h - view_h), (m_chap - 1) * row_h)));
     if (m_chap_scroll.step(dt, 12.f))
         m_dirty = true;
     int now_i = 0;
     for (int i = 0; i < n; i++)
         if (ch[i].start <= st.position + 0.5)
             now_i = i;
-    gfx::push_scissor({r.x + 20, r.y + 90, r.w - 40, r.h - 100});
+    gfx::push_scissor({lx - 20, top - 10, lw + 40, view_h + 10});
     bool moving = false;
-    m_chap_drop.to({left + m_chap * (cw + gap) - m_chap_scroll.value - 8, top - 8, cw + 16, chh + 96}, m_chap,
-                   -m_chap_scroll.value, 0);
-    m_chap_drop.draw(dt, a, &moving, 20);
+    m_chap_drop.to({lx, top + m_chap * row_h - m_chap_scroll.value, lw, row_h - 14}, m_chap, r.x,
+                   r.y - m_chap_scroll.value);
+    m_chap_drop.draw(dt, a, &moving, 18);
     if (moving)
         m_dirty = true;
     for (int i = 0; i < n; i++) {
-        const float x = left + i * (cw + gap) - m_chap_scroll.value;
-        if (x > r.x + r.w || x + cw < r.x)
+        const float y = top + i * row_h - m_chap_scroll.value;
+        if (y > top + view_h || y + row_h < top - 10)
             continue;
-        const gfx::Rect th{x, top, cw, chh};
-        /* Its picture: Jellyfin's chapter image, else a trickplay frame, else the
-         * title's backdrop - never an empty box. */
-        gfx::fill(th, alpha(0xff101014u, a), 14);
-        if (!ch[i].image.empty())
-            art::draw(th, ch[i].image, "", 480, 270, 14, a);
-        else if (!trick_thumb(th, ch[i].start + 5.0, a, 14) && !m_req->backdrop.empty())
-            art::draw(th, m_req->backdrop, "", 480, 270, 14, a * 0.55f);
-        if (i == now_i) {
-            const gfx::Rect chip{th.x + 12, th.y + 12, gfx::text_width(T("N\xC3\xA5"), {gfx::Bold, 18}) + 24, 32};
-            glass_panel(chip, 16, a, false);
-            gfx::text(chip.x + chip.w / 2, chip.y + 23, T("N\xC3\xA5"), {gfx::Bold, 18}, alpha(kText, a), 1);
-        }
         const bool focus = i == m_chap;
-        gfx::text(x + 4, top + chh + 38, ch[i].name.empty() ? T("Kapittel ") + std::to_string(i + 1) : ch[i].name,
-                  {focus ? gfx::Bold : gfx::SemiBold, 23, cw - 8}, alpha(focus ? kText : kText2, a));
+        /* Its picture: Jellyfin's chapter image, else a trickplay frame, else the backdrop. */
+        const gfx::Rect th{lx + 18, y + 12, 250, 140};
+        gfx::fill(th, alpha(0xff101014u, a), 10);
+        if (!ch[i].image.empty())
+            art::draw(th, ch[i].image, "", 480, 270, 10, a);
+        else if (!trick_thumb(th, ch[i].start + 5.0, a, 10) && !m_req->backdrop.empty())
+            art::draw(th, m_req->backdrop, "", 480, 270, 10, a * 0.55f);
+        const float tx = th.x + th.w + 28;
+        const std::string name = ch[i].name.empty() ? T("Kapittel ") + std::to_string(i + 1)
+                                                    : std::to_string(i + 1) + ". " + ch[i].name;
+        const float hx = tx + gfx::text(tx, y + 48, name, {gfx::Bold, 26, lw - 520}, alpha(focus ? kText : kText2, a));
+        if (i == now_i) {
+            gfx::fill({hx + 14, y + 24, 128, 30}, alpha(0xe600a4dcu, a), 15);
+            gfx::text(hx + 78, y + 46, T("SPILLER NÅ"), {gfx::Bold, 16}, alpha(kText, a), 1);
+        }
         const int s = (int)ch[i].start;
         char t[16];
         if (s >= 3600)
             std::snprintf(t, sizeof t, "%d:%02d:%02d", s / 3600, s / 60 % 60, s % 60);
         else
             std::snprintf(t, sizeof t, "%d:%02d", s / 60, s % 60);
-        gfx::text(x + 4, top + chh + 70, t, {gfx::Medium, 20}, alpha(kText3, a));
+        gfx::text(tx, y + 88, t, {gfx::Medium, 22}, alpha(kText3, a));
     }
     gfx::pop_scissor();
+    draw_pad_hints(r.x + 56, r.y + r.h - 48, {{PadButton::Cross, T("Spill herfra")}, {PadButton::Circle, T("Lukk")}}, 0,
+                   26, a);
 }
 
 void PlayerUi::draw_controls(const NuvioStatus &st)
