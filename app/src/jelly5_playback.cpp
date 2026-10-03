@@ -319,10 +319,15 @@ std::string request_json(jf::Client &c, const jf::Item &it, const jf::Playback &
      * spanning the whole title says nothing. */
     if (ex.chapters.size() > 1) {
         cJSON *chs = cJSON_CreateArray();
-        for (const auto &ch : ex.chapters) {
+        for (size_t i = 0; i < ex.chapters.size(); i++) {
+            const jf::Chapter &ch = ex.chapters[i];
             cJSON *e = cJSON_CreateObject();
             cJSON_AddNumberToObject(e, "start", ch.start);
             cJSON_AddStringToObject(e, "name", ch.name.c_str());
+            if (!ch.image_tag.empty())   /* Jellyfin's chapter image, when it extracted one */
+                cJSON_AddStringToObject(
+                    e, "image",
+                    c.image_url(it.id, ("Chapter/" + std::to_string(i)).c_str(), ch.image_tag, 480).c_str());
             cJSON_AddItemToArray(chs, e);
         }
         cJSON_AddItemToObject(o, "chapters", chs);

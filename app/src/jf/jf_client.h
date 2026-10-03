@@ -65,6 +65,7 @@ struct Segment {
 struct Chapter {
     double start = 0;                         /* seconds */
     std::string name;
+    std::string image_tag;                    /* the server's chapter image, if it made one */
 };
 
 /* Scrubbing previews: sheets of tile_w x tile_h thumbnails, one every interval. */

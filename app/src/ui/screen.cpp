@@ -31,7 +31,8 @@ float Lifts::step(const std::string &key, bool focused, float dt, bool *animatin
 void draw_check(float cx, float cy, float size, uint32_t color)
 {
     const float u = size / 20.f, d = 3.2f * u;   /* one unit; the stroke's square */
-    const float x = cx - 9 * u, y = cy;
+    /* The two strokes span 27.2 x 21.2 units from (x, y - 14): centred on (cx, cy). */
+    const float x = cx - 13.6f * u, y = cy + 3.4f * u;
     for (int s = 0; s < 6; s++)
         gfx::fill({x + s * 1.6f * u, y - 4 * u + s * 1.6f * u, d, d}, color, d / 3);
     for (int s = 0; s < 11; s++)
@@ -332,7 +333,7 @@ void draw_poster(jf::Client &c, const jf::Item &it, const gfx::Rect &base, float
     if (it.played) {
         const gfx::Rect b{r.x + r.w - 44, r.y + 10, 34, 34};
         chip(b);
-        draw_check(b.x + b.w / 2 + 1, b.y + b.h / 2 + 1, 15, alpha(0xf2ffffffu, opacity));
+        draw_check(b.x + b.w / 2, b.y + b.h / 2, 11, alpha(0xf2ffffffu, opacity));
     } else if (it.unplayed > 0 && (it.type == "Series" || it.type == "Season")) {
         const std::string n = it.unplayed > 99 ? "99+" : std::to_string(it.unplayed);
         const gfx::TextStyle ns{gfx::SemiBold, 17};

@@ -243,6 +243,7 @@ bool nuvio_request_parse(const char *json, NuvioRequest &r)
         NuvioChapter ch;
         ch.start = num_of(it, "start", 0);
         ch.name = str_of(it, "name");
+        ch.image = str_of(it, "image");
         r.chapters.push_back(ch);
     }
     cJSON_ArrayForEach(it, cJSON_GetObjectItemCaseSensitive(root, "lyrics")) {

@@ -641,7 +641,6 @@ void Library::draw(double now, float dt)
             state += std::string("  \xC2\xB7  ") + (nf == 1 ? T("1 filter") : std::to_string(nf) + T(" filtre"));
         gfx::text(bx - 18, hy, state, {gfx::Medium, 22, 520}, alpha(here ? kText2 : kText3, ha), 2);
         const float sw = gfx::text_width(state, {gfx::Medium, 22, 520});
-        draw_pad_hint(bx - 18 - sw - 36, hy - 8, PadButton::Square, "", 24, ha);   /* □ opens it from anywhere */
         if (by_name() && !m_in_pills) {   /* A-Å: the letter jump, shown where it works */
             draw_pad_hints(bx - 18 - sw, hy + 44, {{PadButton::L1, ""}, {PadButton::R1, T("Hopp til bokstav")}}, 0, 22, ha);
         }

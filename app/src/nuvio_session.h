@@ -45,6 +45,7 @@ struct NuvioSkip {
 struct NuvioChapter {
     double start = 0;
     std::string name;
+    std::string image;            /* Jelly5: the chapter's picture, if the server has one */
 };
 
 struct NuvioLyric {

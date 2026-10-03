@@ -939,6 +939,7 @@ bool Client::media_extras(const std::string &item_id, const std::string &media_s
         Chapter ch;
         ch.start = num_of(c, "StartPositionTicks") / (double)kTicksPerSecond;
         ch.name = str_of(c, "Name");
+        ch.image_tag = str_of(c, "ImageTag");
         chapters->push_back(ch);
     }
     /* Trickplay: { media source id: { width: info } }; this version, else any, and the

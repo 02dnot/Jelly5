@@ -823,8 +823,13 @@ void PlayerUi::draw_chapters(const NuvioStatus &st, float a, float dt)
         if (x > r.x + r.w || x + cw < r.x)
             continue;
         const gfx::Rect th{x, top, cw, chh};
+        /* Its picture: Jellyfin's chapter image, else a trickplay frame, else the
+         * title's backdrop - never an empty box. */
         gfx::fill(th, alpha(0xff101014u, a), 14);
-        trick_thumb(th, ch[i].start + 5.0, a, 14);
+        if (!ch[i].image.empty())
+            art::draw(th, ch[i].image, "", 480, 270, 14, a);
+        else if (!trick_thumb(th, ch[i].start + 5.0, a, 14) && !m_req->backdrop.empty())
+            art::draw(th, m_req->backdrop, "", 480, 270, 14, a * 0.55f);
         if (i == now_i) {
             const gfx::Rect chip{th.x + 12, th.y + 12, gfx::text_width(T("N\xC3\xA5"), {gfx::Bold, 18}) + 24, 32};
             glass_panel(chip, 16, a, false);
