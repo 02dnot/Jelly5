@@ -1,7 +1,7 @@
 <p align="center">
   <img src="docs/media/icon.png" alt="Jelly5" width="180"><br>
   <b>A native Jellyfin client for jailbroken PS5 consoles.</b><br>
-  Its own GPU-drawn interface in the spirit of Netflix and Apple TV, hardware-decoded 4K HDR playback, and no browser in between.
+  Its own GPU-drawn interface, hardware-decoded 4K HDR playback, and no browser in between.
 </p>
 
 <p align="center">
@@ -15,8 +15,7 @@
 
 ## What it is
 
-Jelly5 is an app that appears on the PS5 home screen under **Media**, next to
-Netflix and friends. Everything you see is drawn directly on the GPU at the
+Jelly5 is an app that appears on the PS5 home screen under **Media**. Everything you see is drawn directly on the GPU at the
 panel's own resolution: large backdrops, rows that slide and lift, blur and
 glass, artwork that fades in over its BlurHash. Video goes through the console's
 own hardware decoder.
