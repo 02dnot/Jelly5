@@ -94,10 +94,12 @@ void Drop::draw(float dt, float a, bool *animating, float radius)
         m_vx = m_vy = m_vw = m_vh = m_pop = m_vpop = 0;
     }
     /* Stretch along the way it moves, thin across it; swell with the pop. */
+    /* In pixels, not in proportion: a wide row must not swell by a hundred pixels
+     * (it read as a sideways bounce on vertical moves). */
     const float sx = std::min(1.f, std::fabs(m_vx) / 1600.f), sy = std::min(1.f, std::fabs(m_vy) / 1600.f);
-    const float grow = 1.f + 0.08f * m_pop;
-    const float w = m_w * grow * (1.f + 0.30f * sx) * (1.f - 0.10f * sy);
-    const float hh = m_h * grow * (1.f + 0.30f * sy) * (1.f - 0.14f * sx);
+    const float w = m_w + 10.f * m_pop + 40.f * sx - 6.f * sy;
+    const float hh = m_h + 6.f * m_pop + 24.f * sy - std::min(10.f, m_h * 0.14f) * sx;
+    const float grow = 1.f + 6.f * m_pop / std::max(1.f, m_h);
     const float cx = m_ox + m_x + m_w / 2, cy = m_oy + m_y + m_h / 2;
     m_drawn = {cx - w / 2, cy - hh / 2, w, hh};
     glass_panel(m_drawn, radius < 0 ? std::min(w, hh) / 2 : radius * grow, a, false, 1.f);
