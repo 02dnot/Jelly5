@@ -60,6 +60,7 @@ Search::Search(jf::Client &client) : m_client(client) {}
 
 void Search::activate()
 {
+    m_in_results = false;   /* arriving (by △ or the tab): straight onto the keyboard */
     if (!m_suggested) {
         m_suggested = true;
         start_search();

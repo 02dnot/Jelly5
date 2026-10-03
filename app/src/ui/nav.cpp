@@ -41,15 +41,16 @@ void Nav::draw(float a, int active, int focus, float dt, bool *animating)
         total += widths[i] + 6;
     }
     const float px = (gfx::W - total) / 2;
+    /* The drop sits on the focused tab, or on the open one when the bar has no
+     * focus (as iOS shows the selection), so a tab change by △ slides it too. */
+    const int drop = focus >= 0 ? (focus != Settings ? focus : -1) : (active != Settings ? active : -1);
     glass_panel({px, cy - 37, total, 74}, 37, a, false);   /* the tab pill: frosted over the page */
     float x = px + 7;
     for (int i = 0; i < n; i++) {
         const gfx::Rect r{x, cy - 30, widths[i], 60};
-        if (m_tabs[i] == focus) {
+        if (m_tabs[i] == drop) {
             m_focus_x.to(r.x);
             m_focus_w.to(r.w);
-        } else if (m_tabs[i] == active && focus < 0) {
-            gfx::fill(r, alpha(0x1fffffffu, a), 30);
         }
         x += widths[i] + 6;
     }
@@ -61,17 +62,17 @@ void Nav::draw(float a, int active, int focus, float dt, bool *animating)
         gfx::text(x + widths[i] / 2, cy + 9, tab_label(m_tabs[i]), st, alpha(c, a), 1);
         x += widths[i] + 6;
     }
-    if (focus >= 0 && focus != Settings) {
+    if (drop >= 0) {
         /* The focus is a drop of liquid glass (iOS 26's tab bar). It moves on an
          * underdamped spring - it overshoots and settles back - stretches along
          * its speed and thins as it does, and swells when it sets off. */
         if (m_last_focus < 0 || m_dw == 0) {   /* appearing: in place, popping in */
             m_dx = m_focus_x.target, m_dw = m_focus_w.target, m_dvx = m_dvw = 0;
             m_pop = -0.35f, m_vpop = 0;
-        } else if (focus != m_last_focus) {
+        } else if (drop != m_last_focus) {
             m_vpop += 2.2f;   /* a nudge: it swells as it leaves */
         }
-        m_last_focus = focus;
+        m_last_focus = drop;
         bool moving = false;
         for (float left = std::min(dt, 0.05f); left > 0; left -= 1.f / 240) {   /* small steps: stable */
             const float h = std::min(left, 1.f / 240);
@@ -96,7 +97,7 @@ void Nav::draw(float a, int active, int focus, float dt, bool *animating)
         /* The label on the drop, crisp over the lens. */
         float lx = px + 7;
         for (int i = 0; i < n; i++) {
-            if (m_tabs[i] == focus)
+            if (m_tabs[i] == drop)
                 gfx::text(lx + widths[i] / 2, cy + 9, tab_label(m_tabs[i]), {gfx::Bold, 25}, alpha(kText, a), 1);
             lx += widths[i] + 6;
         }
