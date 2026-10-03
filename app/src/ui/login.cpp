@@ -213,11 +213,18 @@ Action Login::input(uint32_t p)
     /* User step: a row of public users (if any), then a column of fields and buttons. */
     const int nu = (int)users.size();
     const int base = nu > 0 ? 1 : 0;              /* index 0 = the users row */
-    const int count = base + 5;
+    /* The buttons (Logg inn, Bruk Quick Connect, Annen server) are one row: Left and
+     * Right move along it, Up goes back to the password. */
+    const int buttons = base + 2, last = base + 4;
+    const bool on_buttons = m_focus >= buttons;
     if (p & NUVIO_BTN_DOWN)
-        m_focus = std::min(count - 1, m_focus + 1);
+        m_focus = on_buttons ? m_focus : std::min(buttons, m_focus + 1);
     else if (p & NUVIO_BTN_UP)
-        m_focus = std::max(0, m_focus - 1);
+        m_focus = on_buttons ? buttons - 1 : std::max(0, m_focus - 1);
+    else if (on_buttons && (p & NUVIO_BTN_RIGHT))
+        m_focus = std::min(last, m_focus + 1);
+    else if (on_buttons && (p & NUVIO_BTN_LEFT))
+        m_focus = std::max(buttons, m_focus - 1);
     else if (nu > 0 && m_focus == 0 && (p & NUVIO_BTN_LEFT))
         m_user_col = std::max(0, m_user_col - 1);
     else if (nu > 0 && m_focus == 0 && (p & NUVIO_BTN_RIGHT))
