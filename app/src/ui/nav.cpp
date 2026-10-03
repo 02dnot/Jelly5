@@ -68,7 +68,7 @@ void Nav::draw(float a, int active, int focus, float dt, bool *animating)
         gfx::Rect dr{gfx::W - kPad - 65, cy - 35, 70, 70};   /* the avatar */
         if (drop != Settings)
             dr = {m_focus_x.target - 4, cy - 33, m_focus_w.target + 8, 66};
-        m_drop.to(dr, drop);
+        m_drop.to(dr, drop, 0, cy);
     } else {
         m_drop.hide();
     }

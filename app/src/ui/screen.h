@@ -110,8 +110,10 @@ private:
  * and swells when it sets off for a new control. */
 class Drop {
 public:
-    /* key: identifies the focused control; a new key nudges the swell. */
-    void to(const gfx::Rect &r, int key);
+    /* key: identifies the focused control; a new key nudges the swell. ox, oy:
+     * where the group is (it may scroll or slide): the drop springs within the
+     * group and moves with it rigidly. */
+    void to(const gfx::Rect &r, int key, float ox = 0, float oy = 0);
     void hide() { m_shown = false; }
     /* Steps the springs (sets *animating while it moves) and draws the drop. */
     void draw(float dt, float opacity, bool *animating, float radius = -1.f);
@@ -121,7 +123,8 @@ public:
 private:
     float m_x = 0, m_y = 0, m_w = 0, m_h = 0, m_vx = 0, m_vy = 0, m_vw = 0, m_vh = 0;
     float m_pop = 0, m_vpop = 0;
-    gfx::Rect m_target{0, 0, 0, 0}, m_drawn{0, 0, 0, 0};
+    gfx::Rect m_target{0, 0, 0, 0}, m_drawn{0, 0, 0, 0};   /* m_target: within the group */
+    float m_ox = 0, m_oy = 0;
     int m_key = -1;
     bool m_shown = false, m_placed = false;
 };

@@ -45,8 +45,10 @@ std::string poster_url(jf::Client &c, const jf::Item &it, int width)
     return c.image_url(it.id, "Primary", it.primary_tag, width);
 }
 
-void Drop::to(const gfx::Rect &r, int key)
+void Drop::to(const gfx::Rect &abs, int key, float ox, float oy)
 {
+    const gfx::Rect r{abs.x - ox, abs.y - oy, abs.w, abs.h};
+    m_ox = ox, m_oy = oy;
     if (!m_shown || !m_placed) {   /* appearing: in place, popping in */
         m_x = r.x, m_y = r.y, m_w = r.w, m_h = r.h;
         m_vx = m_vy = m_vw = m_vh = 0;
@@ -95,7 +97,7 @@ void Drop::draw(float dt, float a, bool *animating, float radius)
     const float grow = 1.f + 0.08f * m_pop;
     const float w = m_w * grow * (1.f + 0.30f * sx) * (1.f - 0.10f * sy);
     const float hh = m_h * grow * (1.f + 0.30f * sy) * (1.f - 0.14f * sx);
-    const float cx = m_x + m_w / 2, cy = m_y + m_h / 2;
+    const float cx = m_ox + m_x + m_w / 2, cy = m_oy + m_y + m_h / 2;
     m_drawn = {cx - w / 2, cy - hh / 2, w, hh};
     glass_panel(m_drawn, radius < 0 ? std::min(w, hh) / 2 : radius * grow, a, false, 1.f);
 }

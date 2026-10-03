@@ -88,6 +88,7 @@ private:
     double m_opened = -1;
     Anim m_scroll[ZoneCount];          /* per-row horizontal scroll */
     Lifts m_lifts;
+    Drop m_btn_drop, m_season_drop;     /* the focus on the buttons and on the seasons */
     bool m_animating = false;
 };
 

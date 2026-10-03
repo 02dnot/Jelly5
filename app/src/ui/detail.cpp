@@ -533,11 +533,16 @@ void Detail::draw_top(float y0, float dt)
 
     /* Buttons. */
     const float by = y0 + 668;
-    float bx = kPad;
     const std::vector<Button> bs = buttons();
+    /* Glass buttons: the panes, then the focus drop over them, then their labels. */
+    if (m_zone != Buttons)
+        m_btn_drop.hide();
+    for (int pass = 0; pass < 2; pass++) {
+    if (pass == 1)
+        m_btn_drop.draw(dt, 1.f, &m_animating, 16);
+    float bx = kPad;
     for (size_t i = 0; i < bs.size(); i++) {
         const bool focus = m_zone == Buttons && (int)i == std::min(m_button, (int)bs.size() - 1);
-        const float lift = m_lifts.step("btn" + std::to_string((int)bs[i]), focus, dt, &m_animating);
         const gfx::TextStyle st{gfx::Bold, 26};
         std::string label, sub;
         float pct = -1;
@@ -562,12 +567,16 @@ void Detail::draw_top(float y0, float dt)
             w = gfx::text_width("Trailer", st) + 64;
         if (bs[i] == PlayButton)
             w = 40 + 30 + 14 + gfx::text_width(label, st) + (pct >= 0 ? 14 + 90 + 14 + gfx::text_width(sub, {gfx::Medium, 24}) : 0) + 40;
-        const float k = 1.f + 0.08f * lift;
-        const gfx::Rect r{bx - w * (k - 1) / 2, by - 76 * (k - 1) / 2, w * k, 76 * k};
-        if (lift > 0.01f)
-            gfx::shadow(r, 16, 24, 0.55f * lift, 14 * lift);
-        gfx::fill(r, focus ? 0xfff5f5f7u : 0x24ffffffu, 16 * k);
-        const uint32_t fg = focus ? 0xff0b0b0fu : kText;
+        const float k = 1.f;
+        const gfx::Rect r{bx, by, w, 76};
+        if (pass == 0) {
+            glass_panel(r, 16, 1.f, false);
+            if (focus)
+                m_btn_drop.to(r, (int)bs[i], 0, by);
+            bx += w + 20;
+            continue;
+        }
+        const uint32_t fg = kText;
         const float cy = r.y + r.h / 2;
         if (bs[i] == PlayButton) {
             for (int s = 0; s < 14; s++)   /* play glyph */
@@ -576,7 +585,7 @@ void Detail::draw_top(float y0, float dt)
             tx += gfx::text(tx, cy + 9, label, st, fg);
             if (pct >= 0) {
                 tx += 14;
-                gfx::fill({tx, cy - 3, 90, 6}, focus ? 0x2e000000u : 0x40ffffffu, 3);
+                gfx::fill({tx, cy - 3, 90, 6}, 0x40ffffffu, 3);
                 gfx::fill({tx, cy - 3, 90 * pct, 6}, fg, 3);
                 gfx::text(tx + 104, cy + 8, sub, {gfx::Medium, 24}, alpha(fg, 0.75f));
             }
@@ -587,7 +596,7 @@ void Detail::draw_top(float y0, float dt)
         } else if (bs[i] == WatchedButton) {
             /* A check from small squares along its two strokes. */
             const bool seen = m_view.item.played;
-            const uint32_t cc = seen ? (focus ? 0xff0a8f3cu : 0xff30d158u) : alpha(fg, 0.85f);
+            const uint32_t cc = seen ? 0xff30d158u : alpha(fg, 0.85f);
             const float gx = r.x + 30 * k, gy = cy + 2;
             for (int s = 0; s < 6; s++)
                 gfx::fill({gx + s * 1.6f, gy - 4 + s * 1.6f, 3.2f, 3.2f}, cc, 1.f);
@@ -605,6 +614,7 @@ void Detail::draw_top(float y0, float dt)
                 gfx::fill({hx - 13 + s * 1.1f, hy + s * 1.15f, 26 - s * 2.2f, 1.6f}, hc);
         }
         bx += w + 20;
+    }
     }
 
     /* Credits. */
@@ -640,19 +650,27 @@ void Detail::draw_sections(float dt)
     if (!m_view.seasons.empty()) {
         const float y = zone_top(Seasons) - off;
         if (vis(y, kSeasonsH)) {
+            /* One glass bar of seasons (like the top bar), the drop on the picked one. */
+            const gfx::TextStyle st{gfx::SemiBold, 23};
+            float total = 12;
+            for (const jf::Item &s : m_view.seasons)
+                total += gfx::text_width(s.name, st) + 56 + 6;
+            glass_panel({kPad - 6, y - 6, total, 66}, 33, 1.f, false);
             float x = kPad;
             for (size_t i = 0; i < m_view.seasons.size(); i++) {
+                const float w = gfx::text_width(m_view.seasons[i].name, st) + 56;
+                if ((int)i == m_season)
+                    m_season_drop.to({x, y, w, 54}, (int)i, 0, y);
+                x += w + 6;
+            }
+            m_season_drop.draw(dt, m_zone == Seasons ? 1.f : 0.55f, &m_animating);
+            x = kPad;
+            for (size_t i = 0; i < m_view.seasons.size(); i++) {
                 const jf::Item &s = m_view.seasons[i];
-                const gfx::TextStyle st{gfx::SemiBold, 23};
                 const float w = gfx::text_width(s.name, st) + 56;
-                const bool focus = m_zone == Seasons && (int)i == m_season;
-                const bool active = (int)i == m_season;
-                const float k = focus ? 1.08f : 1.f;
-                const gfx::Rect r{x - w * (k - 1) / 2, y - 54 * (k - 1) / 2, w * k, 54 * k};
-                gfx::fill(r, focus ? 0xfff5f5f7u : active ? 0x33ffffffu : 0x14ffffffu, r.h / 2);
-                gfx::text(r.x + r.w / 2, r.y + r.h / 2 + 8, s.name, st,
-                          focus ? 0xff0b0b0fu : active ? kText : kText2, 1);
-                x += w + 12;
+                const bool on = (int)i == m_season;
+                gfx::text(x + w / 2, y + 27 + 8, s.name, on ? gfx::TextStyle{gfx::Bold, 23} : st, on ? kText : kText2, 1);
+                x += w + 6;
             }
             if (m_zone == Episodes && m_episode < (int)m_eps.size()) {   /* what Options does here */
                 const std::string what = m_eps[m_episode].played ? T("Merk som usett") : T("Merk som sett");
