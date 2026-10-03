@@ -110,6 +110,7 @@ Item item_of(const cJSON *o)
     it.played_percent = num_of(ud, "PlayedPercentage", 0);
     it.played = bool_of(ud, "Played");
     it.favorite = bool_of(ud, "IsFavorite");
+    it.unplayed = (int)num_of(ud, "UnplayedItemCount", 0);
     it.local_trailers = (int)num_of(o, "LocalTrailerCount", 0);
     it.special_features = (int)num_of(o, "SpecialFeatureCount", 0);
     const cJSON *g;

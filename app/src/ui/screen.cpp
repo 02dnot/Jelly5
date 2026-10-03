@@ -39,6 +39,16 @@ float Lifts::sheen(const std::string &key, bool *animating) const
     return std::max(0.f, p);
 }
 
+void draw_check(float cx, float cy, float size, uint32_t color)
+{
+    const float u = size / 20.f, d = 3.2f * u;   /* one unit; the stroke's square */
+    const float x = cx - 9 * u, y = cy;
+    for (int s = 0; s < 6; s++)
+        gfx::fill({x + s * 1.6f * u, y - 4 * u + s * 1.6f * u, d, d}, color, d / 3);
+    for (int s = 0; s < 11; s++)
+        gfx::fill({x + 8 * u + s * 1.6f * u, y + 4 * u - s * 1.8f * u, d, d}, color, d / 3);
+}
+
 void draw_sheen(const gfx::Rect &r, float radius, float p, float a)
 {
     if (p < 0.f || p > 1.f || a <= 0.f)
@@ -245,8 +255,17 @@ void draw_poster(jf::Client &c, const jf::Item &it, const gfx::Rect &base, float
     if (lift > 0.01f)
         gfx::shadow(r, 14 * k, 30, 0.75f * lift * opacity, 22 * lift);
     art::draw(r, poster_url(c, it, 480), it.primary_blurhash, 480, 720, 14 * k, opacity);
-    if (it.played)
-        gfx::fill({r.x + r.w - 46, r.y + 12, 34, 34}, alpha(0x8c000000u, opacity), 17);
+    if (it.played) {   /* watched: a check in a disc, as Jellyfin marks it */
+        gfx::fill({r.x + r.w - 46, r.y + 12, 34, 34}, alpha(0xd900a4dcu, opacity), 17);
+        draw_check(r.x + r.w - 29, r.y + 30, 18, alpha(kText, opacity));
+    } else if (it.unplayed > 0 && (it.type == "Series" || it.type == "Season")) {
+        /* episodes not yet watched, counted in a pill */
+        const std::string n = it.unplayed > 99 ? "99+" : std::to_string(it.unplayed);
+        const gfx::TextStyle ns{gfx::Bold, 18};
+        const float w = std::max(34.f, gfx::text_width(n, ns) + 20);
+        gfx::fill({r.x + r.w - 12 - w, r.y + 12, w, 34}, alpha(0xd900a4dcu, opacity), 17);
+        gfx::text(r.x + r.w - 12 - w / 2, r.y + 35, n, ns, alpha(kText, opacity), 1);
+    }
     if (it.played_percent > 0 && it.played_percent < 100) {
         gfx::fill({r.x + 14, r.y + r.h - 20, r.w - 28, 6}, alpha(0x47ffffffu, opacity), 3);
         gfx::fill({r.x + 14, r.y + r.h - 20, (r.w - 28) * (float)(it.played_percent / 100), 6},

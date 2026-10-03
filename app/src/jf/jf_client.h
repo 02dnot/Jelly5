@@ -30,6 +30,7 @@ struct Item {
     double played_percent = 0;
     bool played = false, favorite = false;
     int local_trailers = 0;                   /* trailer files next to the title */
+    int unplayed = 0;                         /* a series' or season's episodes not yet watched */
     int special_features = 0;                 /* extras: behind the scenes, deleted scenes ... */
     std::vector<std::string> genres;
 

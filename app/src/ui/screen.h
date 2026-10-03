@@ -94,6 +94,9 @@ private:
     std::map<std::string, Lift> m_lift;
 };
 
+/* A check mark drawn from small squares along its two strokes, centred on (cx, cy). */
+void draw_check(float cx, float cy, float size, uint32_t color);
+
 /* tvOS's focus sheen: a soft band of light sweeping once across a focused card
  * (progress 0..1). */
 void draw_sheen(const gfx::Rect &r, float radius, float progress, float opacity = 1.f);
