@@ -40,6 +40,7 @@ struct Action {
         None,
         Play,       /* play item (a series plays its next episode) */
         PlayFromStart,
+        PlayShuffled, /* music: item first, the rest of its album in random order */
         Open,       /* open item's detail page */
         ToNav,      /* focus moves up into the tab bar */
         Back,       /* leave this (pushed) screen */

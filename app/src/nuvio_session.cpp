@@ -165,6 +165,10 @@ bool nuvio_request_parse(const char *json, NuvioRequest &r)
     r.item_type = str_of(root, "itemType");
     r.logo = str_of(root, "logo");
     r.poster = str_of(root, "poster");
+    r.artist = str_of(root, "artist");
+    r.album = str_of(root, "album");
+    r.cover = str_of(root, "cover");
+    r.cover_blurhash = str_of(root, "coverBlurhash");
     r.backdrop = str_of(root, "background");
     r.thumbnail = str_of(root, "thumbnail");
     r.start_position = num_of(root, "startPosition", 0.0);

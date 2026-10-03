@@ -940,6 +940,18 @@ extern "C" void nuvio_player_run(const char *json)
             }
             if (new_frame)
                 s.last_frame_at = now;
+            /* Jelly5: music has no frames. It has started once the clock moves, and its
+             * "last frame" is the clock moving (the demuxer reaches the end of a song
+             * long before the speakers do). */
+            if (video_stream_index < 0 && s_pb->isMusicMode()) {
+                if (!s.started && s.st.position > 0.05) {
+                    s.started = true;
+                    s.st.started = true;
+                    evo_bt("nuvio: music started after %.2f s", now - s.open_started);
+                }
+                if (s.started && now - s.last_pos_change < 0.3)
+                    s.last_frame_at = now;
+            }
         }
 
         bool sub_changed = false;

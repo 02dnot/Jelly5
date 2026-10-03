@@ -140,6 +140,13 @@ Item item_of(const cJSON *o)
     if (it.type == "Episode" && !it.primary_tag.empty())
         it.thumb_blurhash = it.primary_blurhash;
     it.collection_type = str_of(o, "CollectionType");
+    it.album_id = str_of(o, "AlbumId");
+    it.album = str_of(o, "Album");
+    it.album_artist = str_of(o, "AlbumArtist");
+    if (it.album_artist.empty())
+        it.album_artist = first_of(o, "Artists");
+    it.album_primary_tag = str_of(o, "AlbumPrimaryImageTag");
+    it.album_blurhash = blurhash_of(o, "Primary", it.album_primary_tag);
     it.premiere_date = str_of(o, "PremiereDate");
     cJSON_ArrayForEach(g, cJSON_GetObjectItemCaseSensitive(o, "ProductionLocations"))
         if (cJSON_IsString(g))

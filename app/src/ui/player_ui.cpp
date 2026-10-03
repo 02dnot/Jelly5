@@ -91,6 +91,8 @@ void PlayerUi::begin(const NuvioRequest *req, double now)
 {
     *this = PlayerUi();
     m_req = req;
+    m_music = req && req->item_type == "audio";
+    m_controls = m_music;   /* the music screen is all controls, always up */
     m_now = m_last = m_load_since = now;
     a_loading.snap(1.f);
     m_dirty = true;
@@ -132,7 +134,7 @@ int PlayerUi::current_skip(const NuvioStatus &st) const
 
 bool PlayerUi::next_card(const NuvioStatus &st) const
 {
-    if (!m_req || !m_req->has_next || m_card_dismissed || !st.started || st.duration <= 0)
+    if (!m_req || m_music || !m_req->has_next || m_card_dismissed || !st.started || st.duration <= 0)
         return false;
     for (const NuvioSkip &k : m_req->skips)
         if ((k.type == "outro" || k.type == "credits") && st.position >= k.start && st.position < k.end)
@@ -248,7 +250,7 @@ void PlayerUi::tick(const NuvioStatus &st, std::vector<OsdCommand> &out)
         m_seeking = false;
         m_hide_at = st.now + 2.5;
     }
-    if (m_controls && !st.paused && m_overlay == Overlay::None && !m_seeking && st.now >= m_hide_at) {
+    if (m_controls && !m_music && !st.paused && m_overlay == Overlay::None && !m_seeking && st.now >= m_hide_at) {
         m_controls = false;
         m_dirty = true;
     }
@@ -383,6 +385,10 @@ void PlayerUi::input(const nuvio_input_state &in, const NuvioStatus &st, std::ve
             out.push_back({OsdCmd::Stop});
         return;
     }
+    if (m_music) {
+        music_input(p, st, out);
+        return;
+    }
     if (m_overlay == Overlay::Tracks) {
         tracks_input(p, st, out);
         return;
@@ -491,7 +497,7 @@ bool PlayerUi::wants_frame(const NuvioStatus &st)
     last_second = st.now;
     /* art::animating(): an image still loading or fading in (the episode stills). */
     return moving || m_seeking || (second && (m_controls || m_card_since >= 0)) || a_loading.value > 0.f ||
-           st.buffering || ((m_overlay != Overlay::None || a_next.value > 0.f) && art::animating());
+           st.buffering || ((m_overlay != Overlay::None || a_next.value > 0.f || m_music) && art::animating());
 }
 
 /* ---- drawing ---------------------------------------------------------------------- */
@@ -950,6 +956,124 @@ void PlayerUi::draw_error(const NuvioStatus &st)
     gfx::pop_opacity();
 }
 
+/* ---- music ------------------------------------------------------------------------ */
+
+void PlayerUi::music_input(uint32_t p, const NuvioStatus &st, std::vector<OsdCommand> &out)
+{
+    const double now = st.now;
+    if (p & NUVIO_BTN_CROSS) {
+        if (m_seeking) {
+            out.push_back({OsdCmd::SeekTo, m_seek_target});
+            m_seeking = false;
+        } else {
+            out.push_back({OsdCmd::TogglePause});
+        }
+    } else if (p & (NUVIO_BTN_LEFT | NUVIO_BTN_RIGHT | NUVIO_BTN_L2 | NUVIO_BTN_R2)) {
+        seek_step((p & (NUVIO_BTN_RIGHT | NUVIO_BTN_R2)) ? 1 : -1, st, now);
+    } else if (p & NUVIO_BTN_R1) {
+        if (m_req->has_next)
+            out.push_back({OsdCmd::PlayNext});
+    } else if (p & NUVIO_BTN_L1) {
+        /* Back: to the start of this track, or (within its first 3 s) the one before. */
+        int here = -1;
+        for (size_t i = 0; i < m_req->episodes.size(); i++)
+            if (m_req->episodes[i].season == m_req->season && m_req->episodes[i].episode == m_req->episode)
+                here = (int)i;
+        if (st.position > 3.0 || here <= 0) {
+            out.push_back({OsdCmd::SeekTo, 0.0});
+        } else {
+            OsdCommand c{OsdCmd::PlayEpisode};
+            c.season = m_req->episodes[here - 1].season;
+            c.episode = m_req->episodes[here - 1].episode;
+            out.push_back(c);
+        }
+    } else if (p & NUVIO_BTN_CIRCLE) {
+        if (m_seeking)
+            m_seeking = false;
+        else
+            out.push_back({OsdCmd::Stop});
+    }
+}
+
+/* Now playing (Apple Music on tvOS): the cover on the left over its own colours,
+ * the track on the right with the bar and the transport under it. */
+void PlayerUi::draw_music(const NuvioStatus &st)
+{
+    const NuvioRequest &r = *m_req;
+    gfx::fill({0, 0, W, H}, kBg);
+    if (const gfx::Texture *bh = art::blurhash(r.cover_blurhash))
+        gfx::image({0, 0, W, H}, bh, 0.55f, 0, true);
+    gfx::fill_hgradient({0, 0, W, H}, 0x8c07070au, 0xd907070au);
+
+    const float cs = 600, cx = 200, cy = (H - cs) / 2 - 10;
+    const gfx::Rect cover{cx, cy, cs, cs};
+    gfx::shadow(cover, 24, 60, 0.75f, 26);
+    art::draw(cover, r.cover, r.cover_blurhash, 800, 800, 24, 1.f, 0xff1c1c22u);
+    if (!st.started && st.error.empty()) {   /* opening: dots chasing round on the cover */
+        gfx::fill(cover, 0x66000000u, 24);
+        for (int i = 0; i < 12; i++) {
+            const float ang = (float)i / 12.f * 6.2832f;
+            const float phase = std::fmod((float)st.now * 1.2f + 1.f - (float)i / 12.f, 1.f);
+            gfx::fill({cx + cs / 2 + std::cos(ang) * 34 - 5, cy + cs / 2 + std::sin(ang) * 34 - 5, 10, 10},
+                      alpha(kText, 0.2f + 0.8f * (1.f - phase)), 5);
+        }
+    }
+
+    const float x = cx + cs + 110, w = W - kPad - x;
+    float y = cy + 70;
+    gfx::text(x, y, st.paused ? "Satt pÃ¥ pause" : "Spilles nÃ¥", {gfx::SemiBold, 22}, kText3);
+    y += 78;
+    const std::string title = r.title;
+    gfx::text(x, y, title, {gfx::Bold, 58, w, 2, 66}, kText);
+    y += gfx::text_width(title, {gfx::Bold, 58}) > w ? 66 + 58 : 58;
+    if (!r.artist.empty())
+        gfx::text(x, y, r.artist, {gfx::Medium, 34, w}, kText2);
+    y += 46;
+    std::string album = r.album;
+    if (!r.year.empty() && r.year != "0")
+        album += (album.empty() ? "" : " Â· ") + r.year;
+    if (!album.empty())
+        gfx::text(x, y, album, {gfx::Medium, 26, w}, kText3);
+
+    /* The bar, the times under it. */
+    const float by = cy + cs - 150;
+    const double d = st.duration > 0 ? st.duration : 1;
+    const double pos = m_seeking ? m_seek_target : st.position;
+    const float h = m_seeking ? 10.f : 8.f;
+    gfx::fill({x, by - h / 2, w, h}, 0x38ffffffu, h / 2);
+    const float px = x + w * (float)std::min(1.0, std::max(0.0, pos / d));
+    gfx::fill({x, by - h / 2, px - x, h}, 0xffffffffu, h / 2);
+    if (m_seeking)
+        gfx::fill({px - 13, by - 13, 26, 26}, 0xffffffffu, 13);
+    gfx::text(x, by + 44, fmt_time(pos), {gfx::SemiBold, 22}, kText2);
+    if (st.duration > 0)
+        gfx::text(x + w, by + 44, "â" + fmt_time(std::max(0.0, d - pos)), {gfx::SemiBold, 22}, kText2, 2);
+
+    /* Transport: previous, play/pause, next (L1, Cross, R1). */
+    const float ty = cy + cs - 30, mid = x + 160;
+    auto skip = [](float gx, float gy, float size, bool forward, uint32_t c) {
+        const int n = (int)(size / 1.5f);
+        for (int i = 0; i < n; i++) {
+            const float hh = size * 1.1f * (forward ? 1.f - (float)i / n : (float)(i + 1) / n);
+            gfx::fill({gx + i * 1.5f, gy - hh / 2, 1.6f, hh}, c);
+        }
+        gfx::fill({forward ? gx + size + 2 : gx - 8, gy - size * 0.55f, 6, size * 1.1f}, c, 2);
+    };
+    const bool has_prev = !r.episodes.empty() && r.episodes.front().episode != r.episode;
+    skip(mid - 150, ty, 30, false, has_prev ? kText : kText3);
+    gfx::fill({mid - 44, ty - 44, 88, 88}, 0xfff5f5f7u, 44);
+    if (st.paused || !st.started)
+        play_glyph(mid - 12, ty, 34, 0xff0b0b0fu);
+    else
+        pause_glyph(mid, ty, 32, 0xff0b0b0fu);
+    skip(mid + 120, ty, 30, true, r.has_next ? kText : kText3);
+    gfx::text(mid - 135, ty + 70, "L1", {gfx::SemiBold, 18}, kText3, 1);
+    gfx::text(mid + 135, ty + 70, "R1", {gfx::SemiBold, 18}, kText3, 1);
+
+    if (r.has_next && !r.next.title.empty())
+        gfx::text(x, H - 90, "Neste: " + r.next.title, {gfx::Medium, 24, w}, kText3);
+}
+
 void PlayerUi::draw(const NuvioStatus &st)
 {
     if (!m_req)
@@ -977,10 +1101,14 @@ void PlayerUi::draw(const NuvioStatus &st)
     a_flash.step(dt, 4.f);
     m_ep_scroll.step(dt, 12.f);
 
-    draw_loading(st);
-    draw_controls(st);
-    if (!overlay)
-        draw_skip_next(st);
+    if (m_music) {
+        draw_music(st);
+    } else {
+        draw_loading(st);
+        draw_controls(st);
+        if (!overlay)
+            draw_skip_next(st);
+    }
 
     if (a_flash.value > 0.01f) {   /* play / pause, flashed in the centre */
         const float k = 0.85f + 0.15f * a_flash.value, d = 140 * k;

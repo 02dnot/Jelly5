@@ -48,6 +48,7 @@ private:
     jf::Client &m_client;
     std::string m_title, m_types, m_view;
     bool m_pushed = false;
+    bool m_square = false;              /* albums: square covers */
     ItemMenu m_menu;
     std::shared_ptr<Data> m_data = std::make_shared<Data>();
 

@@ -1,0 +1,203 @@
+/*
+ * Jelly5 — Jellyfin for PS5
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+#include "ui/album.h"
+
+#include "gfx/art.h"
+#include "nuvio_input.h"
+
+#include <algorithm>
+#include <cstdio>
+#include <thread>
+
+namespace ui {
+namespace {
+
+constexpr float kCover = 520, kTop = 190;
+constexpr float kListX = kPad + kCover + 90;
+constexpr float kListTop = 600, kRowH = 66;
+
+std::string duration(int64_t ticks)
+{
+    const int s = (int)(ticks / jf::kTicksPerSecond);
+    char b[16];
+    std::snprintf(b, sizeof b, "%d:%02d", s / 60, s % 60);
+    return b;
+}
+
+std::string cover_url(jf::Client &c, const jf::Item &it)
+{
+    return c.image_url(it.id, "Primary", it.primary_tag, 800);
+}
+
+} // namespace
+
+Album::Album(jf::Client &client, const jf::Item &album) : m_client(client), m_album(album)
+{
+    m_data->album = album;
+}
+
+void Album::activate()
+{
+    m_enter.to(1.f);
+    std::shared_ptr<Data> d = m_data;
+    jf::Client *c = &m_client;
+    const std::string id = m_album.id;
+    std::thread([d, c, id] {
+        jf::Item album;
+        bool got = false;
+        std::vector<jf::Item> tracks;
+        std::thread a([&] { got = c->item(id, &album); });
+        for (jf::Item &t : c->children(id, "ParentIndexNumber,IndexNumber,SortName", 1000))
+            if (t.type == "Audio")
+                tracks.push_back(std::move(t));
+        a.join();
+        std::lock_guard<std::mutex> g(d->lock);
+        if (got)
+            d->album = album;
+        d->tracks = std::move(tracks);
+        d->loaded = true;
+    }).detach();
+}
+
+Action Album::input(uint32_t p)
+{
+    Action a;
+    const int n = (int)m_tracks.size();
+    if (p & NUVIO_BTN_CIRCLE) {
+        if (m_in_tracks)
+            m_in_tracks = false;
+        else
+            a.kind = Action::Back;
+    } else if (p & NUVIO_BTN_DOWN) {
+        if (!m_in_tracks && n > 0)
+            m_in_tracks = true;
+        else if (m_in_tracks)
+            m_track = std::min(n - 1, m_track + 1);
+    } else if (p & NUVIO_BTN_UP) {
+        if (m_in_tracks && m_track > 0)
+            m_track--;
+        else
+            m_in_tracks = false;
+    } else if ((p & (NUVIO_BTN_LEFT | NUVIO_BTN_RIGHT)) && !m_in_tracks) {
+        m_button = (p & NUVIO_BTN_RIGHT) ? 1 : 0;
+    } else if ((p & NUVIO_BTN_CROSS) && n > 0) {
+        if (m_in_tracks) {
+            a.kind = Action::Play;
+            a.item = m_tracks[std::min(m_track, n - 1)];
+        } else if (m_button == 0) {
+            a.kind = Action::Play;
+            a.item = m_tracks.front();
+        } else {   /* Bland: from a random track, the rest shuffled after it */
+            a.kind = Action::PlayShuffled;
+            a.item = m_tracks[(size_t)std::rand() % m_tracks.size()];
+        }
+        if (a.item.position_ticks > 0)
+            a.item.position_ticks = 0;   /* songs start from the top */
+    }
+    return a;
+}
+
+void Album::draw(double now, float dt)
+{
+    (void)now;
+    m_animating = false;
+    {
+        std::lock_guard<std::mutex> g(m_data->lock);
+        m_album = m_data->album;
+        if (m_data->loaded && !m_loaded) {
+            m_tracks = m_data->tracks;
+            m_loaded = true;
+        }
+    }
+    if (m_enter.step(dt, 9.f))
+        m_animating = true;
+    m_content.to(m_loaded ? 1.f : 0.f);
+    if (m_content.step(dt, 8.f))
+        m_animating = true;
+
+    const std::string cover = cover_url(m_client, m_album);
+    gfx::fill({0, 0, gfx::W, gfx::H}, kBg);
+    if (const gfx::Texture *bh = art::blurhash(m_album.primary_blurhash))
+        gfx::image({0, 0, gfx::W, gfx::H}, bh, 0.5f, 0, true);
+    gfx::fill_hgradient({0, 0, gfx::W, gfx::H}, 0x9907070au, 0xe607070au);
+
+    const gfx::Rect cr{kPad, kTop, kCover, kCover};
+    gfx::shadow(cr, 20, 50, 0.7f, 22);
+    art::draw(cr, cover, m_album.primary_blurhash, 800, 800, 20, 1.f, 0xff1c1c22u);
+
+    /* Title, artist, year · tracks · minutes. */
+    const float x = kListX, w = gfx::W - kPad - x;
+    gfx::text(x, kTop + 70, m_album.name, {gfx::Bold, 60, w}, kText);
+    if (!m_album.album_artist.empty())
+        gfx::text(x, kTop + 124, m_album.album_artist, {gfx::Medium, 32, w}, kText2);
+    std::string meta;
+    if (m_album.year)
+        meta = std::to_string(m_album.year);
+    if (!m_tracks.empty()) {
+        int64_t total = 0;
+        for (const jf::Item &t : m_tracks)
+            total += t.runtime_ticks;
+        const int min = (int)(total / jf::kTicksPerSecond / 60);
+        char b[64];
+        std::snprintf(b, sizeof b, "%zu spor \xC2\xB7 %d min", m_tracks.size(), min);
+        meta += (meta.empty() ? "" : " \xC2\xB7 ") + std::string(b);
+    }
+    gfx::text(x, kTop + 168, meta, {gfx::Medium, 24}, alpha(kText3, m_content.value));
+
+    /* Spill av, Bland. */
+    float bx = x;
+    const char *labels[2] = {"Spill av", "Bland"};
+    for (int i = 0; i < 2; i++) {
+        const bool focus = !m_in_tracks && m_button == i;
+        const float lift = m_lifts.step(i ? "shuffle" : "play", focus, dt, &m_animating);
+        const gfx::TextStyle st{gfx::Bold, 26};
+        const float bw = gfx::text_width(labels[i], st) + 80, k = 1.f + 0.08f * lift;
+        const gfx::Rect r{bx - bw * (k - 1) / 2, kTop + 230 - 76 * (k - 1) / 2, bw * k, 76 * k};
+        if (lift > 0.01f)
+            gfx::shadow(r, 16, 24, 0.55f * lift, 14 * lift);
+        gfx::fill(r, focus ? 0xfff5f5f7u : 0x24ffffffu, 16 * k);
+        gfx::text(r.x + r.w / 2, r.y + r.h / 2 + 9, labels[i], st, focus ? 0xff0b0b0fu : kText, 1);
+        bx += bw + 20;
+    }
+
+    /* Tracks: the list scrolls so the focused one stays in view. */
+    const int n = (int)m_tracks.size();
+    const int visible = (int)((gfx::H - kListTop - 40) / kRowH);
+    m_scroll.to((float)std::max(0, std::min(m_track - visible / 2, n - visible)) * kRowH);
+    if (m_scroll.step(dt, 12.f))
+        m_animating = true;
+    gfx::push_opacity(m_content.value);
+    gfx::push_scissor({0, kListTop - 8, gfx::W, gfx::H - kListTop + 8});
+    const bool discs = n > 0 && m_tracks.back().parent_index > 1;
+    for (int i = 0; i < n; i++) {
+        const float y = kListTop + i * kRowH - m_scroll.value;
+        if (y < kListTop - kRowH || y > gfx::H)
+            continue;
+        const jf::Item &t = m_tracks[i];
+        const bool focus = m_in_tracks && i == m_track;
+        const gfx::Rect r{x - 20, y, w + 20, kRowH - 6};
+        if (focus) {
+            gfx::shadow(r, 14, 16, 0.4f, 6);
+            gfx::fill(r, 0xfff5f5f7u, 14);
+        }
+        const uint32_t fg = focus ? 0xff0b0b0fu : kText, dim = focus ? 0x990b0b0fu : kText3;
+        char num[16];
+        if (discs)
+            std::snprintf(num, sizeof num, "%d.%d", std::max(1, t.parent_index), std::max(0, t.index));
+        else
+            std::snprintf(num, sizeof num, "%d", t.index > 0 ? t.index : i + 1);
+        gfx::text(x + 30, y + 40, num, {gfx::SemiBold, 22}, dim, 2);
+        gfx::text(x + 60, y + 40, t.name, {focus ? gfx::Bold : gfx::Medium, 25, w - 200}, fg);
+        gfx::text(x + w - 20, y + 40, duration(t.runtime_ticks), {gfx::Medium, 22}, dim, 2);
+    }
+    gfx::pop_scissor();
+    gfx::pop_opacity();
+    if (!m_loaded)
+        m_animating = true;
+    if (art::animating())
+        m_animating = true;
+}
+
+} // namespace ui

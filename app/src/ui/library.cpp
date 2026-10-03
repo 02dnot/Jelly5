@@ -35,7 +35,7 @@ constexpr int kNumSorts = 4;
 
 Library::Library(jf::Client &client, std::string title, std::string types, std::string view_id, bool pushed)
     : m_client(client), m_title(std::move(title)), m_types(std::move(types)), m_view(std::move(view_id)),
-      m_pushed(pushed)
+      m_pushed(pushed), m_square(m_types == "MusicAlbum")
 {
     m_nav.snap(1.f);
 }
@@ -47,6 +47,7 @@ std::string Library::types_for(const std::string &collection_type)
     if (collection_type == "homevideos") return "Video";
     if (collection_type == "musicvideos") return "MusicVideo";
     if (collection_type == "boxsets") return "BoxSet";
+    if (collection_type == "music") return "MusicAlbum";
     return "Movie,Series,Video";   /* mixed */
 }
 
@@ -209,7 +210,8 @@ void Library::draw(double now, float dt)
 
     /* Grid scroll: the focused row rises to the top line once past the first two. */
     const int row = m_in_pills ? 0 : m_index / kCols;
-    m_scroll.to(std::max(0.f, (float)(row - 1) * kRowPitch));
+    const float pitch = m_square ? 360.f : kRowPitch, tile_h = m_square ? kPosterW : kPosterH;
+    m_scroll.to(std::max(0.f, (float)(row - 1) * pitch));
     if (m_scroll.step(dt, 11.f))
         m_animating = true;
     m_nav.to(m_scroll.target < 1.f ? 1.f : 0.f);
@@ -248,8 +250,8 @@ void Library::draw(double now, float dt)
     for (int pass = 0; pass < 2; pass++) {
         for (int i = 0; i < (int)items.size(); i++) {
             const int r = i / kCols, c = i % kCols;
-            const float y = top + r * kRowPitch;
-            if (y > gfx::H + 20 || y + kPosterH + 60 < 0)
+            const float y = top + r * pitch;
+            if (y > gfx::H + 20 || y + tile_h + 60 < 0)
                 continue;
             const bool f = !m_in_pills && i == m_index;
             if (f)
@@ -257,7 +259,13 @@ void Library::draw(double now, float dt)
             if ((pass == 0) == f)
                 continue;   /* focused poster last, over its neighbours */
             const float lift = m_lifts.step(items[i].id, f, dt, &m_animating);
-            draw_poster(m_client, items[i], {kPad + c * (kPosterW + kColGap), y, kPosterW, kPosterH}, lift, 1.f);
+            const gfx::Rect tile{kPad + c * (kPosterW + kColGap), y, kPosterW, tile_h};
+            draw_poster(m_client, items[i], tile, lift, 1.f);
+            if (m_square && lift > 0.01f && !items[i].album_artist.empty()) {   /* the artist under the album */
+                const float k = 1.f + 0.1f * lift;
+                gfx::text(tile.x - tile.w * (k - 1) / 2, tile.y + tile.h * (1 + (k - 1) / 2) + 62,
+                          items[i].album_artist, {gfx::Medium, 18, tile.w * k}, alpha(kText3, lift));
+            }
         }
     }
     gfx::pop_scissor();

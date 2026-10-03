@@ -17,7 +17,9 @@
 #include <mutex>
 #include <pthread.h>
 #include <string>
+#include <set>
 #include <thread>
+#include <ctime>
 #include <unistd.h>
 
 extern "C" {
@@ -124,9 +126,21 @@ std::string request_json(jf::Client &c, const jf::Item &it, const jf::Playback &
                          const std::vector<jf::Item> &episodes, const Extras &ex)
 {
     const std::vector<jf::Segment> &segs = ex.segments;
-    const bool episode = it.type == "Episode";
+    const bool episode = it.type == "Episode", audio = it.type == "Audio";
     cJSON *o = cJSON_CreateObject();
     cJSON_AddStringToObject(o, "id", it.id.c_str());
+    if (audio) {   /* the player's music screen: the album's cover, artist and album */
+        cJSON_AddStringToObject(o, "artist", it.album_artist.c_str());
+        cJSON_AddStringToObject(o, "album", it.album.c_str());
+        const std::string cover = !it.album_primary_tag.empty()
+                                      ? c.image_url(it.album_id, "Primary", it.album_primary_tag, 800)
+                                      : c.image_url(it.id, "Primary", it.primary_tag, 800);
+        cJSON_AddStringToObject(o, "cover", cover.c_str());
+        cJSON_AddStringToObject(o, "coverBlurhash",
+                                (!it.album_blurhash.empty() ? it.album_blurhash : it.primary_blurhash).c_str());
+        cJSON_AddNumberToObject(o, "season", it.parent_index);   /* its place in the album queue */
+        cJSON_AddNumberToObject(o, "episode", it.index);
+    }
     cJSON_AddStringToObject(o, "url", pb.url.c_str());
     cJSON_AddStringToObject(o, "title", (episode ? it.series_name : it.name).c_str());
     if (episode) {
@@ -147,7 +161,7 @@ std::string request_json(jf::Client &c, const jf::Item &it, const jf::Playback &
         std::snprintf(r, sizeof r, "%.1f", it.community_rating);
         cJSON_AddStringToObject(o, "rating", r);
     }
-    cJSON_AddStringToObject(o, "itemType", episode ? "series" : "movie");
+    cJSON_AddStringToObject(o, "itemType", episode ? "series" : audio ? "audio" : "movie");
     cJSON_AddStringToObject(o, "logo", c.image_url(it.logo_owner, "Logo", it.logo_tag, 800).c_str());
     cJSON_AddStringToObject(o, "poster", c.image_url(episode ? it.series_id : it.id, "Primary",
                                                       episode ? std::string() : it.primary_tag, 400).c_str());
@@ -184,7 +198,7 @@ std::string request_json(jf::Client &c, const jf::Item &it, const jf::Playback &
     }
     cJSON_AddItemToObject(o, "subtitles", subs);
 
-    if (episode && !episodes.empty()) {
+    if ((episode || audio) && !episodes.empty()) {
         cJSON *eps = cJSON_CreateArray();
         size_t here = episodes.size();
         for (size_t i = 0; i < episodes.size(); i++) {
@@ -357,12 +371,49 @@ extern "C" void jelly5_playback_finished(const char *result_json)
     s_session.result = result_json ? result_json : "";
 }
 
-bool jelly5_play(jf::Client &client, const jf::Item &first, std::string *error)
+/* An album's tracks as the player's queue: disc as "season", track as "episode".
+ * Missing or repeated numbers (and shuffle) number them in play order instead. */
+std::vector<jf::Item> album_queue(jf::Client &client, jf::Item *item, bool shuffle)
+{
+    std::vector<jf::Item> tracks;
+    for (jf::Item &t : client.children(item->album_id, "ParentIndexNumber,IndexNumber,SortName", 1000))
+        if (t.type == "Audio")
+            tracks.push_back(std::move(t));
+    if (tracks.empty())
+        return tracks;
+    if (shuffle) {
+        /* This track first, the rest in random order. */
+        std::srand((unsigned)time(nullptr));
+        for (size_t i = 0; i < tracks.size(); i++)
+            if (tracks[i].id == item->id)
+                std::swap(tracks[0], tracks[i]);
+        for (size_t i = tracks.size() - 1; i > 1; i--)
+            std::swap(tracks[i], tracks[1 + std::rand() % i]);
+    }
+    std::set<std::pair<int, int>> seen;
+    bool renumber = shuffle;
+    for (const jf::Item &t : tracks)
+        if (t.index <= 0 || !seen.insert({t.parent_index, t.index}).second)
+            renumber = true;
+    for (size_t i = 0; i < tracks.size(); i++) {
+        if (renumber) {
+            tracks[i].parent_index = 1;
+            tracks[i].index = (int)i + 1;
+        }
+        if (tracks[i].id == item->id)
+            *item = tracks[i];   /* the numbering the queue uses */
+    }
+    return tracks;
+}
+
+bool jelly5_play(jf::Client &client, const jf::Item &first, std::string *error, bool shuffle)
 {
     jf::Item item = first;
     std::vector<jf::Item> episodes;
     if (item.type == "Episode" && !item.series_id.empty())
         episodes = client.episodes(item.series_id, std::string());
+    if (item.type == "Audio" && !item.album_id.empty())
+        episodes = album_queue(client, &item, shuffle);
 
     for (int chain = 0; chain < 50; chain++) {
         jf::Playback pb;
@@ -375,7 +426,7 @@ bool jelly5_play(jf::Client &client, const jf::Item &first, std::string *error)
         evo_bt("jelly5: play %s (%s) %s %s", item.name.c_str(), item.id.c_str(), pb.play_method.c_str(),
                pb.transcode_reasons.c_str());
         Extras ex;
-        {
+        if (item.type != "Audio") {   /* music has no intros, chapters or previews */
             std::thread chapters([&] { client.media_extras(item.id, pb.media_source_id, &ex.chapters, &ex.trickplay); });
             ex.segments = client.segments(item.id);
             chapters.join();

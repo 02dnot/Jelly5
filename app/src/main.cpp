@@ -18,6 +18,7 @@
 #include "nuvio_player.h"
 #include "gfx/art.h"
 #include "gfx/gfx.h"
+#include "ui/album.h"
 #include "ui/detail.h"
 #include "ui/home.h"
 #include "ui/library.h"
@@ -298,13 +299,14 @@ void load_home(jf::Client &c, unsigned session, bool keep_hero = false)
     jobs.emplace_back([&] { mylist = c.favorites(30); });
     for (auto &j : jobs)
         j.join();
-    /* Video libraries only: music, books, photos and Live TV are not here (yet). */
+    /* Rows for video libraries; music opens from Biblioteker. Books and photos are not here. */
     auto video = [](const jf::Item &v) {
         const std::string &t = v.collection_type;
         return t == "movies" || t == "tvshows" || t == "homevideos" || t == "musicvideos" || t == "boxsets" ||
                t.empty();
     };
     auto has_latest = [&](const jf::Item &v) { return video(v) && v.collection_type != "boxsets"; };
+    auto browsable = [&](const jf::Item &v) { return video(v) || v.collection_type == "music"; };
     std::vector<std::pair<std::string, std::vector<jf::Item>>> latest;
     for (const jf::Item &v : views)
         if (has_latest(v))
@@ -336,7 +338,7 @@ void load_home(jf::Client &c, unsigned session, bool keep_hero = false)
     std::vector<jf::Item> libs;
     int movies = 0, shows = 0;
     for (const jf::Item &v : views)
-        if (video(v)) {
+        if (browsable(v)) {
             libs.push_back(v);
             movies += v.collection_type == "movies";
             shows += v.collection_type == "tvshows";
@@ -514,7 +516,7 @@ void open_tab(int tab)
 }
 
 /* Top-level input once signed in: the tab bar, or the active screen. */
-void shell_input(uint32_t p, jf::Item *play, bool *chose, bool *from_start)
+void shell_input(uint32_t p, jf::Item *play, bool *chose, bool *from_start, bool *shuffle)
 {
     if (s_nav_focus && s_stack.empty()) {
         const int before = s_nav_tab;
@@ -540,9 +542,11 @@ void shell_input(uint32_t p, jf::Item *play, bool *chose, bool *from_start)
         break;
     case ui::Action::Play:
     case ui::Action::PlayFromStart:
+    case ui::Action::PlayShuffled:
         *play = a.item;
         *chose = true;
         *from_start = a.kind == ui::Action::PlayFromStart;
+        *shuffle = a.kind == ui::Action::PlayShuffled;
         break;
     case ui::Action::Open: {
         if (s_stack.size() >= 8)
@@ -563,6 +567,8 @@ void shell_input(uint32_t p, jf::Item *play, bool *chose, bool *from_start)
         }
         if (target.type == "Person")
             s_stack.emplace_back(new ui::Person(*s_client, target));
+        else if (target.type == "MusicAlbum")
+            s_stack.emplace_back(new ui::Album(*s_client, target));
         else if (target.type == "CollectionFolder" || target.type == "UserView")
             s_stack.emplace_back(new ui::Library(*s_client, target.name,
                                                  ui::Library::types_for(target.collection_type), target.id, true));
@@ -724,8 +730,16 @@ bool draw_frame(double t, float dt)
 bool resolve_playable(jf::Item *item)
 {
     if (item->type == "Movie" || item->type == "Episode" || item->type == "Video" || item->type == "Trailer" ||
-        item->type == "MusicVideo")
+        item->type == "MusicVideo" || item->type == "Audio")
         return true;
+    if (item->type == "MusicAlbum") {   /* from Min liste or search: its first track */
+        for (const jf::Item &t : s_client->children(item->id, "ParentIndexNumber,IndexNumber,SortName", 1))
+            if (t.type == "Audio") {
+                *item = t;
+                return true;
+            }
+        return false;
+    }
     if (item->type == "Season") {
         /* A season (the "recently added" rows group episodes by season):
          * its first unwatched episode, else its first. */
@@ -753,7 +767,7 @@ bool resolve_playable(jf::Item *item)
     return true;
 }
 
-void play(jf::Item item, bool from_start)
+void play(jf::Item item, bool from_start, bool shuffle = false)
 {
     if (from_start)
         item.position_ticks = 0;
@@ -774,17 +788,25 @@ void play(jf::Item item, bool from_start)
     }
     gfx::begin_frame();
     const gfx::Rect full{0, 0, gfx::W, gfx::H};
-    gfx::fill(full, 0xff080b10u);
-    if (const gfx::Texture *t = art::get(backdrop, 1920, 1080))
-        gfx::image(full, t, 0.92f, 0, true);
-    gfx::fill_vgradient({0, 0, gfx::W, 378}, 0x4d000000u, 0x99000000u);
-    gfx::fill_vgradient({0, 378, gfx::W, 378}, 0x99000000u, 0xcc000000u);
-    gfx::fill_vgradient({0, 756, gfx::W, 324}, 0xcc000000u, 0xe6000000u);
+    if (item.type == "Audio") {   /* the music screen's ground: its colour and the cover's hues */
+        gfx::fill(full, ui::kBg);
+        const std::string &hash = !item.album_blurhash.empty() ? item.album_blurhash : item.primary_blurhash;
+        if (const gfx::Texture *bh = art::blurhash(hash))
+            gfx::image(full, bh, 0.55f, 0, true);
+        gfx::fill_hgradient(full, 0x8c07070au, 0xd907070au);
+    } else {
+        gfx::fill(full, 0xff080b10u);
+        if (const gfx::Texture *t = art::get(backdrop, 1920, 1080))
+            gfx::image(full, t, 0.92f, 0, true);
+        gfx::fill_vgradient({0, 0, gfx::W, 378}, 0x4d000000u, 0x99000000u);
+        gfx::fill_vgradient({0, 378, gfx::W, 378}, 0x99000000u, 0xcc000000u);
+        gfx::fill_vgradient({0, 756, gfx::W, 324}, 0xcc000000u, 0xe6000000u);
+    }
     gfx::end_frame();
 
     nuvio_input_close();
     std::string error;
-    if (!jelly5_play(*s_client, item, &error))
+    if (!jelly5_play(*s_client, item, &error, shuffle))
         notify(("Jelly5: kunne ikke spille av\n" + error).c_str());
     nuvio_input_open(s_user);
     /* Back at once; positions and "next up" refresh behind the screen. */
@@ -860,7 +882,7 @@ int main()
             open_gate(gate);
 
         jf::Item chosen;
-        bool chose = false, from_start = false;
+        bool chose = false, from_start = false, shuffle = false;
         if (in.pressed) {
             if (phase == Phase::Gate)
                 gate_input(in.pressed);
@@ -869,12 +891,12 @@ int main()
                 open_gate({accounts::load().empty() ? Gate::Login : Gate::Profiles, s_client->server(), "", false});
                 set_phase(Phase::Gate);
             } else if (phase == Phase::Home && s_home_version == s_model_version)
-                shell_input(in.pressed, &chosen, &chose, &from_start);
+                shell_input(in.pressed, &chosen, &chose, &from_start, &shuffle);
         }
         if (phase == Phase::Gate)
             gate_poll();
         if (chose) {
-            play(chosen, from_start);
+            play(chosen, from_start, shuffle);
             last = now_s();
             continue;
         }

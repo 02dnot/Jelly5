@@ -19,6 +19,8 @@
  *               audio and subtitle columns, "Tilpass undertekster" opens style
  *               and timing in a third. Episoder: seasons left, episodes right
  *   skip / next "Hopp over intro" and the next-episode card, Cross acts
+ *   music       a now-playing screen instead: the album's cover, the track,
+ *               artist and album, the bar; Cross pauses, L1/R1 change track
  */
 #pragma once
 
@@ -74,8 +76,11 @@ private:
     void draw_tracks(const NuvioStatus &st, float a);
     void draw_episodes(float a, float dt);
     void draw_error(const NuvioStatus &st);
+    void music_input(uint32_t p, const NuvioStatus &st, std::vector<OsdCommand> &out);
+    void draw_music(const NuvioStatus &st);
 
     const NuvioRequest *m_req = nullptr;
+    bool m_music = false;               /* an audio track: the now-playing screen */
     double m_now = 0, m_last = 0, m_load_since = 0;
     bool m_dirty = true;
 

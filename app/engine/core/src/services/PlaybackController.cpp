@@ -754,7 +754,8 @@ bool PlaybackController::startPlaybackSource(const PlaybackSource& source,
             for (unsigned int i = 0; i < play_fmt->nb_streams; ++i) {
                 const AVStream* st = play_fmt->streams[i];
                 if (st && st->codecpar &&
-                    st->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
+                    st->codecpar->codec_type == AVMEDIA_TYPE_VIDEO &&
+                    !(st->disposition & AV_DISPOSITION_ATTACHED_PIC)) {   /* Jelly5: never cover art (music) */
                     video_stream_index = static_cast<int>(i);
                     evo_bt("PlaybackController: no video stream resolved its size - "
                            "falling back to stream %d", video_stream_index);

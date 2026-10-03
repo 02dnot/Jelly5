@@ -37,6 +37,9 @@ struct Item {
     std::string logo_owner, backdrop_owner, thumb_owner;
     std::string primary_blurhash, backdrop_blurhash, thumb_blurhash;
     std::string collection_type;              /* views: movies, tvshows, music ... */
+    /* Music: a track's album and artist (the album's cover is its art). */
+    std::string album_id, album, album_artist;
+    std::string album_primary_tag, album_blurhash;
     std::string premiere_date;                /* ISO date; a person's birth date */
     std::vector<std::string> locations;       /* a person's birthplace */
 };
