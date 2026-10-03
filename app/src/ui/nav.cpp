@@ -9,6 +9,8 @@
 #include "gfx/gfx.h"
 #include "ui/screen.h"
 
+#include <algorithm>
+#include <cmath>
 #include <ctime>
 #include <cstdio>
 
@@ -58,12 +60,18 @@ void Nav::draw(float a, int active, int focus, float dt, bool *animating)
         const bool moving_w = m_focus_w.step(dt, 16.f);
         if (moving_x || moving_w)
             *animating = true;
-        gfx::fill({m_focus_x.value - 4, cy - 33, m_focus_w.value + 8, 66}, alpha(0xfff5f5f7u, a), 33);
+        /* The focus is a drop of brighter glass (iOS 26's tab bar): while it slides
+         * it stretches along the way it moves and thins a little, then settles. */
+        const float travel = m_focus_x.target - m_focus_x.value;
+        const float stretch = std::min(70.f, std::fabs(travel) * 0.4f);
+        const float x0 = m_focus_x.value - 4 - (travel < 0 ? stretch : 0) * 0.5f;
+        const float hh = 66 - stretch * 0.14f;
+        glass_panel({x0, cy - hh / 2, m_focus_w.value + 8 + stretch * 0.5f, hh}, hh / 2, a, false, 1.f);
     }
     x = px + 7;
     for (int i = 0; i < n; i++) {
         const bool f = m_tabs[i] == focus;
-        const uint32_t c = f ? 0xff0b0b0fu : (m_tabs[i] == active ? kText : kText2);
+        const uint32_t c = f || m_tabs[i] == active ? kText : kText2;
         gfx::text(x + widths[i] / 2, cy + 9, tab_label(m_tabs[i]), st, alpha(c, a), 1);
         x += widths[i] + 6;
     }

@@ -51,6 +51,9 @@ typedef struct nuvio_input_state {
 /* Opens the user's controller. Presses already down are ignored until they
  * are released, so the button that started playback does not act twice. */
 void nuvio_input_open(int user_id);
+/* Jelly5: how far the pad is tilted from its usual pose, -1..1 left/right (x)
+ * and toward/away (y); 0, 0 without motion data. */
+void nuvio_input_tilt(float *x, float *y);
 void nuvio_input_close(void);
 /* Jelly5: the DualSense light bar (0xRRGGBB); reset gives back the PS5 user's colour. */
 void nuvio_input_set_lightbar(uint32_t rgb);

@@ -510,7 +510,21 @@ static bool blur_pass(const Texture &src, float sigma, bool horizontal)
 
 /* The liquid glass pane in one pass (app/shaders/liquid_glass.pipe) over the
  * scissored pane: refraction at the rim, vibrancy, tint, lit rim and sheen. */
-static bool glass_pass(const Texture &src, const Rect &r, float radius, float opacity)
+static float s_light_x = -0.55f, s_light_y = -0.83f;
+
+bool set_glass_light(float x, float y)
+{
+    const float l = std::sqrt(x * x + y * y);
+    if (l < 1e-3f)
+        return false;
+    x /= l, y /= l;
+    const bool moved = std::fabs(x - s_light_x) + std::fabs(y - s_light_y) > 0.02f;
+    if (moved)
+        s_light_x = x, s_light_y = y;
+    return moved;
+}
+
+static bool glass_pass(const Texture &src, const Rect &r, float radius, float opacity, float lift)
 {
     SceAgcCommandBuffer *cb = evo_agc_runtime_get_current_cb();
     evo_agc_transient_ring_t *ring = evo_agc_runtime_get_transient_ring();
@@ -520,7 +534,7 @@ static bool glass_pass(const Texture &src, const Rect &r, float radius, float op
         ud.ps_texture_table_dword < 0 || ud.vs_count > 16)
         return false;
     evo_agc_transient_slice_t consts, cdesc, tdesc, ib;
-    if (evo_agc_transient_ring_alloc(ring, slot, 5u * 16u, 16, &consts) != EVO_AGC_TRANSIENT_OK ||
+    if (evo_agc_transient_ring_alloc(ring, slot, 6u * 16u, 16, &consts) != EVO_AGC_TRANSIENT_OK ||
         evo_agc_transient_ring_alloc(ring, slot, 16u, 16, &cdesc) != EVO_AGC_TRANSIENT_OK ||
         evo_agc_transient_ring_alloc(ring, slot, 48u, 16, &tdesc) != EVO_AGC_TRANSIENT_OK ||
         evo_agc_transient_ring_alloc(ring, slot, 12u, 16, &ib) != EVO_AGC_TRANSIENT_OK) {
@@ -529,16 +543,17 @@ static bool glass_pass(const Texture &src, const Rect &r, float radius, float op
     }
     float *c = (float *)consts.cpu;
     const float s = s_scale;
-    const float k[20] = {
+    const float k[24] = {
         r.x * s, r.y * s, (r.x + r.w) * s, (r.y + r.h) * s,              /* uRect */
         radius * s, std::min(30.f, std::min(r.w, r.h) * 0.3f) * s,      /* uShape: radius, bevel */
         1.f / (float)src.w, 1.f / (float)src.h,
-        -0.55f, -0.83f, 1.f, 1.f,                                        /* uLight: dir, rim, refraction */
-        1.4f, 1.06f, 0.14f, opacity,                                     /* uTone: saturation, brightness, tint */
-        0.05f, 0.05f, 0.07f, 0.06f,                                      /* uTint: colour, sheen */
+        s_light_x, s_light_y, 1.f, 1.f,                                  /* uLight: dir, rim, refraction */
+        1.45f, 1.04f, 0.08f, opacity,                                    /* uTone: saturation, brightness, tint */
+        0.05f, 0.05f, 0.07f, 0.05f,                                      /* uTint: colour, sheen */
+        lift, 0.38f, 0.f, 0.f,                                           /* uMore: lift, legibility */
     };
     std::memcpy(c, k, sizeof k);
-    evo_agc_build_constant_vsharp((uint32_t *)cdesc.cpu, consts.gpu_addr, 5u * 16u);
+    evo_agc_build_constant_vsharp((uint32_t *)cdesc.cpu, consts.gpu_addr, 6u * 16u);
     std::memset(tdesc.cpu, 0, 48u);
     if (!build_tsharp(&src, (uint32_t *)tdesc.cpu))
         return false;
@@ -559,7 +574,7 @@ static bool glass_pass(const Texture &src, const Rect &r, float radius, float op
     return true;
 }
 
-int backdrop_blur(const Rect &r, float radius, float sigma, float opacity)
+int backdrop_blur(const Rect &r, float radius, float sigma, float opacity, float lift)
 {
 #ifdef JELLY5_LOG_HOST
     static int s_why = -1;   /* why the glass is flat, logged when it changes */
@@ -577,7 +592,7 @@ int backdrop_blur(const Rect &r, float radius, float sigma, float opacity)
     /* The real glass shows the picture behind it, only softened, so the bending at
      * the rim can be seen; without the shader a stronger blur carries the look. */
     const bool shader = evo_agc_runtime_pipeline_valid(EVO_AGC_PIPE_UI_GLASS);
-    const float sp = (shader ? sigma * 0.45f : sigma) * s_scale, reach = 3.f * sp + 2.f;
+    const float sp = (shader ? sigma * 0.3f : sigma) * s_scale, reach = 3.f * sp + 2.f;
     const int x0 = std::max(0, (int)std::floor(r.x * s_scale)), y0 = std::max(0, (int)std::floor(r.y * s_scale));
     const int x1 = std::min(s_pw, (int)std::ceil((r.x + r.w) * s_scale));
     const int y1 = std::min(s_ph, (int)std::ceil((r.y + r.h) * s_scale));
@@ -634,7 +649,7 @@ int backdrop_blur(const Rect &r, float radius, float sigma, float opacity)
     int result = ok ? 1 : 0;
     if (ok && shader) {   /* the real glass */
         evo_agc_runtime_set_scissor(x0, y0, x1 - x0, y1 - y0);
-        if (glass_pass(out_v, r, radius, opacity))
+        if (glass_pass(out_v, r, radius, opacity, lift))
             result = 2;
         else
             glass_why("glass pass failed");

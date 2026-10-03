@@ -10,8 +10,11 @@
 ;   - refraction after OverShifted/LiquidGlass (MIT): near the rim the picture
 ;     is pulled in from inside, like a thick lens, with a little dispersion;
 ;   - vibrancy: saturation and brightness lifted, then a light tint;
-;   - a glow along the rim by angle to the light, a thin specular line, a
-;     soft sheen from above and a little grain.
+;   - legibility: the pane darkens itself over a bright picture;
+;   - a glow along the rim by angle to the light, an inner shadow and a double
+;     rim (bright toward the light, fainter opposite), a soft sheen from above
+;     and a little grain; the light follows the DualSense's tilt;
+;   - the focus drop (lift) is the same glass, brighter.
 ; Output is premultiplied (the runtime sets premultiplied blending).
 ;
 ; Built by tools/shaders/build.sh (amdllpc, gfx1013) into
@@ -43,6 +46,7 @@ layout(set = 0, binding = 0, std140) uniform GlassConstants {
     vec4 uLight;   /* xy = direction toward the light, z = rim strength, w = refraction (0..1) */
     vec4 uTone;    /* x = saturation, y = brightness, z = tint amount, w = opacity */
     vec4 uTint;    /* rgb = tint colour, a = sheen strength */
+    vec4 uMore;    /* x = lift (0 pane, 1 the brighter focus drop), y = legibility (darken bright backdrops) */
 } g;
 
 layout(set = 1, binding = 0) uniform sampler2D uSource;
@@ -92,14 +96,26 @@ void main() {
     float luma = dot(col, vec3(0.2126, 0.7152, 0.0722));
     col = mix(vec3(luma), col, g.uTone.x) * g.uTone.y;
     col = mix(col, g.uTint.rgb, g.uTone.z);
+    /* Legibility: over a bright picture the glass darkens itself, so white text
+     * on it still reads (Apple's clear glass does the same); a dark one is left. */
+    col *= 1.0 - g.uMore.y * smoothstep(0.42, 0.9, luma);
+    /* The focus drop: the same glass, lifted toward white. */
+    col = mix(col, vec3(1.0), 0.16 * g.uMore.x);
 
+    vec2 L = normalize(g.uLight.xy);
+    float lit = dot(n, L);
     /* Glow along the rim, by angle: brightest toward the light, darker opposite. */
     float edge = 1.0 - smoothstep(0.0, 0.12 * h, -d);
-    float ang = dot(normalize(rel / max(half_size, vec2(1.0))), normalize(g.uLight.xy));
+    float ang = dot(normalize(rel / max(half_size, vec2(1.0))), L);
     col *= 1.0 + 0.32 * g.uLight.z * ang * edge;
-    /* A thin specular line on the lit side. */
-    float rim_band = 1.0 - smoothstep(0.0, 2.6, -d);
-    col += vec3(rim_band * (0.12 + 0.5 * max(dot(n, normalize(g.uLight.xy)), 0.0)) * g.uLight.z);
+    /* Thickness: a soft inner shadow just inside the rim, deepest away from the
+     * light, as the pane's edge turns away. */
+    float inner = smoothstep(1.5, 4.0, -d) * (1.0 - smoothstep(4.0, 14.0, -d));
+    col *= 1.0 - inner * (0.10 + 0.12 * max(-lit, 0.0)) * g.uLight.z;
+    /* A double rim: a bright line toward the light and a fainter one opposite,
+     * where light passing through the pane leaves it. */
+    float rim_band = 1.0 - smoothstep(0.0, 2.4, -d);
+    col += vec3(rim_band * (0.08 + 0.62 * max(lit, 0.0) + 0.30 * max(-lit, 0.0)) * g.uLight.z * (1.0 + 0.4 * g.uMore.x));
     /* Sheen from above, and a little grain so it reads as a material. */
     float from_top = (px.y - lo.y) / max(hi.y - lo.y, 1.0);
     col += vec3((1.0 - smoothstep(0.0, 0.5, from_top)) * g.uTint.a);

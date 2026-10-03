@@ -44,21 +44,21 @@ std::string poster_url(jf::Client &c, const jf::Item &it, int width)
     return c.image_url(it.id, "Primary", it.primary_tag, width);
 }
 
-void glass_panel(const gfx::Rect &r, float radius, float a, bool shadow)
+void glass_panel(const gfx::Rect &r, float radius, float a, bool shadow, float lift)
 {
     if (a <= 0.01f)
         return;
     if (shadow)
         gfx::shadow(r, radius, 46, 0.6f * a, 18);
-    const int glass = gfx::backdrop_blur(r, radius, 18.f, a);
+    const int glass = gfx::backdrop_blur(r, radius, 18.f, a, lift);
     if (glass == 2)
         return;   /* the shader drew the whole pane */
     if (glass == 1) {   /* Liquid Glass: clear, a sheen from above, a lit rim */
-        gfx::fill(r, alpha(0x4d0c0c12u, a), radius);
+        gfx::fill(r, lift > 0 ? alpha(0x33ffffffu, a * lift) : alpha(0x4d0c0c12u, a), radius);
         gfx::fill_vgradient({r.x, r.y, r.w, r.h * 0.45f}, alpha(0x1affffffu, a), 0x00000000u, radius);
         gfx::rim(r, radius, 0.9f * a);
     } else {
-        gfx::fill(r, alpha(0xdc1c1c22u, a), radius);
+        gfx::fill(r, lift > 0 ? alpha(0x40ffffffu, a * lift) : alpha(0xdc1c1c22u, a), radius);
         gfx::fill({r.x + radius * 0.6f, r.y, r.w - radius * 1.2f, 1.5f}, alpha(0x2effffffu, a));
     }
 }

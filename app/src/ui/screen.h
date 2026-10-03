@@ -140,7 +140,8 @@ void draw_drift(const gfx::Rect &full, const gfx::Texture *t, float opacity, dou
  * when the blur is there (the colours behind show through) and the old solid
  * dark glass when the GPU had no room for it. shadow = false for small pieces
  * (pills) that sit on other glass. */
-void glass_panel(const gfx::Rect &r, float radius, float opacity = 1.f, bool shadow = true);
+/* lift: 0 a pane, 1 the brighter glass drop that marks focus (the top bar's tab). */
+void glass_panel(const gfx::Rect &r, float radius, float opacity = 1.f, bool shadow = true, float lift = 0.f);
 
 /* A controller hint, drawn the way the PS5's own hints look (our shapes, not
  * Sony's artwork): the button on a dark disc (Options and the shoulder buttons
