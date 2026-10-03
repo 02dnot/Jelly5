@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "ui/login.h"
+
+#include "qrcodegen.h"
 #include "app/i18n.h"
 
 #include "gfx/art.h"
@@ -11,6 +13,7 @@
 
 #include <algorithm>
 #include <thread>
+#include <vector>
 #include <unistd.h>
 
 namespace ui {
@@ -358,6 +361,35 @@ void Login::draw(double now, float dt)
             gfx::text(box.x + box.w / 2, box.y + 130, "\xE2\x80\xA6", {gfx::Bold, 80}, kText3, 1);
         else
             gfx::text(box.x + box.w / 2, box.y + 158, spaced, {gfx::Bold, 120}, kText, 1);
+        /* A QR code for the phone: Jellyfin's own Quick Connect page with this code
+         * filled in (jellyfin-web reads ?code=); one tap on Godkjenn there signs in. */
+        if (!code.empty()) {
+            static std::string qr_for;
+            static std::vector<uint8_t> qr(qrcodegen_BUFFER_LEN_MAX);
+            static bool qr_ok = false;
+            if (qr_for != code) {
+                qr_for = code;
+                const std::string url = m_client.server() + "/web/#/quickconnect?code=" + code;
+                std::vector<uint8_t> tmp(qrcodegen_BUFFER_LEN_MAX);
+                qr_ok = qrcodegen_encodeText(url.c_str(), tmp.data(), qr.data(), qrcodegen_Ecc_MEDIUM,
+                                             qrcodegen_VERSION_MIN, qrcodegen_VERSION_MAX, qrcodegen_Mask_AUTO, true);
+            }
+            if (qr_ok) {
+                const int n = qrcodegen_getSize(qr.data());
+                const float side = 380, m = side / (float)(n + 8);   /* 4 modules of quiet zone round it */
+                const gfx::Rect panel{gfx::W - kPad - side, 330, side, side};
+                gfx::shadow(panel, 24, 30, 0.5f, 12);
+                gfx::fill(panel, 0xfff5f5f7u, 24);
+                for (int y = 0; y < n; y++)
+                    for (int x = 0; x < n; x++)
+                        if (qrcodegen_getModule(qr.data(), x, y))
+                            gfx::fill({panel.x + (x + 4) * m, panel.y + (y + 4) * m, m + 0.4f, m + 0.4f}, 0xff0b0b0fu);
+                gfx::text(panel.x + side / 2, panel.y + side + 52, T("Skann med telefonen"), {gfx::SemiBold, 24},
+                          kText2, 1);
+                gfx::text(panel.x + side / 2, panel.y + side + 86, T("og trykk Godkjenn i Jellyfin"),
+                          {gfx::Medium, 20}, kText3, 1);
+            }
+        }
         button({kX, 800, 560, 76}, T("Logg inn med brukernavn og passord"), m_focus == 0, lift("pw", m_focus == 0));
         button({kX + 580, 800, 250, 76}, T("Annen server"), m_focus == 1, lift("other2", m_focus == 1));
     }
