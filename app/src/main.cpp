@@ -307,7 +307,9 @@ void load_home(jf::Client &c, unsigned session, bool keep_hero = false)
                t.empty();
     };
     auto has_latest = [&](const jf::Item &v) { return video(v) && v.collection_type != "boxsets"; };
-    auto browsable = [&](const jf::Item &v) { return video(v) || v.collection_type == "music"; };
+    auto browsable = [&](const jf::Item &v) {
+        return video(v) || v.collection_type == "music" || v.collection_type == "playlists";
+    };
     std::vector<std::pair<std::string, std::vector<jf::Item>>> latest;
     for (const jf::Item &v : views)
         if (has_latest(v))
@@ -522,6 +524,8 @@ std::unique_ptr<ui::Login> s_login;
 Gate s_gate = Gate::None;
 ui::Nav s_nav;
 std::vector<std::unique_ptr<ui::Screen>> s_stack;   /* detail pages over the tab */
+std::vector<jf::Item> s_queue;                      /* what the chosen Play hands over as a queue */
+size_t s_queue_start = 0;
 int s_tab = ui::Nav::Home;
 bool s_nav_focus = false;
 int s_nav_tab = ui::Nav::Home;     /* focused tab while s_nav_focus */
@@ -650,7 +654,21 @@ void shell_input(uint32_t p, jf::Item *play, bool *chose, bool *from_start, bool
         *chose = true;
         *from_start = a.kind == ui::Action::PlayFromStart;
         *shuffle = a.kind == ui::Action::PlayShuffled;
+        s_queue = a.queue;
+        s_queue_start = a.queue_start;
         break;
+    case ui::Action::PlayMix: {   /* Jellyfin's Instant Mix from an album (or song, artist) */
+        std::vector<jf::Item> mix = s_client->instant_mix(a.item.id, 60);
+        if (mix.empty()) {
+            notify("Jelly5: Jellyfin fant ingen miks her");
+            break;
+        }
+        *play = mix.front();
+        *chose = true;
+        s_queue = std::move(mix);
+        s_queue_start = 0;
+        break;
+    }
     case ui::Action::Open: {
         if (s_stack.size() >= 8)
             s_stack.erase(s_stack.begin());   /* "more like this" chains stay bounded */
@@ -670,8 +688,11 @@ void shell_input(uint32_t p, jf::Item *play, bool *chose, bool *from_start, bool
         }
         if (target.type == "Person")
             s_stack.emplace_back(new ui::Person(*s_client, target));
-        else if (target.type == "MusicAlbum")
+        else if (target.type == "MusicAlbum" || target.type == "Playlist")
             s_stack.emplace_back(new ui::Album(*s_client, target));
+        else if (target.type == "MusicArtist")   /* an artist: their albums */
+            s_stack.emplace_back(new ui::Library(*s_client, target.name, "MusicAlbum", "", true,
+                                                 "&AlbumArtistIds=" + target.id));
         else if (target.type == "CollectionFolder" || target.type == "UserView")
             s_stack.emplace_back(new ui::Library(*s_client, target.name,
                                                  ui::Library::types_for(target.collection_type), target.id, true));
@@ -1054,7 +1075,9 @@ int main()
             }
         }
         if (chose) {
-            play(chosen, from_start, shuffle);
+            const std::vector<jf::Item> queue = std::move(s_queue);
+            s_queue.clear();
+            play(chosen, from_start, shuffle, queue.empty() ? nullptr : &queue, s_queue_start);
             last = now_s();
             continue;
         }

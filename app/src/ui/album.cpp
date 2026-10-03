@@ -33,9 +33,49 @@ std::string cover_url(jf::Client &c, const jf::Item &it)
 
 } // namespace
 
-Album::Album(jf::Client &client, const jf::Item &album) : m_client(client), m_album(album)
+Album::Album(jf::Client &client, const jf::Item &album)
+    : m_client(client), m_album(album), m_playlist(album.type == "Playlist")
 {
     m_data->album = album;
+}
+
+std::vector<Album::Button> Album::buttons() const
+{
+    std::vector<Button> b{PlayAll, Shuffle};
+    if (!m_playlist) {
+        b.push_back(Mix);
+        if (!m_album.album_artist_id.empty())
+            b.push_back(Artist);
+    }
+    return b;
+}
+
+/* An album plays through itself (the player builds the queue); a playlist is
+ * handed over as the queue. */
+Action Album::play_from(size_t i, bool shuffled) const
+{
+    Action a;
+    if (m_tracks.empty())
+        return a;
+    i = std::min(i, m_tracks.size() - 1);
+    a.kind = Action::Play;
+    a.item = m_tracks[i];
+    if (m_playlist) {
+        a.queue = m_tracks;
+        a.queue_start = i;
+        if (shuffled) {
+            for (size_t k = a.queue.size(); k > 1; k--)
+                std::swap(a.queue[k - 1], a.queue[(size_t)std::rand() % k]);
+            a.queue_start = 0;
+            a.item = a.queue.front();
+        }
+        for (jf::Item &t : a.queue)
+            t.position_ticks = 0;
+    } else if (shuffled) {
+        a.kind = Action::PlayShuffled;
+    }
+    a.item.position_ticks = 0;   /* songs start from the top */
+    return a;
 }
 
 void Album::activate()
@@ -44,14 +84,22 @@ void Album::activate()
     std::shared_ptr<Data> d = m_data;
     jf::Client *c = &m_client;
     const std::string id = m_album.id;
-    std::thread([d, c, id] {
+    const bool playlist = m_playlist;
+    std::thread([d, c, id, playlist] {
         jf::Item album;
         bool got = false;
         std::vector<jf::Item> tracks;
         std::thread a([&] { got = c->item(id, &album); });
-        for (jf::Item &t : c->children(id, "ParentIndexNumber,IndexNumber,SortName", 1000))
-            if (t.type == "Audio")
-                tracks.push_back(std::move(t));
+        if (playlist) {
+            for (jf::Item &t : c->playlist_items(id))
+                if (t.type == "Audio" || t.type == "Movie" || t.type == "Episode" || t.type == "Video" ||
+                    t.type == "MusicVideo")
+                    tracks.push_back(std::move(t));
+        } else {
+            for (jf::Item &t : c->children(id, "ParentIndexNumber,IndexNumber,SortName", 1000))
+                if (t.type == "Audio")
+                    tracks.push_back(std::move(t));
+        }
         a.join();
         std::lock_guard<std::mutex> g(d->lock);
         if (got)
@@ -81,20 +129,26 @@ Action Album::input(uint32_t p)
         else
             m_in_tracks = false;
     } else if ((p & (NUVIO_BTN_LEFT | NUVIO_BTN_RIGHT)) && !m_in_tracks) {
-        m_button = (p & NUVIO_BTN_RIGHT) ? 1 : 0;
+        const int nb = (int)buttons().size();
+        m_button = std::max(0, std::min(nb - 1, m_button + ((p & NUVIO_BTN_RIGHT) ? 1 : -1)));
     } else if ((p & NUVIO_BTN_CROSS) && n > 0) {
-        if (m_in_tracks) {
-            a.kind = Action::Play;
-            a.item = m_tracks[std::min(m_track, n - 1)];
-        } else if (m_button == 0) {
-            a.kind = Action::Play;
-            a.item = m_tracks.front();
-        } else {   /* Bland: from a random track, the rest shuffled after it */
-            a.kind = Action::PlayShuffled;
-            a.item = m_tracks[(size_t)std::rand() % m_tracks.size()];
+        if (m_in_tracks)
+            return play_from((size_t)std::min(m_track, n - 1), false);
+        const std::vector<Button> bs = buttons();
+        switch (bs[std::min(m_button, (int)bs.size() - 1)]) {
+        case PlayAll: return play_from(0, false);
+        case Shuffle: return play_from((size_t)std::rand() % m_tracks.size(), true);   /* a random first track */
+        case Mix:
+            a.kind = Action::PlayMix;
+            a.item = m_album;
+            break;
+        case Artist:
+            a.kind = Action::Open;
+            a.item.type = "MusicArtist";
+            a.item.id = m_album.album_artist_id;
+            a.item.name = m_album.album_artist;
+            break;
         }
-        if (a.item.position_ticks > 0)
-            a.item.position_ticks = 0;   /* songs start from the top */
     }
     return a;
 }
@@ -130,8 +184,9 @@ void Album::draw(double now, float dt)
     /* Title, artist, year · tracks · minutes. */
     const float x = kListX, w = gfx::W - kPad - x;
     gfx::text(x, kTop + 70, m_album.name, {gfx::Bold, 60, w}, kText);
-    if (!m_album.album_artist.empty())
-        gfx::text(x, kTop + 124, m_album.album_artist, {gfx::Medium, 32, w}, kText2);
+    const std::string by = m_playlist ? std::string("Spilleliste") : m_album.album_artist;
+    if (!by.empty())
+        gfx::text(x, kTop + 124, by, {gfx::Medium, 32, w}, kText2);
     std::string meta;
     if (m_album.year)
         meta = std::to_string(m_album.year);
@@ -141,24 +196,28 @@ void Album::draw(double now, float dt)
             total += t.runtime_ticks;
         const int min = (int)(total / jf::kTicksPerSecond / 60);
         char b[64];
-        std::snprintf(b, sizeof b, "%zu spor \xC2\xB7 %d min", m_tracks.size(), min);
+        std::snprintf(b, sizeof b, "%zu %s \xC2\xB7 %d min", m_tracks.size(), m_playlist ? "titler" : "spor", min);
         meta += (meta.empty() ? "" : " \xC2\xB7 ") + std::string(b);
     }
     gfx::text(x, kTop + 168, meta, {gfx::Medium, 24}, alpha(kText3, m_content.value));
 
-    /* Spill av, Bland. */
+    /* Spill av, Bland, Miks, the artist. */
     float bx = x;
-    const char *labels[2] = {"Spill av", "Bland"};
-    for (int i = 0; i < 2; i++) {
+    const std::vector<Button> bs = buttons();
+    for (int i = 0; i < (int)bs.size(); i++) {
         const bool focus = !m_in_tracks && m_button == i;
-        const float lift = m_lifts.step(i ? "shuffle" : "play", focus, dt, &m_animating);
+        const float lift = m_lifts.step("btn" + std::to_string((int)bs[i]), focus, dt, &m_animating);
         const gfx::TextStyle st{gfx::Bold, 26};
-        const float bw = gfx::text_width(labels[i], st) + 80, k = 1.f + 0.08f * lift;
+        const std::string label = bs[i] == PlayAll   ? "Spill av"
+                                  : bs[i] == Shuffle ? "Bland"
+                                  : bs[i] == Mix     ? "Miks"
+                                                     : m_album.album_artist + " \xE2\x80\xBA";
+        const float bw = std::min(520.f, gfx::text_width(label, st)) + 80, k = 1.f + 0.08f * lift;
         const gfx::Rect r{bx - bw * (k - 1) / 2, kTop + 230 - 76 * (k - 1) / 2, bw * k, 76 * k};
         if (lift > 0.01f)
             gfx::shadow(r, 16, 24, 0.55f * lift, 14 * lift);
         gfx::fill(r, focus ? 0xfff5f5f7u : 0x24ffffffu, 16 * k);
-        gfx::text(r.x + r.w / 2, r.y + r.h / 2 + 9, labels[i], st, focus ? 0xff0b0b0fu : kText, 1);
+        gfx::text(r.x + r.w / 2, r.y + r.h / 2 + 9, label, {gfx::Bold, 26, 520}, focus ? 0xff0b0b0fu : kText, 1);
         bx += bw + 20;
     }
 

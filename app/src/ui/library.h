@@ -23,8 +23,9 @@ namespace ui {
 class Library : public Screen {
 public:
     /* view_id empty: all libraries. pushed: opened over a tab (Circle goes back). */
+    /* filter: extra query (e.g. "&AlbumArtistIds=<id>": an artist's albums). */
     Library(jf::Client &client, std::string title, std::string types, std::string view_id = std::string(),
-            bool pushed = false);
+            bool pushed = false, std::string filter = std::string());
     /* What a library of this collection type lists, e.g. "movies" -> "Movie". */
     static std::string types_for(const std::string &collection_type);
 
@@ -46,7 +47,7 @@ private:
     void reload();
 
     jf::Client &m_client;
-    std::string m_title, m_types, m_view;
+    std::string m_title, m_types, m_view, m_filter;
     bool m_pushed = false;
     bool m_square = false;              /* albums: square covers */
     ItemMenu m_menu;

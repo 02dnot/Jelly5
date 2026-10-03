@@ -178,6 +178,8 @@ public:
     /* filter: extra query, e.g. "&AlbumArtistIds=<id>" (an artist's albums). */
     Page library(const std::string &parent_id, const std::string &types, const std::string &sort_by,
                  bool descending, int start, int limit, const std::string &filter = std::string());
+    /* A playlist's entries, in its order. */
+    std::vector<Item> playlist_items(const std::string &playlist_id);
     /* A song's lyrics (Jellyfin's .lrc / lyric plugins); empty when it has none. */
     std::vector<LyricLine> lyrics(const std::string &item_id);
     /* types e.g. "Movie,Series" or "Person" (Jellyfin's own matching and order). */

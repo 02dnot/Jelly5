@@ -2,10 +2,10 @@
  * Jelly5 — Jellyfin for PS5
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * An album (Apple Music on tvOS): the cover on the left over its colours, the
- * title, artist and year, Spill av and Bland, and the track list. Cross on a
- * track plays the album from there; Circle goes back to the buttons, then off
- * the page.
+ * An album or a playlist (Apple Music on tvOS): the cover on the left over its
+ * colours, the title, artist and year; Spill av, Bland, Miks (Jellyfin's
+ * Instant Mix) and the artist's page; the track list. Cross on a track plays
+ * on from there; Circle goes back to the buttons, then off the page.
  */
 #pragma once
 
@@ -43,8 +43,13 @@ private:
     std::vector<jf::Item> m_tracks;     /* this frame's copy */
     bool m_loaded = false;
 
+    enum Button { PlayAll, Shuffle, Mix, Artist };
+    std::vector<Button> buttons() const;
+    Action play_from(size_t i, bool shuffled) const;
+
+    bool m_playlist = false;
     bool m_in_tracks = false;
-    int m_button = 0;                   /* 0 Spill av, 1 Bland */
+    int m_button = 0;
     int m_track = 0;
     Anim m_scroll, m_enter, m_content;
     Lifts m_lifts;

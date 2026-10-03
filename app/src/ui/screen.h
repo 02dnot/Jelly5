@@ -41,6 +41,7 @@ struct Action {
         Play,       /* play item (a series plays its next episode) */
         PlayFromStart,
         PlayShuffled, /* music: item first, the rest of its album in random order */
+        PlayMix,      /* music: Jellyfin's Instant Mix from item */
         Open,       /* open item's detail page */
         ToNav,      /* focus moves up into the tab bar */
         Back,       /* leave this (pushed) screen */
@@ -50,6 +51,8 @@ struct Action {
     } kind = None;
     jf::Item item;
     UserDataChange change;
+    std::vector<jf::Item> queue;   /* Play: a queue to play from queue_start (a playlist) */
+    size_t queue_start = 0;
 };
 
 class Screen {

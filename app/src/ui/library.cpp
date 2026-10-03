@@ -33,9 +33,10 @@ constexpr int kNumSorts = 4;
 
 } // namespace
 
-Library::Library(jf::Client &client, std::string title, std::string types, std::string view_id, bool pushed)
+Library::Library(jf::Client &client, std::string title, std::string types, std::string view_id, bool pushed,
+                 std::string filter)
     : m_client(client), m_title(std::move(title)), m_types(std::move(types)), m_view(std::move(view_id)),
-      m_pushed(pushed), m_square(m_types == "MusicAlbum")
+      m_filter(std::move(filter)), m_pushed(pushed), m_square(m_types == "MusicAlbum" || m_types == "Playlist")
 {
     m_nav.snap(1.f);
 }
@@ -48,6 +49,7 @@ std::string Library::types_for(const std::string &collection_type)
     if (collection_type == "musicvideos") return "MusicVideo";
     if (collection_type == "boxsets") return "BoxSet";
     if (collection_type == "music") return "MusicAlbum";
+    if (collection_type == "playlists") return "Playlist";
     return "Movie,Series,Video";   /* mixed */
 }
 
@@ -92,9 +94,9 @@ void Library::load_more()
     }
     const Sort s = kSorts[m_sort];
     jf::Client *c = &m_client;
-    const std::string view = m_view, types = m_types;
-    std::thread([d, c, view, types, s, start, gen] {
-        jf::Page page = c->library(view, types, s.by, s.desc, start, kPage);
+    const std::string view = m_view, types = m_types, filter = m_filter;
+    std::thread([d, c, view, types, filter, s, start, gen] {
+        jf::Page page = c->library(view, types, s.by, s.desc, start, kPage, filter);
         std::lock_guard<std::mutex> g(d->lock);
         if (gen != d->generation)
             return;   /* the sort changed meanwhile */

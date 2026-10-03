@@ -719,6 +719,14 @@ bool Client::download_subtitle(const std::string &item_id, const std::string &su
     return r.ok();
 }
 
+std::vector<Item> Client::playlist_items(const std::string &playlist_id)
+{
+    std::string body;
+    if (!get_json("/Playlists/" + playlist_id + "/Items?userId=" + user_id_ + "&fields=" + kFields, &body))
+        return {};
+    return items_of(body);
+}
+
 std::vector<LyricLine> Client::lyrics(const std::string &item_id)
 {
     std::vector<LyricLine> out;

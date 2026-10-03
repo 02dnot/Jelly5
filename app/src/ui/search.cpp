@@ -103,9 +103,9 @@ void Search::start_search()
              * titles first, then people, albums and episodes. */
             std::vector<jf::Item> people;
             std::thread pt([&] { people = c->search(q, "Person", 12); });
-            std::vector<jf::Item> found = c->search(q, "Movie,Series,MusicAlbum,Episode", 36);
+            std::vector<jf::Item> found = c->search(q, "Movie,Series,MusicArtist,MusicAlbum,Episode", 36);
             pt.join();
-            for (const char *type : {"Movie|Series", "Person", "MusicAlbum", "Episode"}) {
+            for (const char *type : {"Movie|Series", "Person", "MusicArtist", "MusicAlbum", "Episode"}) {
                 const std::string t = type;
                 for (const jf::Item &it : t == "Person" ? people : found)
                     if (t.find(it.type) != std::string::npos)
