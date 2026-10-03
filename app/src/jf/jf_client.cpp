@@ -334,6 +334,12 @@ bool Client::validate()
     if (cJSON *j = cJSON_Parse(body.c_str())) {
         user_image_tag_ = str_of(j, "PrimaryImageTag");
         user_name_ = str_of(j, "Name");
+        latest_excludes_.clear();
+        const cJSON *ex;
+        cJSON_ArrayForEach(ex, cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(j, "Configuration"),
+                                                                "LatestItemsExcludes"))
+            if (cJSON_IsString(ex))
+                latest_excludes_.push_back(ex->valuestring);
         const cJSON *policy = cJSON_GetObjectItemCaseSensitive(j, "Policy");
         is_admin_ = bool_of(policy, "IsAdministrator");
         manages_subtitles_ = is_admin_ || bool_of(policy, "EnableSubtitleManagement");
@@ -717,6 +723,25 @@ bool Client::download_subtitle(const std::string &item_id, const std::string &su
     if (!r.ok())
         set_error("subtitle download -> " + std::to_string(r.status) + " " + r.error);
     return r.ok();
+}
+
+Page Client::album_artists(const std::string &parent_id, const std::string &sort_by, bool descending, int start,
+                           int limit)
+{
+    Page page;
+    std::string body;
+    if (!get_json("/Artists/AlbumArtists?userId=" + user_id_ +
+                      (parent_id.empty() ? std::string() : "&parentId=" + parent_id) + "&SortBy=" + sort_by +
+                      "&SortOrder=" + (descending ? "Descending" : "Ascending") + "&StartIndex=" +
+                      std::to_string(start) + "&Limit=" + std::to_string(limit) + "&fields=" + kFields +
+                      "&EnableTotalRecordCount=true", &body))
+        return page;
+    page.items = items_of(body);
+    if (cJSON *j = cJSON_Parse(body.c_str())) {
+        page.total = (int)num_of(j, "TotalRecordCount", (double)page.items.size());
+        cJSON_Delete(j);
+    }
+    return page;
 }
 
 std::vector<Item> Client::playlist_items(const std::string &playlist_id)

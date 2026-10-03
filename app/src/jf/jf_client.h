@@ -178,6 +178,12 @@ public:
     /* filter: extra query, e.g. "&AlbumArtistIds=<id>" (an artist's albums). */
     Page library(const std::string &parent_id, const std::string &types, const std::string &sort_by,
                  bool descending, int start, int limit, const std::string &filter = std::string());
+    /* A music library's album artists (Jellyfin's "Album Artists"), paged like library(). */
+    Page album_artists(const std::string &parent_id, const std::string &sort_by, bool descending, int start,
+                       int limit);
+    /* The user's display settings for libraries (from /Users/Me): ids of libraries
+     * left out of "Nylig lagt til". */
+    const std::vector<std::string> &latest_excludes() const { return latest_excludes_; }
     /* A playlist's entries, in its order. */
     std::vector<Item> playlist_items(const std::string &playlist_id);
     /* A song's lyrics (Jellyfin's .lrc / lyric plugins); empty when it has none. */
@@ -261,6 +267,7 @@ private:
     std::string server_, device_id_, device_name_;
     std::string token_, user_id_, user_name_, user_image_tag_;
     bool is_admin_ = false, manages_subtitles_ = false, subtitle_search_ = false;
+    std::vector<std::string> latest_excludes_;
     void set_error(std::string e) { std::lock_guard<std::mutex> g(error_lock_); error_ = std::move(e); }
     std::string error_;
     mutable std::mutex error_lock_;

@@ -109,6 +109,7 @@ struct State {
     std::string message;
     std::string server_name, server_version;
     ui::HomeModel model;
+    std::vector<jf::Item> views;        /* the user's libraries, in their order */
     GateRequest gate;                   /* a gate screen the main thread should open */
 };
 State s_state;
@@ -307,9 +308,22 @@ void load_home(jf::Client &c, unsigned session, bool keep_hero = false)
         return t == "movies" || t == "tvshows" || t == "homevideos" || t == "musicvideos" || t == "boxsets" ||
                t.empty();
     };
-    auto has_latest = [&](const jf::Item &v) { return video(v) && v.collection_type != "boxsets"; };
-    auto browsable = [&](const jf::Item &v) {
-        return video(v) || v.collection_type == "music" || v.collection_type == "playlists";
+    /* A "Nylig lagt til" row per video library, unless the user left it out (Jellyfin:
+     * Innstillinger -> Hjem). */
+    const std::vector<std::string> &excluded = c.latest_excludes();
+    auto has_latest = [&](const jf::Item &v) {
+        return video(v) && v.collection_type != "boxsets" &&
+               std::find(excluded.begin(), excluded.end(), v.id) == excluded.end();
+    };
+    bool has_music = false;
+    for (const jf::Item &v : views)
+        has_music = has_music || v.collection_type == "music";
+    /* Biblioteker: what no tab covers (home videos, mixed, collections; playlists when
+     * there is no Musikk tab). Books, photos and Live TV are not here. */
+    auto untabbed = [&](const jf::Item &v) {
+        const std::string &t = v.collection_type;
+        return t == "homevideos" || t == "musicvideos" || t == "boxsets" || t.empty() ||
+               (t == "playlists" && !has_music);
     };
     std::vector<std::pair<std::string, std::vector<jf::Item>>> latest;
     for (const jf::Item &v : views)
@@ -338,27 +352,23 @@ void load_home(jf::Client &c, unsigned session, bool keep_hero = false)
     for (auto &l : latest)
         if (!l.second.empty())
             m.rows.push_back({l.first, std::move(l.second), false, Row::Latest});
-    /* The libraries themselves, when there is more than Filmer and Serier cover. */
     std::vector<jf::Item> libs;
-    int movies = 0, shows = 0;
     for (const jf::Item &v : views)
-        if (browsable(v)) {
+        if (untabbed(v))
             libs.push_back(v);
-            movies += v.collection_type == "movies";
-            shows += v.collection_type == "tvshows";
-        }
     {   /* recommendations and genres from the last time they loaded (load_extras) */
         std::lock_guard<std::mutex> g(s_state.lock);
         for (const Row &r : s_state.model.rows)
             if (r.kind == Row::Recommended || r.kind == Row::Genre)
                 m.rows.push_back(r);
     }
-    if ((int)libs.size() > std::min(movies, 1) + std::min(shows, 1))
+    if (!libs.empty())
         m.rows.push_back({T("Biblioteker"), std::move(libs), false, Row::Libraries});
     std::lock_guard<std::mutex> g(s_state.lock);
     if (session != s_session)
         return;   /* the account changed while this loaded */
     s_state.model = std::move(m);
+    s_state.views = std::move(views);
     s_model_version++;
     s_state.phase = Phase::Home;
     s_state.message.clear();
@@ -521,7 +531,7 @@ void *boot(void *)
 
 /* ---- screens --------------------------------------------------------------------- */
 std::unique_ptr<ui::Home> s_home;
-std::unique_ptr<ui::Library> s_movies, s_shows;
+std::unique_ptr<ui::Library> s_movies, s_shows, s_music;
 std::unique_ptr<ui::Search> s_search;
 std::unique_ptr<ui::SettingsScreen> s_settings;
 std::unique_ptr<ui::Profiles> s_profiles;
@@ -542,12 +552,14 @@ void reset_screens()
     s_home.reset(new ui::Home(*s_client));
     s_movies.reset(new ui::Library(*s_client, T("Filmer"), "Movie"));
     s_shows.reset(new ui::Library(*s_client, T("Serier"), "Series"));
+    s_music.reset(new ui::Library(*s_client, T("Musikk"), "MusicAlbum"));
     s_search.reset(new ui::Search(*s_client));
     s_settings.reset(new ui::SettingsScreen(*s_client));
     s_tab = s_nav_tab = ui::Nav::Home;
     s_nav_focus = false;
     std::lock_guard<std::mutex> g(s_state.lock);
     s_state.model = ui::HomeModel();
+    s_state.views.clear();
     s_home_version = ~0u;
 }
 
@@ -611,6 +623,7 @@ ui::Screen *screen_for(int tab)
     switch (tab) {
     case ui::Nav::Movies: return s_movies.get();
     case ui::Nav::Shows: return s_shows.get();
+    case ui::Nav::Music: return s_music.get();
     case ui::Nav::Search: return s_search.get();
     case ui::Nav::Settings: return s_settings.get();
     default: return s_home.get();
@@ -632,10 +645,13 @@ void shell_input(uint32_t p, jf::Item *play, bool *chose, bool *from_start, bool
 {
     if (s_nav_focus && s_stack.empty()) {
         const int before = s_nav_tab;
-        if ((p & NUVIO_BTN_LEFT) && s_nav_tab > 0)
-            s_nav_tab--;
-        else if ((p & NUVIO_BTN_RIGHT) && s_nav_tab + 1 < ui::Nav::Count)
-            s_nav_tab++;
+        std::vector<int> order = s_nav.tabs();
+        order.push_back(ui::Nav::Settings);   /* the avatar, last */
+        const int at = (int)(std::find(order.begin(), order.end(), s_nav_tab) - order.begin());
+        if ((p & NUVIO_BTN_LEFT) && at > 0 && at < (int)order.size())
+            s_nav_tab = order[at - 1];
+        else if ((p & NUVIO_BTN_RIGHT) && at + 1 < (int)order.size())
+            s_nav_tab = order[at + 1];
         else if (p & (NUVIO_BTN_DOWN | NUVIO_BTN_CROSS))
             s_nav_focus = false;
         else if ((p & NUVIO_BTN_CIRCLE) && s_tab != ui::Nav::Home)
@@ -743,6 +759,43 @@ void shell_input(uint32_t p, jf::Item *play, bool *chose, bool *from_start, bool
     }
 }
 
+/* The tabs and their pills from the user's libraries (in the order they keep in
+ * Jellyfin): Filmer, Serier and Musikk show when there is such a library; a tab
+ * with several offers them as pills (Serier · Anime). Music: Album · Artister ·
+ * Spillelister. */
+void apply_views(const std::vector<jf::Item> &views)
+{
+    using Source = ui::Library::Source;
+    std::vector<Source> movies, shows, music;
+    std::string playlists;
+    std::vector<const jf::Item *> music_libs;
+    for (const jf::Item &v : views) {
+        if (v.collection_type == "movies") movies.push_back({v.name, v.id, "Movie", ""});
+        if (v.collection_type == "tvshows") shows.push_back({v.name, v.id, "Series", ""});
+        if (v.collection_type == "music") music_libs.push_back(&v);
+        if (v.collection_type == "playlists") playlists = v.id;
+    }
+    for (const jf::Item *v : music_libs)
+        music.push_back({music_libs.size() > 1 ? v->name : std::string(T("Album")), v->id, "MusicAlbum", ""});
+    if (!music_libs.empty()) {
+        music.push_back({T("Artister"), music_libs.size() == 1 ? music_libs[0]->id : "", "MusicArtist", ""});
+        if (!playlists.empty())
+            music.push_back({T("Spillelister"), playlists, "Playlist", ""});
+    }
+    std::vector<int> tabs{ui::Nav::Home};
+    if (!movies.empty()) { tabs.push_back(ui::Nav::Movies); s_movies->set_sources(movies); }
+    if (!shows.empty()) { tabs.push_back(ui::Nav::Shows); s_shows->set_sources(shows); }
+    if (!music.empty()) { tabs.push_back(ui::Nav::Music); s_music->set_sources(music); }
+    tabs.push_back(ui::Nav::Search);
+    s_nav.set_tabs(tabs);
+    /* A tab that went away (another account, a library removed): back home. */
+    auto shown = [&](int t) { return t == ui::Nav::Settings || std::find(tabs.begin(), tabs.end(), t) != tabs.end(); };
+    if (!shown(s_tab))
+        s_tab = ui::Nav::Home;
+    if (!shown(s_nav_tab))
+        s_nav_tab = s_tab;
+}
+
 /* ---- drawing (GPU, src/gfx) ------------------------------------------------------ */
 void draw_wordmark(float cx, float baseline, float size)
 {
@@ -794,6 +847,7 @@ bool draw_frame(double t, float dt)
         if (phase == Phase::Home && s_model_version != s_home_version) {
             s_home_version = s_model_version;
             s_home->set_model(s_state.model);
+            apply_views(s_state.views);
             const std::string &tag = s_client->user_image_tag();
             s_nav.set_user(s_client->user_name(),
                            tag.empty() ? "" : s_client->server() + "/Users/" + s_client->user_id() +
@@ -832,6 +886,7 @@ bool draw_frame(double t, float dt)
                 ui::Screen *below = s_stack.size() >= 2 ? s_stack[s_stack.size() - 2].get()
                                                         : (s_tab == ui::Nav::Movies   ? (ui::Screen *)s_movies.get()
                                                            : s_tab == ui::Nav::Shows  ? (ui::Screen *)s_shows.get()
+                                                           : s_tab == ui::Nav::Music  ? (ui::Screen *)s_music.get()
                                                            : s_tab == ui::Nav::Search ? (ui::Screen *)s_search.get()
                                                                                       : (ui::Screen *)s_home.get());
                 below->draw(t, dt);
@@ -1077,6 +1132,11 @@ int main()
             lang_gen = i18n::generation();
             s_movies->set_title(T("Filmer"));
             s_shows->set_title(T("Serier"));
+            s_music->set_title(T("Musikk"));
+            {
+                std::lock_guard<std::mutex> g(s_state.lock);
+                apply_views(s_state.views);   /* the pills' labels */
+            }
             if (phase == Phase::Home) {
                 jf::Client *c = s_client;
                 const unsigned session = s_session;

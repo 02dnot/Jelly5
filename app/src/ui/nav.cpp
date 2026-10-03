@@ -16,7 +16,7 @@ namespace ui {
 
 const char *tab_label(int tab)
 {
-    const char *const kLabels[] = {T("Hjem"), T("Filmer"), T("Serier"), T("S\xC3\xB8k"), T("Innstillinger")};
+    const char *const kLabels[] = {T("Hjem"), T("Filmer"), T("Serier"), T("Musikk"), T("S\xC3\xB8k"), T("Innstillinger")};
     return tab >= 0 && tab < Nav::Count ? kLabels[tab] : "";
 }
 
@@ -32,25 +32,26 @@ void Nav::draw(float a, int active, int focus, float dt, bool *animating)
 
     /* The tab pill, centred. */
     const gfx::TextStyle st{gfx::SemiBold, 25};
-    float widths[kPillTabs], total = 14;
-    for (int i = 0; i < kPillTabs; i++) {
-        widths[i] = gfx::text_width(tab_label(i), st) + 68;
+    const int n = (int)m_tabs.size();
+    float widths[Count], total = 14;
+    for (int i = 0; i < n; i++) {
+        widths[i] = gfx::text_width(tab_label(m_tabs[i]), st) + 68;
         total += widths[i] + 6;
     }
     const float px = (gfx::W - total) / 2;
     gfx::fill({px, cy - 37, total, 74}, alpha(0x8c1e1e24u, a), 37);
     float x = px + 7;
-    for (int i = 0; i < kPillTabs; i++) {
+    for (int i = 0; i < n; i++) {
         const gfx::Rect r{x, cy - 30, widths[i], 60};
-        if (i == focus) {
+        if (m_tabs[i] == focus) {
             m_focus_x.to(r.x);
             m_focus_w.to(r.w);
-        } else if (i == active && focus < 0) {
+        } else if (m_tabs[i] == active && focus < 0) {
             gfx::fill(r, alpha(0x1fffffffu, a), 30);
         }
         x += widths[i] + 6;
     }
-    if (focus >= 0 && focus < kPillTabs) {
+    if (focus >= 0 && focus != Settings) {
         if (m_focus_x.value == 0)
             m_focus_x.snap(m_focus_x.target), m_focus_w.snap(m_focus_w.target);
         const bool moving_x = m_focus_x.step(dt, 16.f);
@@ -60,10 +61,10 @@ void Nav::draw(float a, int active, int focus, float dt, bool *animating)
         gfx::fill({m_focus_x.value - 4, cy - 33, m_focus_w.value + 8, 66}, alpha(0xfff5f5f7u, a), 33);
     }
     x = px + 7;
-    for (int i = 0; i < kPillTabs; i++) {
-        const bool f = i == focus;
-        const uint32_t c = f ? 0xff0b0b0fu : (i == active ? kText : kText2);
-        gfx::text(x + widths[i] / 2, cy + 9, tab_label(i), st, alpha(c, a), 1);
+    for (int i = 0; i < n; i++) {
+        const bool f = m_tabs[i] == focus;
+        const uint32_t c = f ? 0xff0b0b0fu : (m_tabs[i] == active ? kText : kText2);
+        gfx::text(x + widths[i] / 2, cy + 9, tab_label(m_tabs[i]), st, alpha(c, a), 1);
         x += widths[i] + 6;
     }
 

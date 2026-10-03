@@ -27,7 +27,8 @@ const std::unordered_map<std::string, const char *> &english_table()
 {
     static const std::unordered_map<std::string, const char *> t = {
         /* tabs, rows, home */
-        {"Hjem", "Home"}, {"Filmer", "Movies"}, {"Serier", "TV Shows"}, {"Søk", "Search"},
+        {"Hjem", "Home"}, {"Musikk", "Music"}, {"Album", "Albums"}, {"Artister", "Artists"},
+        {"Spillelister", "Playlists"}, {"Filmer", "Movies"}, {"Serier", "TV Shows"}, {"Søk", "Search"},
         {"Innstillinger", "Settings"}, {"Henter biblioteket …", "Loading your library …"},
         {"Nylig lagt til i ", "Recently added in "}, {"Fortsett å se", "Continue Watching"},
         {"Neste episode", "Next Episode"}, {"Min liste", "My List"}, {"Biblioteker", "Libraries"},

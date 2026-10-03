@@ -10,14 +10,19 @@
 #include "ui/anim.h"
 
 #include <string>
+#include <vector>
 
 namespace ui {
 
 class Nav {
 public:
-    /* Settings is the avatar on the right, not a pill tab. */
-    enum Tab { Home = 0, Movies, Shows, Search, Settings, Count };
-    static constexpr int kPillTabs = 4;
+    /* Settings is the avatar on the right, not a pill tab. Movies, Shows and Music
+     * show only when the user has such a library. */
+    enum Tab { Home = 0, Movies, Shows, Music, Search, Settings, Count };
+
+    /* The pill tabs, in order (Home ... Search). */
+    void set_tabs(std::vector<int> tabs) { m_tabs = std::move(tabs); }
+    const std::vector<int> &tabs() const { return m_tabs; }
 
     /* avatar: the user's Primary image URL, empty when they have none. */
     void set_user(const std::string &name, const std::string &avatar)
@@ -30,6 +35,7 @@ public:
 
 private:
     std::string m_user, m_avatar;
+    std::vector<int> m_tabs{Home, Movies, Shows, Search};
     Anim m_focus_x, m_focus_w;
 };
 

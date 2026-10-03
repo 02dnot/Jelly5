@@ -2,11 +2,15 @@
  * Jelly5 — Jellyfin for PS5
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * Movies / Series (concept: .library): a poster grid, six across, with sort
- * pills above and the focused title's colours as a blurred background. Pages
- * of 60 load in the background as the viewer nears the end. The tabs show
- * every library of their kind; opened from Biblioteker it shows one library
- * (pushed over the tab, Circle leaves it).
+ * A library tab (concept: .library): a poster grid, six across, with pills
+ * above and the focused title's colours as a blurred background. Pages of 60
+ * load in the background as the viewer nears the end.
+ *
+ * Its sources are what the pills on the left choose between: the user's
+ * libraries of the tab's kind, in the order they set in Jellyfin (Serier ·
+ * Anime), or for music Album · Artister · Spillelister. One source: no pills,
+ * the tab's title. Sort pills on the right. Opened from Biblioteker it shows
+ * one library (pushed over the tab, Circle leaves it).
  */
 #pragma once
 
@@ -30,6 +34,14 @@ public:
     static std::string types_for(const std::string &collection_type);
     void set_title(std::string title) { m_title = std::move(title); }   /* the language changed */
 
+    struct Source {
+        std::string label;              /* the pill */
+        std::string view, types, filter; /* parent library, item types, extra query */
+    };
+    /* The tab's sources (reloads when they changed); the chosen one is kept by view. */
+    void set_sources(std::vector<Source> sources);
+    bool has_sources() const { return !m_sources.empty(); }
+
     void activate() override;
     Action input(uint32_t pressed) override;
     void draw(double now, float dt) override;
@@ -46,11 +58,15 @@ private:
     };
     void load_more();
     void reload();
+    const Source &source() const { return m_sources[std::min(m_source, (int)m_sources.size() - 1)]; }
+    bool square() const;
+    int pill_count() const;
 
     jf::Client &m_client;
-    std::string m_title, m_types, m_view, m_filter;
+    std::string m_title;
+    std::vector<Source> m_sources;
+    int m_source = 0;
     bool m_pushed = false;
-    bool m_square = false;              /* albums: square covers */
     ItemMenu m_menu;
     std::shared_ptr<Data> m_data = std::make_shared<Data>();
 
