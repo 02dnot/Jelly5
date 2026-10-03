@@ -595,7 +595,7 @@ bool PlayerUi::wants_frame(const NuvioStatus &st)
     const bool second = std::floor(st.now) != std::floor(last_second);
     last_second = st.now;
     /* art::animating(): an image still loading or fading in (the episode stills). */
-    return moving || m_seeking || (second && (m_controls || m_card_since >= 0)) || a_loading.value > 0.f ||
+    return moving || m_seeking || m_music || (second && (m_controls || m_card_since >= 0)) || a_loading.value > 0.f ||
            st.buffering || ((m_overlay != Overlay::None || a_next.value > 0.f || m_music) && art::animating());
 }
 
@@ -1216,8 +1216,16 @@ void PlayerUi::draw_music(const NuvioStatus &st)
 {
     const NuvioRequest &r = *m_req;
     gfx::fill({0, 0, W, H}, kBg);
-    if (const gfx::Texture *bh = art::blurhash(r.cover_blurhash))
-        gfx::image({0, 0, W, H}, bh, 0.55f, 0, true);
+    if (const gfx::Texture *bh = art::blurhash(r.cover_blurhash)) {
+        /* The cover's colours, flowing: two windows onto its BlurHash drift slowly
+         * past each other, so the light moves without ever repeating quickly. */
+        const float t = (float)st.now;
+        gfx::image({0, 0, W, H}, bh, 0.45f, 0, true);
+        const float ax = 0.2f + 0.15f * std::sin(t * 0.07f), ay = 0.2f + 0.15f * std::cos(t * 0.05f);
+        gfx::image_uv({0, 0, W, H}, bh, ax, ay, ax + 0.6f, ay + 0.6f, 0.35f, 0);
+        const float bx = 0.2f + 0.15f * std::cos(t * 0.045f + 1.f), by = 0.2f + 0.15f * std::sin(t * 0.06f + 2.f);
+        gfx::image_uv({0, 0, W, H}, bh, bx + 0.6f, by, bx, by + 0.6f, 0.25f, 0);   /* mirrored */
+    }
     gfx::fill_hgradient({0, 0, W, H}, 0x8c07070au, 0xd907070au);
 
     const float cs = 600, cx = 200, cy = (H - cs) / 2 - 10;

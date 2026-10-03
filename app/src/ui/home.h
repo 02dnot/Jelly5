@@ -78,6 +78,7 @@ private:
     struct BackdropLayer {
         std::string url, hash;
         Anim mix;
+        double since = 0;   /* when it arrived: the slow drift starts there */
     };
     std::vector<BackdropLayer> m_bd;
 

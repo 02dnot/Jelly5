@@ -224,6 +224,40 @@ std::string Home::backdrop_url(const jf::Item &it) const
     return m_client.image_url(it.backdrop_owner, "Backdrop", it.backdrop_tag, 1920);
 }
 
+/* Apple TV's living backdrop: the picture, covering the screen, slowly zooms in
+ * (6 % over 30 s) while drifting toward one corner (which one follows the
+ * picture, so it is the same each time that title comes back). */
+static void draw_drift(const gfx::Rect &full, const gfx::Texture *t, float a, double age, const std::string &key)
+{
+    const float tw = (float)gfx::texture_width(t), th = (float)gfx::texture_height(t);
+    if (tw <= 0 || th <= 0)
+        return;
+    /* The cover crop, as gfx::image(cover) makes it. */
+    float u0 = 0, v0 = 0, u1 = 1, v1 = 1;
+    const float ia = tw / th, ra = full.w / full.h;
+    if (ia > ra) {
+        const float k = ra / ia;
+        u0 = (1.f - k) / 2;
+        u1 = 1.f - u0;
+    } else {
+        const float k = ia / ra;
+        v0 = (1.f - k) / 2;
+        v1 = 1.f - v0;
+    }
+    /* Ease in and out over 30 s, then hold. */
+    float p = (float)std::min(1.0, age / 30.0);
+    p = p * p * (3.f - 2.f * p);
+    const float zoom = 0.06f * p;
+    unsigned h = 0;
+    for (char ch : key)
+        h = h * 31u + (unsigned char)ch;
+    const float dx = (h & 1) ? 1.f : -1.f, dy = (h & 2) ? 0.6f : -0.6f;
+    const float w = u1 - u0, hh = v1 - v0;
+    const float cu = u0 + w / 2 + dx * w * zoom / 2, cv = v0 + hh / 2 + dy * hh * zoom / 2;
+    const float hw = w * (1.f - zoom) / 2, hv = hh * (1.f - zoom) / 2;
+    gfx::image_uv(full, t, cu - hw, cv - hv, cu + hw, cv + hv, a, 0);
+}
+
 void Home::draw_backdrop(float dt)
 {
     /* Crossfade (900 ms) to the focused title's backdrop once it has loaded. Rows wait
@@ -237,7 +271,7 @@ void Home::draw_backdrop(float dt)
         if (!m_bd.empty() && m_bd.size() > 1 && m_bd.back().mix.value < 0.02f)
             m_bd.pop_back();
         if (m_bd.empty() || m_bd.back().url != want) {
-            m_bd.push_back({want, f->backdrop_blurhash, Anim()});
+            m_bd.push_back({want, f->backdrop_blurhash, Anim(), m_now});
             m_bd.back().mix.snap(m_bd.size() == 1 ? 1.f : 0.f);
         }
         if (m_bd.size() > 4)   /* rare: a long chain of interrupted fades */
@@ -256,12 +290,14 @@ void Home::draw_backdrop(float dt)
 
     const gfx::Rect full{0, 0, gfx::W, gfx::H};
     gfx::fill(full, kBg);
+    if (!m_bd.empty() && m_now - m_bd.back().since < 30.0)
+        m_animating = true;   /* the drift moves */
     for (size_t i = 0; i < m_bd.size(); i++) {
         const float a = i == 0 ? 1.f : smoothstep(m_bd[i].mix.value);
         if (a <= 0.f)
             continue;
         if (const gfx::Texture *t = art::get(m_bd[i].url, 1920, 1080))
-            gfx::image(full, t, a, 0, true);
+            draw_drift(full, t, a, m_now - m_bd[i].since, m_bd[i].url);
         else if (i == 0)
             if (const gfx::Texture *ph = art::blurhash(m_bd[i].hash))
                 gfx::image(full, ph, 1.f, 0, true);
