@@ -145,12 +145,27 @@ uint32_t light_of(const std::string &hash)
             return 0;
         v = v * 83 + (uint32_t)(p - digits);
     }
-    float r = (float)((v >> 16) & 255), g = (float)((v >> 8) & 255), b = (float)(v & 255);
-    const float m = std::max(r, std::max(g, b));
-    if (m < 24.f)
-        return 0x00a4dc;   /* near black: the brand's blue */
-    const float k = 230.f / m;
-    return ((uint32_t)(r * k) << 16) | ((uint32_t)(g * k) << 8) | (uint32_t)(b * k);
+    /* The picture's average is usually muted, and the LED shows a muted colour
+     * as white: keep its hue, at full saturation and brightness. Grey has no
+     * hue to keep, so that gets the brand's blue. */
+    const float r = (float)((v >> 16) & 255) / 255.f, g = (float)((v >> 8) & 255) / 255.f, b = (float)(v & 255) / 255.f;
+    const float mx = std::max(r, std::max(g, b)), mn = std::min(r, std::min(g, b)), c = mx - mn;
+    if (mx < 0.06f || c < 0.04f || c / mx < 0.12f)
+        return 0x2f6bff;
+    float h = mx == r ? std::fmod((g - b) / c, 6.f) : mx == g ? (b - r) / c + 2.f : (r - g) / c + 4.f;
+    if (h < 0)
+        h += 6.f;
+    const float x = 1.f - std::fabs(std::fmod(h, 2.f) - 1.f);   /* HSV with S = V = 1 */
+    float o[3];
+    switch ((int)h) {
+    case 0: o[0] = 1, o[1] = x, o[2] = 0; break;
+    case 1: o[0] = x, o[1] = 1, o[2] = 0; break;
+    case 2: o[0] = 0, o[1] = 1, o[2] = x; break;
+    case 3: o[0] = 0, o[1] = x, o[2] = 1; break;
+    case 4: o[0] = x, o[1] = 0, o[2] = 1; break;
+    default: o[0] = 1, o[1] = 0, o[2] = x; break;
+    }
+    return ((uint32_t)(o[0] * 255) << 16) | ((uint32_t)(o[1] * 255) << 8) | (uint32_t)(o[2] * 255);
 }
 
 /* The request the Nuvio Player plays (see nuvio_request_parse). */

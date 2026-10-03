@@ -87,7 +87,10 @@ void nuvio_input_set_lightbar(uint32_t rgb)
     if (s_pad < 0)
         return;
     ScePadColor c = {(uint8_t)(rgb >> 16), (uint8_t)(rgb >> 8), (uint8_t)rgb, 255};
-    scePadSetLightBar(s_pad, &c);
+    const int rc = scePadSetLightBar(s_pad, &c);
+    static int logged;
+    if (!logged++)
+        evo_bt("input: light bar %06x rc=%#x", (unsigned)rgb, (unsigned)rc);
 }
 
 static double s_rumble_until;
