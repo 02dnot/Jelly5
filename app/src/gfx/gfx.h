@@ -1,0 +1,89 @@
+/*
+ * Jelly5 — Jellyfin for PS5
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ *
+ * The UI renderer: immediate-mode 2D on the GPU (the engine's sceAgc runtime
+ * and its ui_screen_2d pipeline). Everything is laid out in a 1920x1080
+ * logical space and drawn at the panel's resolution (4K on most TVs), so
+ * geometry and text are sharp. The pipeline's rounded-box clip gives every
+ * quad anti-aliased rounded corners for free.
+ *
+ * Colours are 0xAARRGGBB with straight alpha (as in ui_canvas.h); the
+ * renderer premultiplies.
+ */
+#pragma once
+
+#include <cstdint>
+#include <string>
+
+struct ui_image;
+
+namespace gfx {
+
+constexpr float W = 1920.f, H = 1080.f;   /* logical canvas */
+
+struct Rect {
+    float x = 0, y = 0, w = 0, h = 0;
+};
+
+/* A GPU texture (RGBA8, premultiplied). Owned by the renderer. */
+struct Texture;
+
+/* Brings the renderer up once the display runs. */
+bool init();
+
+/* Panel pixels per logical pixel (2 on a 4K panel). */
+float scale();
+
+void begin_frame();          /* frame_begin + clear */
+/* Drawing into a frame someone else began (the player's): resets the
+ * renderer's state without starting a frame. */
+void begin_overlay();
+void end_frame();            /* present */
+
+/* Textures. Release is deferred until the GPU is done with the frames in flight. */
+Texture *texture_from_pixels(const uint32_t *rgba, int w, int h, int stride_px);
+Texture *texture_from_image(const ui_image *img);
+void texture_release(Texture *t);
+int texture_width(const Texture *t);
+int texture_height(const Texture *t);
+
+/* Multiply the opacity of everything that follows (nests). */
+void push_opacity(float a);
+void pop_opacity();
+
+/* Clip everything that follows to r (axis-aligned scissor), or reset. */
+void push_scissor(const Rect &r);
+void pop_scissor();
+
+/* A rectangle with rounded corners, a solid colour. */
+void fill(const Rect &r, uint32_t color, float radius = 0);
+/* A vertical gradient (top to bottom colours). */
+void fill_vgradient(const Rect &r, uint32_t top, uint32_t bottom, float radius = 0);
+/* A horizontal gradient (left to right colours). */
+void fill_hgradient(const Rect &r, uint32_t left, uint32_t right, float radius = 0);
+/* A texture into r: stretched, or cropped to fill it (cover). */
+void image(const Rect &r, const Texture *t, float opacity = 1, float radius = 0, bool cover = true);
+/* A soft drop shadow for a rounded box at r. */
+void shadow(const Rect &r, float radius, float blur, float opacity, float dy = 0);
+
+/* Text. Laid out and rasterised once per (text, style), then cached. */
+enum Weight { Regular, Medium, SemiBold, Bold };
+
+struct TextStyle {
+    Weight weight = Medium;
+    float size = 26;                   /* logical px */
+    float max_w = 0;                   /* single line: ellipsis past this */
+    int max_lines = 1;                 /* > 1: wrap within max_w */
+    float line_h = 0;                  /* wrapped line advance (0 = 1.4 x size) */
+};
+
+/* Draws text with its first baseline at (x, baseline). Returns the width. */
+float text(float x, float baseline, const std::string &s, const TextStyle &st, uint32_t color,
+           int align = 0 /* 0 left, 1 centre, 2 right */);
+float text_width(const std::string &s, const TextStyle &st);
+
+/* Drops cached textures that were not drawn for a while (call once per frame). */
+void collect();
+
+} // namespace gfx

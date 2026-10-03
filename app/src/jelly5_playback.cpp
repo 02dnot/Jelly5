@@ -1,0 +1,359 @@
+/*
+ * Jelly5 — Jellyfin for PS5
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+#include "jelly5_playback.h"
+
+#include "nuvio_player.h"
+#include "app/settings.h"
+
+#include "evo_boot_trace.h"
+
+#include <atomic>
+#include <cctype>
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <mutex>
+#include <pthread.h>
+#include <string>
+#include <unistd.h>
+
+extern "C" {
+#include "cJSON.h"
+}
+
+namespace {
+
+/* The playback in progress, shared with the player's callbacks. */
+struct Session {
+    jf::Client *client = nullptr;
+    jf::Playback pb;
+    std::mutex lock;
+    double position = 0, duration = 0;
+    double reported = -1;              /* position of the last progress report */
+    std::string result;                /* the player's final result JSON */
+    std::atomic<bool> active{false};
+};
+Session s_session;
+
+int64_t ticks(double seconds) { return (int64_t)std::llround(seconds * jf::kTicksPerSecond); }
+
+void *reporter_thread(void *)
+{
+    while (s_session.active) {
+        for (int i = 0; i < 100 && s_session.active; i++)
+            usleep(100 * 1000);   /* every 10 s, as Jellyfin's own clients do */
+        if (!s_session.active)
+            break;
+        double pos;
+        bool paused;
+        {
+            std::lock_guard<std::mutex> g(s_session.lock);
+            pos = s_session.position;
+            paused = std::fabs(pos - s_session.reported) < 0.5;
+            s_session.reported = pos;
+        }
+        s_session.client->report_progress(s_session.pb, ticks(pos), paused);
+    }
+    return nullptr;
+}
+
+std::string lower(std::string s)
+{
+    for (char &c : s)
+        c = (char)std::tolower((unsigned char)c);
+    return s;
+}
+
+std::string runtime_label(int64_t runtime_ticks)
+{
+    const int min = (int)(runtime_ticks / jf::kTicksPerSecond / 60);
+    char b[32];
+    if (min >= 60)
+        std::snprintf(b, sizeof b, "%d t %d min", min / 60, min % 60);
+    else
+        std::snprintf(b, sizeof b, "%d min", min);
+    return min > 0 ? b : "";
+}
+
+std::string method_label(const jf::Playback &pb)
+{
+    std::string video;
+    for (const auto &s : pb.streams)
+        if (s.type == "Video") {
+            std::string codec = s.codec;
+            for (char &c : codec)
+                c = (char)std::toupper((unsigned char)c);
+            char b[64];
+            std::snprintf(b, sizeof b, "%s %dp%s", codec.c_str(), s.height,
+                          s.video_range == "HDR" ? " HDR" : "");
+            video = b;
+            break;
+        }
+    const char *how = pb.play_method == "DirectPlay" ? "Direktespilling"
+                      : pb.play_method == "DirectStream" ? "Direktestrøm" : "Transkodet av serveren";
+    return video.empty() ? how : std::string(how) + " \xC2\xB7 " + video;
+}
+
+cJSON *episode_json(jf::Client &c, const jf::Item &e)
+{
+    cJSON *o = cJSON_CreateObject();
+    cJSON_AddNumberToObject(o, "season", e.parent_index);
+    cJSON_AddNumberToObject(o, "episode", e.index);
+    cJSON_AddStringToObject(o, "title", e.name.c_str());
+    cJSON_AddStringToObject(o, "thumbnail", c.image_url(e.id, "Primary", e.primary_tag, 480).c_str());
+    cJSON_AddStringToObject(o, "videoId", e.id.c_str());
+    cJSON_AddStringToObject(o, "overview", e.overview.c_str());
+    cJSON_AddItemToObject(o, "watched", cJSON_CreateBool(e.played));
+    return o;
+}
+
+/* The request the Nuvio Player plays (see nuvio_request_parse). */
+std::string request_json(jf::Client &c, const jf::Item &it, const jf::Playback &pb,
+                         const std::vector<jf::Item> &episodes, const std::vector<jf::Segment> &segs)
+{
+    const bool episode = it.type == "Episode";
+    cJSON *o = cJSON_CreateObject();
+    cJSON_AddStringToObject(o, "id", it.id.c_str());
+    cJSON_AddStringToObject(o, "url", pb.url.c_str());
+    cJSON_AddStringToObject(o, "title", (episode ? it.series_name : it.name).c_str());
+    if (episode) {
+        cJSON_AddStringToObject(o, "episodeTitle", it.name.c_str());
+        cJSON_AddNumberToObject(o, "season", it.parent_index);
+        cJSON_AddNumberToObject(o, "episode", it.index);
+    }
+    if (it.year)
+        cJSON_AddStringToObject(o, "year", std::to_string(it.year).c_str());
+    cJSON_AddStringToObject(o, "description", it.overview.c_str());
+    std::string genres;
+    for (const auto &g : it.genres)
+        genres += (genres.empty() ? "" : ", ") + g;
+    cJSON_AddStringToObject(o, "genres", genres.c_str());
+    cJSON_AddStringToObject(o, "runtime", runtime_label(it.runtime_ticks).c_str());
+    if (it.community_rating > 0) {
+        char r[16];
+        std::snprintf(r, sizeof r, "%.1f", it.community_rating);
+        cJSON_AddStringToObject(o, "rating", r);
+    }
+    cJSON_AddStringToObject(o, "itemType", episode ? "series" : "movie");
+    cJSON_AddStringToObject(o, "logo", c.image_url(it.logo_owner, "Logo", it.logo_tag, 800).c_str());
+    cJSON_AddStringToObject(o, "poster", c.image_url(episode ? it.series_id : it.id, "Primary",
+                                                      episode ? std::string() : it.primary_tag, 400).c_str());
+    cJSON_AddStringToObject(o, "background",
+                            c.image_url(it.backdrop_owner, "Backdrop", it.backdrop_tag, 1920).c_str());
+    if (episode)
+        cJSON_AddStringToObject(o, "thumbnail", c.image_url(it.id, "Primary", it.primary_tag, 640).c_str());
+    cJSON_AddNumberToObject(o, "startPosition", (double)it.position_ticks / jf::kTicksPerSecond);
+
+    cJSON *stream = cJSON_CreateObject();
+    cJSON_AddStringToObject(stream, "title", method_label(pb).c_str());
+    cJSON_AddStringToObject(stream, "addon", "Jellyfin");
+    cJSON_AddItemToObject(o, "stream", stream);
+
+    cJSON *sources = cJSON_CreateArray();
+    cJSON *src = cJSON_CreateObject();
+    cJSON_AddStringToObject(src, "id", pb.media_source_id.c_str());
+    cJSON_AddStringToObject(src, "title", method_label(pb).c_str());
+    cJSON_AddStringToObject(src, "addon", "Jellyfin");
+    cJSON_AddStringToObject(src, "url", pb.url.c_str());
+    cJSON_AddItemToArray(sources, src);
+    cJSON_AddItemToObject(o, "sources", sources);
+
+    /* Embedded tracks come out of the container; external text subtitles are fetched. */
+    cJSON *subs = cJSON_CreateArray();
+    for (const auto &s : pb.streams) {
+        if (s.type != "Subtitle" || !s.is_external || s.delivery_url.empty())
+            continue;
+        cJSON *e = cJSON_CreateObject();
+        cJSON_AddStringToObject(e, "url", s.delivery_url.c_str());
+        cJSON_AddStringToObject(e, "lang", s.language.c_str());
+        cJSON_AddStringToObject(e, "label", s.display_title.c_str());
+        cJSON_AddItemToArray(subs, e);
+    }
+    cJSON_AddItemToObject(o, "subtitles", subs);
+
+    if (episode && !episodes.empty()) {
+        cJSON *eps = cJSON_CreateArray();
+        size_t here = episodes.size();
+        for (size_t i = 0; i < episodes.size(); i++) {
+            if (episodes[i].id == it.id)
+                here = i;
+            if (episodes[i].parent_index == it.parent_index)
+                cJSON_AddItemToArray(eps, episode_json(c, episodes[i]));
+        }
+        cJSON_AddItemToObject(o, "episodes", eps);
+        if (here + 1 < episodes.size())
+            cJSON_AddItemToObject(o, "nextEpisode", episode_json(c, episodes[here + 1]));
+    }
+
+    cJSON *skips = cJSON_CreateArray();
+    for (const auto &sg : segs) {
+        cJSON *k = cJSON_CreateObject();
+        const std::string t = lower(sg.type);
+        cJSON_AddStringToObject(k, "type", t == "outro" ? "outro" : t.c_str());
+        cJSON_AddNumberToObject(k, "start", sg.start);
+        cJSON_AddNumberToObject(k, "end", sg.end);
+        cJSON_AddItemToArray(skips, k);
+    }
+    cJSON_AddItemToObject(o, "skipIntervals", skips);
+
+    /* The account's preferences (settings), as the player's track rules. */
+    const settings::All set = settings::get();
+    cJSON *prefs = cJSON_CreateObject();
+    cJSON *al = cJSON_CreateArray(), *sl = cJSON_CreateArray();
+    auto langs = [](cJSON *arr, const std::string &first) {
+        std::vector<std::string> l;
+        if (!first.empty())
+            l.push_back(first);
+        if (first == "nor" || first == "nob" || first == "nno")
+            l.insert(l.end(), {"nob", "nor", "no", "nb"});
+        for (const auto &x : l)
+            cJSON_AddItemToArray(arr, cJSON_CreateString(x.c_str()));
+    };
+    langs(al, set.server.audio_language);
+    langs(sl, set.server.subtitle_language);
+    const std::string mode = set.server.subtitle_mode;
+    cJSON_AddItemToObject(prefs, "audioLanguages", al);
+    cJSON_AddItemToObject(prefs, "subtitleLanguages", sl);
+    /* Always: on in the preferred language. OnlyForced/Default/Smart: forced
+     * subtitles only (Default/Smart also turn them on when the audio is not in
+     * the viewer's language - the player has no such rule yet). None: off. */
+    cJSON_AddItemToObject(prefs, "subtitlesEnabled", cJSON_CreateBool(mode == "Always"));
+    cJSON_AddItemToObject(prefs, "forcedOnlyWhenOff", cJSON_CreateBool(mode != "None"));
+    cJSON_AddItemToObject(prefs, "autoplayNext", cJSON_CreateBool(set.server.autoplay_next));
+    cJSON_AddItemToObject(prefs, "skipIntro", cJSON_CreateBool(1));
+    cJSON_AddItemToObject(prefs, "autoSkipIntro", cJSON_CreateBool(set.local.auto_skip_intro));
+    cJSON_AddItemToObject(prefs, "clock24h", cJSON_CreateBool(1));
+    cJSON_AddItemToObject(o, "prefs", prefs);
+
+    /* The player's interface text, in Norwegian. */
+    static const char *const kStrings[][2] = {
+        {"advanced", "Avansert"}, {"advanced_style", "Stil og timing"},
+        {"advanced_hint", "Forsinkelse, størrelse, posisjon \xE2\x80\xA6"},
+        {"audio", "Lyd"}, {"background", "Bakgrunn"}, {"bold", "Fet skrift"}, {"built_in", "Innebygd"},
+        {"default", "Standard"}, {"delay", "Forsinkelse"}, {"ends_at", "Slutter kl. %1$s"},
+        {"episode", "Episode"}, {"forced", "Tvungen"}, {"go_back", "Tilbake"}, {"language", "Språk"},
+        {"loading", "Laster \xE2\x80\xA6"}, {"next_episode", "Neste episode"}, {"next_in", "Spilles om %1$s"},
+        {"no_audio_tracks", "Ingen andre lydspor"}, {"no_subtitles", "Ingen undertekster for denne strømmen"},
+        {"off", "Av"}, {"on", "På"}, {"outline", "Kontur"}, {"play", "Spill av"},
+        {"playback_error", "Avspillingsfeil"}, {"playing", "Spiller"}, {"position", "Posisjon"},
+        {"press_to_play_next", "Trykk \xE2\x9C\x95 for å spille"}, {"season", "Sesong"}, {"size", "Størrelse"},
+        {"skip_intro", "Hopp over intro"}, {"skip_preview", "Hopp over forhåndsvisning"},
+        {"skip_recap", "Hopp over oppsummering"}, {"sources", "Kilder"}, {"specials", "Spesialer"},
+        {"subtitles_off", "Undertekster er av"}, {"subtitles", "Undertekster"}, {"track", "Spor"},
+        {"unavailable", "Utilgjengelig"}, {"unknown_language", "Ukjent"}, {"upcoming", "Kommer"},
+        {"youre_watching", "Du ser på"}, {"addon", "Kilde"},
+    };
+    cJSON *strings = cJSON_CreateObject();
+    for (const auto &kv : kStrings)
+        cJSON_AddStringToObject(strings, kv[0], kv[1]);
+    cJSON_AddItemToObject(o, "strings", strings);
+
+    char *s = cJSON_PrintUnformatted(o);
+    std::string out = s ? s : "{}";
+    std::free(s);
+    cJSON_Delete(o);
+    return out;
+}
+
+/* What the viewer asked for at the end: another episode by number, or nothing. */
+bool next_from_result(const std::string &result, int *season, int *episode)
+{
+    cJSON *j = cJSON_Parse(result.c_str());
+    const cJSON *a = cJSON_GetObjectItemCaseSensitive(j, "action");
+    const cJSON *type = cJSON_GetObjectItemCaseSensitive(a, "type");
+    bool want = false;
+    if (cJSON_IsString(type) && (std::string(type->valuestring) == "next" ||
+                                 std::string(type->valuestring) == "episode")) {
+        *season = (int)cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(a, "season"));
+        *episode = (int)cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(a, "episode"));
+        want = true;
+    }
+    cJSON_Delete(j);
+    return want;
+}
+
+double position_from_result(const std::string &result, double fallback)
+{
+    cJSON *j = cJSON_Parse(result.c_str());
+    const cJSON *p = cJSON_GetObjectItemCaseSensitive(j, "position");
+    const double pos = cJSON_IsNumber(p) ? p->valuedouble : fallback;
+    cJSON_Delete(j);
+    return pos;
+}
+
+} // namespace
+
+extern "C" void jelly5_playback_progress(double position, double duration)
+{
+    std::lock_guard<std::mutex> g(s_session.lock);
+    s_session.position = position;
+    s_session.duration = duration;
+}
+
+extern "C" void jelly5_playback_finished(const char *result_json)
+{
+    std::lock_guard<std::mutex> g(s_session.lock);
+    s_session.result = result_json ? result_json : "";
+}
+
+bool jelly5_play(jf::Client &client, const jf::Item &first, std::string *error)
+{
+    jf::Item item = first;
+    std::vector<jf::Item> episodes;
+    if (item.type == "Episode" && !item.series_id.empty())
+        episodes = client.episodes(item.series_id, std::string());
+
+    for (int chain = 0; chain < 50; chain++) {
+        jf::Playback pb;
+        const int mbps = settings::get().local.max_mbps;
+        if (!client.playback_info(item.id, item.position_ticks, -1, -2, &pb, (int64_t)mbps * 1000000)) {
+            *error = client.last_error();
+            evo_bt("jelly5: playback info failed: %s", error->c_str());
+            return chain > 0;
+        }
+        evo_bt("jelly5: play %s (%s) %s %s", item.name.c_str(), item.id.c_str(), pb.play_method.c_str(),
+               pb.transcode_reasons.c_str());
+        const std::vector<jf::Segment> segs = client.segments(item.id);
+        const std::string req = request_json(client, item, pb, episodes, segs);
+
+        s_session.client = &client;
+        s_session.pb = pb;
+        s_session.position = (double)item.position_ticks / jf::kTicksPerSecond;
+        s_session.reported = -1;
+        s_session.result.clear();
+        s_session.active = true;
+        client.report_start(pb, item.position_ticks);
+        pthread_t reporter;
+        pthread_create(&reporter, nullptr, reporter_thread, nullptr);
+
+        nuvio_player_run(req.c_str());
+
+        s_session.active = false;
+        pthread_join(reporter, nullptr);
+        std::string result;
+        double pos;
+        {
+            std::lock_guard<std::mutex> g(s_session.lock);
+            result = s_session.result;
+            pos = position_from_result(result, s_session.position);
+        }
+        client.report_stopped(pb, ticks(pos));
+        client.stop_encoding(pb);
+        evo_bt("jelly5: playback done at %.1f s: %s", pos, result.c_str());
+
+        int season = 0, number = 0;
+        if (!next_from_result(result, &season, &number))
+            return true;
+        const jf::Item *next = nullptr;
+        for (const auto &e : episodes)
+            if (e.parent_index == season && e.index == number)
+                next = &e;
+        if (!next)
+            return true;
+        item = *next;
+        item.position_ticks = 0;
+    }
+    return true;
+}

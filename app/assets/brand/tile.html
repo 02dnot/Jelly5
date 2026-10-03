@@ -1,0 +1,20 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@800&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;background:#000}
+.icon{width:512px;height:512px;position:relative;overflow:hidden;
+  background:radial-gradient(120% 90% at 20% 10%,#c06fd8 0%,rgba(192,111,216,0) 55%),
+             radial-gradient(110% 100% at 90% 95%,#00b4ef 0%,rgba(0,180,239,0) 60%),
+             linear-gradient(135deg,#5a2c86,#0b4f8a);}
+.icon::after{content:"";position:absolute;inset:0;background:radial-gradient(80% 60% at 50% 120%,rgba(0,0,0,.35),transparent)}
+.word{position:absolute;left:0;right:0;top:50%;transform:translateY(-54%);text-align:center;
+  font:800 128px/1 Inter,sans-serif;letter-spacing:-.055em;color:#fff;text-shadow:0 8px 30px rgba(0,0,0,.25);z-index:1}
+.pic{width:1920px;height:1080px;position:relative;overflow:hidden;background:#07070a}
+.pic .g1{position:absolute;width:1400px;height:1400px;left:-300px;top:-700px;border-radius:50%;background:radial-gradient(closest-side,rgba(170,92,195,.55),transparent)}
+.pic .g2{position:absolute;width:1500px;height:1500px;right:-500px;bottom:-900px;border-radius:50%;background:radial-gradient(closest-side,rgba(0,164,220,.45),transparent)}
+.pic .w{position:absolute;left:140px;bottom:120px;font:800 120px/1 Inter,sans-serif;letter-spacing:-.05em;color:rgba(255,255,255,.92)}
+</style></head><body>
+<div class="icon" id="icon"><div class="word">jelly5</div></div>
+<div class="pic" id="pic"><div class="g1"></div><div class="g2"></div></div>
+</body></html>
