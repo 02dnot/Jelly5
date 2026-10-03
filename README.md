@@ -79,10 +79,9 @@ your Jellyfin server.
 - A **jailbroken PS5** that can load payloads. Jelly5 is tested on firmware
   **11.60**; other firmware with the same tools should work but is untested.
 - **ShadowMount+**, which turns a homebrew folder into a tile on the home screen.
-- An **FTP server** on the console: **ftpsrv** (port 2121) or the one in
-  **etaHEN** (port 1337).
-- An **FTP client** on your computer, for example FileZilla, Cyberduck or
-  WinSCP.
+- A way to copy files to the console. **[ps5upload](https://github.com/phantomptr/ps5upload)**
+  is recommended; plain FTP works too (**ftpsrv** on port 2121 or **etaHEN**'s
+  on port 1337, with an FTP client such as FileZilla, Cyberduck or WinSCP).
 - A **Jellyfin server** (tested with 12.1) that the PS5 can reach, on the same
   network or over the internet.
 
@@ -91,17 +90,19 @@ your Jellyfin server.
 1. **Download** `Jelly5-<version>.zip` from the
    [latest release](../../releases/latest) and unzip it. Inside is a folder
    called `PPSA99505`.
-2. **Start the jailbreak** on the PS5 as usual, with ShadowMount+ and your FTP
-   server loaded.
-3. **Connect over FTP** from your computer to the PS5's IP address (*Settings ->
-   Network -> Connection status* on the console) on your FTP server's port.
-4. **Copy the folder** `PPSA99505` into `/data/homebrew/` on the console, so
-   that `/data/homebrew/PPSA99505/eboot.bin` exists. Create `/data/homebrew`
-   if it is not there yet.
-5. **Wait a moment.** ShadowMount+ picks the folder up and adds a **Jelly5**
+2. **Start the jailbreak** on the PS5 as usual, with ShadowMount+ loaded (and
+   your FTP server, if you use FTP).
+3. **Upload the folder** `PPSA99505` to `/data/homebrew/` on the console, so
+   that `/data/homebrew/PPSA99505/eboot.bin` exists:
+   - with **ps5upload** (recommended): point it at the PS5 and upload the
+     `PPSA99505` folder to `/data/homebrew/`;
+   - or with **FTP**: connect to the PS5's IP address (*Settings -> Network ->
+     Connection status* on the console) on your FTP server's port, create
+     `/data/homebrew` if it is not there yet, and copy the folder in.
+4. **Wait a moment.** ShadowMount+ picks the folder up and adds a **Jelly5**
    tile under *Media* on the home screen (next to TV & Video). If it does not
    appear, run your payloads again, or reboot and jailbreak again.
-6. **Open Jelly5.** It looks for Jellyfin servers on your network:
+5. **Open Jelly5.** It looks for Jellyfin servers on your network:
    - pick yours from the list, or type its address (for example
      `192.168.1.20:8096`, or `https://jellyfin.example.com`);
    - sign in with **Quick Connect**: scan the QR code with your phone and tap
@@ -118,8 +119,8 @@ loaders that mount images. The folder route above is the tested one.
 
 1. **Close Jelly5 completely** first: PS button, then close it from the
    switcher. Replacing files under a running app can crash the console.
-2. Copy the new `PPSA99505` folder's **files** over the old ones in
-   `/data/homebrew/PPSA99505/` (overwrite).
+2. Upload the new `PPSA99505` folder's **files** over the old ones in
+   `/data/homebrew/PPSA99505/` (overwrite), with ps5upload or FTP.
 
 Do not delete the old folder and copy a new one, and never keep a second
 folder with the same title ID anywhere under `/data/homebrew`: ShadowMount+
@@ -137,7 +138,7 @@ sees it); nothing else on the console is touched.
 | Problem | What to do |
 | --- | --- |
 | No Jelly5 tile | Check the path is exactly `/data/homebrew/PPSA99505/eboot.bin`; rerun ShadowMount+ or reboot and jailbreak again. |
-| The FTP copy fails (for example "Text file busy") | Jelly5 is still running: close it with the PS button first. |
+| The upload fails (for example "Text file busy") | Jelly5 is still running: close it with the PS button first. |
 | Your server is not in the list | Type its address. Discovery needs UDP port 7359 to reach the server (in Docker: publish `7359/udp`, and *Enable auto discovery* on in Jellyfin's networking settings). |
 | A title won't play or stutters | Press **L3** while it plays and include that info in an issue. Over Wi-Fi, lower *Maximum quality* in Jelly5's settings. |
 | The receiver shows PCM, not Dolby Atmos | Expected: the PS5 gives apps no bitstream passthrough (see *Known limits*). |
