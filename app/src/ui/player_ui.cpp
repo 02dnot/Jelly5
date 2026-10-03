@@ -520,19 +520,56 @@ void PlayerUi::draw_bar(const NuvioStatus &st, float a)
     }
     const float px = x0 + w * (float)std::min(1.0, pos / d);
     gfx::fill({x0, y, px - x0, h}, alpha(0xffffffffu, a), h / 2);
+    for (const NuvioChapter &ch : m_req->chapters) {   /* chapters: thin gaps in the bar */
+        if (ch.start <= 1.0 || ch.start >= d - 1.0)
+            continue;
+        gfx::fill({x0 + w * (float)(ch.start / d) - 1.5f, y, 3, h}, alpha(0xb0000000u, a));
+    }
     const float hd = focus ? (m_seeking ? 34.f : 28.f) : 18.f;
     gfx::shadow({px - hd / 2, kBarY - hd / 2, hd, hd}, hd / 2, 10, 0.5f * a, 2);
     gfx::fill({px - hd / 2, kBarY - hd / 2, hd, hd}, alpha(0xffffffffu, a), hd / 2);
     gfx::text(W - kPad, kBarY + 9, "\xE2\x88\x92" + fmt_time(d - pos), {gfx::SemiBold, 26}, alpha(kText, a), 2);
 
-    if (m_seeking) {   /* the time under the playhead */
-        const float bx = std::max(x0 + 80, std::min(x1 - 80, px));
+    if (m_seeking) {   /* the time under the playhead, the chapter, and the picture there */
         const std::string t = fmt_time(pos);
-        const gfx::TextStyle bs{gfx::Bold, 28};
-        const float tw = gfx::text_width(t, bs) + 36;
-        const gfx::Rect r{bx - tw / 2, kBarY - 84, tw, 52};
+        std::string chapter;
+        for (const NuvioChapter &ch : m_req->chapters)
+            if (ch.start <= pos + 0.5)
+                chapter = ch.name;
+        if (m_req->chapters.size() < 2)
+            chapter.clear();
+        const gfx::TextStyle bs{gfx::Bold, 28}, cs{gfx::Medium, 21, 420};
+        const NuvioTrickplay &tp = m_req->trickplay;
+        const float pw = 400, ph = tp.valid() ? pw * tp.height / tp.width : 0;
+        const float bw = std::max({gfx::text_width(t, bs) + 36, chapter.empty() ? 0.f : std::min(460.f, gfx::text_width(chapter, cs) + 36),
+                                   ph > 0 ? pw + 16 : 0.f});
+        const float bh = 52 + (chapter.empty() ? 0 : 30) + (ph > 0 ? ph + 8 : 0);
+        const float bx = std::max(x0 + bw / 2, std::min(x1 - bw / 2, px));
+        const gfx::Rect r{bx - bw / 2, kBarY - 32 - bh, bw, bh};
         glass(r, a);
-        gfx::text(bx, r.y + 37, t, bs, alpha(kText, a), 1);
+        float ty = r.y;
+        if (ph > 0) {
+            /* One thumbnail of a sheet of tile_w x tile_h: sheet = i / per, cell = i % per. */
+            const int per = tp.tile_w * tp.tile_h;
+            const int i = std::max(0, std::min(tp.count - 1, (int)(pos / tp.interval)));
+            const std::string url = tp.url_base + std::to_string(i / per) + ".jpg" + tp.url_query;
+            const gfx::Rect pr{r.x + 8, r.y + 8, bw - 16, ph};
+            gfx::fill(pr, alpha(0xff101014u, a), 20);
+            if (const gfx::Texture *sheet = art::get(url, tp.width * tp.tile_w, tp.height * tp.tile_h)) {
+                /* The last sheet can be short: as many columns and rows as it holds. */
+                const int held = std::min(per, tp.count - (i / per) * per);
+                const int cols = std::min(tp.tile_w, held), rows = (held + tp.tile_w - 1) / tp.tile_w;
+                const int cell = i % per, cx = cell % tp.tile_w, cy = cell / tp.tile_w;
+                gfx::image_uv(pr, sheet, (float)cx / cols, (float)cy / rows, (float)(cx + 1) / cols,
+                              (float)(cy + 1) / rows, a, 20);
+            }
+            ty += ph + 8;
+        }
+        if (!chapter.empty()) {
+            gfx::text(bx, ty + 36, chapter, cs, alpha(kText2, a), 1);
+            ty += 30;
+        }
+        gfx::text(bx, ty + 37, t, bs, alpha(kText, a), 1);
     }
 }
 

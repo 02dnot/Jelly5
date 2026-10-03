@@ -55,6 +55,21 @@ struct Segment {
     double start = 0, end = 0;                /* seconds */
 };
 
+struct Chapter {
+    double start = 0;                         /* seconds */
+    std::string name;
+};
+
+/* Scrubbing previews: sheets of tile_w x tile_h thumbnails, one every interval. */
+struct Trickplay {
+    int width = 0, height = 0;                /* one thumbnail */
+    int tile_w = 0, tile_h = 0, count = 0;
+    double interval = 0;                      /* seconds between thumbnails */
+    std::string url_base;                     /* + "<sheet>.jpg?..." (see sheet_url) */
+    std::string url_query;
+    bool valid() const { return width > 0 && height > 0 && tile_w > 0 && tile_h > 0 && count > 0 && interval > 0; }
+};
+
 /* What PlaybackInfo decided for one item. */
 struct Playback {
     std::string item_id, media_source_id, play_session_id;
@@ -158,6 +173,9 @@ public:
     /* A folder's or collection's direct children, e.g. sort_by "PremiereDate,SortName". */
     std::vector<Item> children(const std::string &parent_id, const std::string &sort_by, int limit);
     std::vector<Segment> segments(const std::string &item_id);
+    /* Chapters and trickplay of what plays (media_source_id picks the version). */
+    bool media_extras(const std::string &item_id, const std::string &media_source_id, std::vector<Chapter> *chapters,
+                      Trickplay *trickplay);
 
     /* audio_index < 0: the server's default track; subtitle_index -2: the
      * server's default, -1: none. */

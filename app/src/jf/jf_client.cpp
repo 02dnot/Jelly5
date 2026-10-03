@@ -607,6 +607,54 @@ std::vector<Item> Client::children(const std::string &parent_id, const std::stri
     return items_of(body);
 }
 
+bool Client::media_extras(const std::string &item_id, const std::string &media_source_id,
+                          std::vector<Chapter> *chapters, Trickplay *tp)
+{
+    std::string body;
+    if (!get_json("/Items/" + item_id + "?userId=" + user_id_ + "&fields=Chapters,Trickplay", &body))
+        return false;
+    cJSON *j = cJSON_Parse(body.c_str());
+    if (!j)
+        return false;
+    const cJSON *c;
+    cJSON_ArrayForEach(c, cJSON_GetObjectItemCaseSensitive(j, "Chapters")) {
+        Chapter ch;
+        ch.start = num_of(c, "StartPositionTicks") / (double)kTicksPerSecond;
+        ch.name = str_of(c, "Name");
+        chapters->push_back(ch);
+    }
+    /* Trickplay: { media source id: { width: info } }; this version, else any, and the
+     * width nearest 320 (what the scrub preview shows). */
+    const cJSON *sources = cJSON_GetObjectItemCaseSensitive(j, "Trickplay");
+    const cJSON *src = cJSON_GetObjectItemCaseSensitive(sources, media_source_id.c_str());
+    if (!src && cJSON_IsObject(sources))
+        src = sources->child;
+    const cJSON *best = nullptr;
+    int best_w = 0;
+    const cJSON *w;
+    cJSON_ArrayForEach(w, src) {
+        const int width = (int)num_of(w, "Width");
+        if (width > 0 && (!best || std::abs(width - 320) < std::abs(best_w - 320))) {
+            best = w;
+            best_w = width;
+        }
+    }
+    if (best) {
+        tp->width = best_w;
+        tp->height = (int)num_of(best, "Height");
+        tp->tile_w = (int)num_of(best, "TileWidth");
+        tp->tile_h = (int)num_of(best, "TileHeight");
+        tp->count = (int)num_of(best, "ThumbnailCount");
+        tp->interval = num_of(best, "Interval") / 1000.0;
+        /* The sheets need the session: ApiKey (the legacy api_key is refused). */
+        tp->url_base = server_ + "/Videos/" + item_id + "/Trickplay/" + std::to_string(best_w) + "/";
+        tp->url_query = "?MediaSourceId=" + (src && src->string ? std::string(src->string) : media_source_id) +
+                        "&ApiKey=" + token_;
+    }
+    cJSON_Delete(j);
+    return true;
+}
+
 std::vector<Segment> Client::segments(const std::string &item_id)
 {
     std::vector<Segment> out;

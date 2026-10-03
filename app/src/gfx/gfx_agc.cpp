@@ -352,6 +352,14 @@ void image(const Rect &r, const Texture *t, float opacity, float radius, bool co
     quad(r, t, u0, v0, u1, v1, c, c, c, c, radius);
 }
 
+void image_uv(const Rect &r, const Texture *t, float u0, float v0, float u1, float v1, float opacity, float radius)
+{
+    if (!t || opacity <= 0.f)
+        return;
+    const uint32_t c = premul(0xffffffffu, opacity);
+    quad(r, t, u0, v0, u1, v1, c, c, c, c, radius);
+}
+
 void shadow(const Rect &r, float radius, float blur, float opacity, float dy)
 {
     if (!s_shadow || opacity <= 0.f)

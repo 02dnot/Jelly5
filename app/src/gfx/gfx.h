@@ -64,6 +64,9 @@ void fill_vgradient(const Rect &r, uint32_t top, uint32_t bottom, float radius =
 void fill_hgradient(const Rect &r, uint32_t left, uint32_t right, float radius = 0);
 /* A texture into r: stretched, or cropped to fill it (cover). */
 void image(const Rect &r, const Texture *t, float opacity = 1, float radius = 0, bool cover = true);
+/* Part of a texture (u, v in 0..1), e.g. one thumbnail of a sheet. */
+void image_uv(const Rect &r, const Texture *t, float u0, float v0, float u1, float v1, float opacity = 1,
+              float radius = 0);
 /* A soft drop shadow for a rounded box at r. */
 void shadow(const Rect &r, float radius, float blur, float opacity, float dy = 0);
 

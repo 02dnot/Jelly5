@@ -232,6 +232,24 @@ bool nuvio_request_parse(const char *json, NuvioRequest &r)
             r.skips.push_back(k);
     }
 
+    cJSON_ArrayForEach(it, cJSON_GetObjectItemCaseSensitive(root, "chapters")) {
+        NuvioChapter ch;
+        ch.start = num_of(it, "start", 0);
+        ch.name = str_of(it, "name");
+        r.chapters.push_back(ch);
+    }
+    if (const cJSON *tp = cJSON_GetObjectItemCaseSensitive(root, "trickplay")) {
+        NuvioTrickplay &t = r.trickplay;
+        t.width = (int)num_of(tp, "width", 0);
+        t.height = (int)num_of(tp, "height", 0);
+        t.tile_w = (int)num_of(tp, "tileWidth", 0);
+        t.tile_h = (int)num_of(tp, "tileHeight", 0);
+        t.count = (int)num_of(tp, "count", 0);
+        t.interval = num_of(tp, "interval", 0);
+        t.url_base = str_of(tp, "urlBase");
+        t.url_query = str_of(tp, "urlQuery");
+    }
+
     const cJSON *p = cJSON_GetObjectItemCaseSensitive(root, "prefs");
     if (cJSON_IsObject(p)) {
         NuvioPrefs &pr = r.prefs;

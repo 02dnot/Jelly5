@@ -41,6 +41,19 @@ struct NuvioSkip {
     double start = 0, end = 0;
 };
 
+/* Jelly5: a chapter mark, and the server's scrub previews. */
+struct NuvioChapter {
+    double start = 0;
+    std::string name;
+};
+
+struct NuvioTrickplay {
+    int width = 0, height = 0, tile_w = 0, tile_h = 0, count = 0;
+    double interval = 0;
+    std::string url_base, url_query;
+    bool valid() const { return width > 0 && height > 0 && tile_w > 0 && tile_h > 0 && count > 0 && interval > 0; }
+};
+
 struct NuvioPrefs {
     std::vector<std::string> audio_langs;     /* preferred, in order */
     std::vector<std::string> subtitle_langs;
@@ -77,6 +90,8 @@ struct NuvioRequest {
     bool has_next = false;
     NuvioEpisode next;
     std::vector<NuvioSkip> skips;
+    std::vector<NuvioChapter> chapters;
+    NuvioTrickplay trickplay;
     NuvioPrefs prefs;
     std::map<std::string, std::string> strings;
     int autoplay_count = 0;       /* episodes played back to back so far */

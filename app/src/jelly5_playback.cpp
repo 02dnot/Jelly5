@@ -17,6 +17,7 @@
 #include <mutex>
 #include <pthread.h>
 #include <string>
+#include <thread>
 #include <unistd.h>
 
 extern "C" {
@@ -113,9 +114,16 @@ cJSON *episode_json(jf::Client &c, const jf::Item &e)
 }
 
 /* The request the Nuvio Player plays (see nuvio_request_parse). */
+struct Extras {
+    std::vector<jf::Segment> segments;
+    std::vector<jf::Chapter> chapters;
+    jf::Trickplay trickplay;
+};
+
 std::string request_json(jf::Client &c, const jf::Item &it, const jf::Playback &pb,
-                         const std::vector<jf::Item> &episodes, const std::vector<jf::Segment> &segs)
+                         const std::vector<jf::Item> &episodes, const Extras &ex)
 {
+    const std::vector<jf::Segment> &segs = ex.segments;
     const bool episode = it.type == "Episode";
     cJSON *o = cJSON_CreateObject();
     cJSON_AddStringToObject(o, "id", it.id.c_str());
@@ -221,6 +229,33 @@ std::string request_json(jf::Client &c, const jf::Item &it, const jf::Playback &
         cJSON_AddItemToArray(skips, k);
     }
     cJSON_AddItemToObject(o, "skipIntervals", skips);
+
+    /* Chapters (marks on the bar, their name while scrubbing); a single "chapter"
+     * spanning the whole title says nothing. */
+    if (ex.chapters.size() > 1) {
+        cJSON *chs = cJSON_CreateArray();
+        for (const auto &ch : ex.chapters) {
+            cJSON *e = cJSON_CreateObject();
+            cJSON_AddNumberToObject(e, "start", ch.start);
+            cJSON_AddStringToObject(e, "name", ch.name.c_str());
+            cJSON_AddItemToArray(chs, e);
+        }
+        cJSON_AddItemToObject(o, "chapters", chs);
+    }
+    /* Scrub previews, when the server has made them. */
+    if (ex.trickplay.valid()) {
+        const jf::Trickplay &t = ex.trickplay;
+        cJSON *tp = cJSON_CreateObject();
+        cJSON_AddNumberToObject(tp, "width", t.width);
+        cJSON_AddNumberToObject(tp, "height", t.height);
+        cJSON_AddNumberToObject(tp, "tileWidth", t.tile_w);
+        cJSON_AddNumberToObject(tp, "tileHeight", t.tile_h);
+        cJSON_AddNumberToObject(tp, "count", t.count);
+        cJSON_AddNumberToObject(tp, "interval", t.interval);
+        cJSON_AddStringToObject(tp, "urlBase", t.url_base.c_str());
+        cJSON_AddStringToObject(tp, "urlQuery", t.url_query.c_str());
+        cJSON_AddItemToObject(o, "trickplay", tp);
+    }
 
     /* The account's preferences (settings), as the player's track rules. */
     const settings::All set = settings::get();
@@ -339,8 +374,15 @@ bool jelly5_play(jf::Client &client, const jf::Item &first, std::string *error)
         }
         evo_bt("jelly5: play %s (%s) %s %s", item.name.c_str(), item.id.c_str(), pb.play_method.c_str(),
                pb.transcode_reasons.c_str());
-        const std::vector<jf::Segment> segs = client.segments(item.id);
-        const std::string req = request_json(client, item, pb, episodes, segs);
+        Extras ex;
+        {
+            std::thread chapters([&] { client.media_extras(item.id, pb.media_source_id, &ex.chapters, &ex.trickplay); });
+            ex.segments = client.segments(item.id);
+            chapters.join();
+        }
+        if (ex.trickplay.valid())
+            evo_bt("jelly5: trickplay %dx%d, %d thumbnails", ex.trickplay.width, ex.trickplay.height, ex.trickplay.count);
+        const std::string req = request_json(client, item, pb, episodes, ex);
 
         s_session.client = &client;
         s_session.pb = pb;
