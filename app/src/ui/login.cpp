@@ -184,10 +184,19 @@ Action Login::input(uint32_t p)
         busy = m_shared->busy;
     }
     if (m_step == QuickConnectStep) {
-        if (p & (NUVIO_BTN_CIRCLE | NUVIO_BTN_CROSS)) {
-            std::lock_guard<std::mutex> g(m_shared->lock);
-            m_shared->qc_alive = false;
-            m_step = UserStep;
+        /* Quick Connect is the default; below the code: sign in with a name and password
+         * instead (0), or another server (1). Circle goes back to the server. */
+        if (p & NUVIO_BTN_LEFT)
+            m_focus = 0;
+        else if (p & NUVIO_BTN_RIGHT)
+            m_focus = 1;
+        else if (p & (NUVIO_BTN_CROSS | NUVIO_BTN_CIRCLE)) {
+            {
+                std::lock_guard<std::mutex> g(m_shared->lock);
+                m_shared->qc_alive = false;
+                m_shared->error.clear();
+            }
+            m_step = (p & NUVIO_BTN_CROSS) && m_focus == 0 ? UserStep : ServerStep;
             m_focus = 0;
         }
         return a;
@@ -230,8 +239,7 @@ Action Login::input(uint32_t p)
     else if (nu > 0 && m_focus == 0 && (p & NUVIO_BTN_RIGHT))
         m_user_col = std::min(nu - 1, m_user_col + 1);
     else if (p & NUVIO_BTN_CIRCLE) {
-        m_step = ServerStep;
-        m_focus = 0;
+        start_quick_connect();   /* back to the default */
     } else if ((p & NUVIO_BTN_CROSS) && !busy) {
         const int f = m_focus - base;
         if (base && m_focus == 0) {
@@ -275,11 +283,14 @@ void Login::draw(double now, float dt)
         busy = m_shared->busy;
         checked = m_shared->checked;
         users = m_shared->users;
-        if (checked) {
+        if (checked)
             m_shared->checked = false;
-            m_step = UserStep;
-            m_focus = 0;
-        }
+    }
+    if (checked)   /* the server answered: Quick Connect first */
+        start_quick_connect();
+    if (m_step == QuickConnectStep && code.empty() && !busy && !error.empty()) {
+        m_step = UserStep;   /* no Quick Connect on this server: name and password (the message stays) */
+        m_focus = 0;
     }
 
     gfx::fill({0, 0, gfx::W, gfx::H}, kBg);
@@ -347,7 +358,8 @@ void Login::draw(double now, float dt)
             gfx::text(box.x + box.w / 2, box.y + 130, "\xE2\x80\xA6", {gfx::Bold, 80}, kText3, 1);
         else
             gfx::text(box.x + box.w / 2, box.y + 158, spaced, {gfx::Bold, 120}, kText, 1);
-        draw_pad_hints(kX, 822, {{PadButton::Circle, T("Avbryt")}});
+        button({kX, 800, 560, 76}, T("Logg inn med brukernavn og passord"), m_focus == 0, lift("pw", m_focus == 0));
+        button({kX + 580, 800, 250, 76}, T("Annen server"), m_focus == 1, lift("other2", m_focus == 1));
     }
     if (!error.empty())
         gfx::text(kX, 1000, error, {gfx::SemiBold, 24, 1600}, 0xffff6b6bu);
