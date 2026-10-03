@@ -38,9 +38,15 @@ void glass_panel(const gfx::Rect &r, float radius, float a, bool shadow)
         return;
     if (shadow)
         gfx::shadow(r, radius, 46, 0.6f * a, 18);
-    const bool frosted = gfx::backdrop_blur(r, radius, 22.f, a);
-    gfx::fill(r, alpha(frosted ? 0x8c1c1c24u : 0xdc1c1c22u, a), radius);
-    gfx::fill({r.x + radius * 0.6f, r.y, r.w - radius * 1.2f, 1.5f}, alpha(0x2effffffu, a));
+    const bool frosted = gfx::backdrop_blur(r, radius, 18.f, a);
+    if (frosted) {   /* Liquid Glass: clear, a sheen from above, a lit rim */
+        gfx::fill(r, alpha(0x4d0c0c12u, a), radius);
+        gfx::fill_vgradient({r.x, r.y, r.w, r.h * 0.45f}, alpha(0x1affffffu, a), 0x00000000u, radius);
+        gfx::rim(r, radius, 0.9f * a);
+    } else {
+        gfx::fill(r, alpha(0xdc1c1c22u, a), radius);
+        gfx::fill({r.x + radius * 0.6f, r.y, r.w - radius * 1.2f, 1.5f}, alpha(0x2effffffu, a));
+    }
 }
 
 float draw_pad_hint(float x, float cy, PadButton b, const std::string &label, float size, float a)

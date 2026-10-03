@@ -70,6 +70,8 @@ void image(const Rect &r, const Texture *t, float opacity = 1, float radius = 0,
  * pixels) and puts it back into r's rounded shape. Draw the panel's tint over
  * it. false (nothing drawn) when the GPU has no room for it this frame. */
 bool backdrop_blur(const Rect &r, float radius, float sigma = 24.f, float opacity = 1.f);
+/* The lit rim of a glass pane: a thin line of light around r's rounded shape. */
+void rim(const Rect &r, float radius, float opacity = 1.f);
 /* Part of a texture (u, v in 0..1), e.g. one thumbnail of a sheet. */
 void image_uv(const Rect &r, const Texture *t, float u0, float v0, float u1, float v1, float opacity = 1,
               float radius = 0);

@@ -52,6 +52,7 @@ int s_pw = 1920, s_ph = 1080;
 uint64_t s_frame = 0;
 Texture *s_white = nullptr;
 Texture *s_shadow = nullptr;    /* a blurred rounded box for drop shadows */
+Texture *s_rim = nullptr;       /* a rounded box's lit edge, for glass */
 std::vector<Rect> s_scissors;
 std::vector<float> s_opacity_stack;
 float s_opacity = 1.f;            /* product of the stack */
@@ -203,6 +204,44 @@ Texture *make_shadow_texture()
     return t;
 }
 
+/* A 256x256 rounded box (corner 64) as a thin line of light, brightest where
+ * light from the top left meets it, with a fainter glint opposite: the rim of a
+ * glass pane (Apple's Liquid Glass). Drawn as nine slices at any size. */
+Texture *make_rim_texture()
+{
+    const int n = 256;
+    const float cx = n / 2.f, half = n / 2.f - 2.f, rad = 64.f;
+    std::vector<uint32_t> px((size_t)n * n, 0);
+    const float lx = -0.6f, ly = -0.8f;   /* toward the light */
+    for (int y = 0; y < n; y++)
+        for (int x = 0; x < n; x++) {
+            /* Signed distance to the rounded box, and the outward normal there. */
+            const float qx = std::fabs(x + 0.5f - cx) - (half - rad), qy = std::fabs(y + 0.5f - cx) - (half - rad);
+            const float ox = std::max(qx, 0.f), oy = std::max(qy, 0.f);
+            const float d = std::sqrt(ox * ox + oy * oy) + std::min(std::max(qx, qy), 0.f) - rad;
+            const float line = std::max(0.f, 1.f - std::fabs(d + 0.8f) / 1.6f);
+            if (line <= 0.f)
+                continue;
+            float nx = 0, ny = 0;
+            if (ox > 0 || oy > 0) {
+                const float l = std::sqrt(ox * ox + oy * oy);
+                nx = ox / l;
+                ny = oy / l;
+            } else if (qx > qy) {
+                nx = 1;
+            } else {
+                ny = 1;
+            }
+            nx *= (x + 0.5f < cx) ? -1.f : 1.f;
+            ny *= (y + 0.5f < cx) ? -1.f : 1.f;
+            const float lit = nx * lx + ny * ly;
+            const float k = std::min(1.f, 0.28f + 0.72f * std::max(lit, 0.f) + 0.35f * std::max(-lit, 0.f));
+            const uint32_t a = (uint32_t)(line * k * 255.f + 0.5f);
+            px[(size_t)y * n + x] = (a << 24) | (a << 16) | (a << 8) | a;   /* premultiplied white */
+        }
+    return texture_from_pixels(px.data(), n, n, n);
+}
+
 } // namespace
 
 bool init()
@@ -217,6 +256,7 @@ bool init()
     const uint32_t white[4] = {0xffffffffu, 0xffffffffu, 0xffffffffu, 0xffffffffu};
     s_white = texture_from_pixels(white, 2, 2, 2);
     s_shadow = make_shadow_texture();
+    s_rim = make_rim_texture();
     evo_bt("gfx: %dx%d scale %.2f white=%p shadow=%p", s_pw, s_ph, s_scale, (void *)s_white, (void *)s_shadow);
     return s_white != nullptr;
 }
@@ -500,15 +540,61 @@ bool backdrop_blur(const Rect &r, float radius, float sigma, float opacity)
     evo_agc_flush_color_target();
     evo_agc_set_layer_target(nullptr);                  /* back on the scanout */
     restore_scissor();
-    if (ok) {   /* the blurred backdrop into the panel's rounded shape */
-        const float u0 = r.x * s_scale / out_v.w, v0 = r.y * s_scale / out_v.h;
-        const float u1 = (r.x + r.w) * s_scale / out_v.w, v1 = (r.y + r.h) * s_scale / out_v.h;
+    if (ok) {
+        /* The blurred backdrop into the panel's rounded shape, as through a lens: a
+         * little magnified inside, and along the straight edges what lies just outside
+         * is drawn in, bent toward the rim. */
+        const float W = (float)out_v.w / s_scale, H = (float)out_v.h / s_scale;   /* logical */
+        const float zoom = 0.035f, mx = r.w * zoom / 2, my = r.h * zoom / 2;
         const uint32_t col = premul(0xffffffffu, opacity);
-        quad(r, &out_v, u0, v0, u1, v1, col, col, col, col, radius);
+        quad(r, &out_v, (r.x + mx) / W, (r.y + my) / H, (r.x + r.w - mx) / W, (r.y + r.h - my) / H, col, col, col, col,
+             radius);
+        const float e = std::min(14.f, std::min(r.w, r.h) / 6), bend = e * 1.4f;
+        const float sx0 = r.x + radius, sx1 = r.x + r.w - radius, sy0 = r.y + radius, sy1 = r.y + r.h - radius;
+        if (sx1 > sx0) {
+            quad({sx0, r.y, sx1 - sx0, e}, &out_v, sx0 / W, (r.y - bend) / H, sx1 / W, (r.y + e) / H, col, col, col,
+                 col, 0);
+            quad({sx0, r.y + r.h - e, sx1 - sx0, e}, &out_v, sx0 / W, (r.y + r.h - e) / H, sx1 / W,
+                 (r.y + r.h + bend) / H, col, col, col, col, 0);
+        }
+        if (sy1 > sy0) {
+            quad({r.x, sy0, e, sy1 - sy0}, &out_v, (r.x - bend) / W, sy0 / H, (r.x + e) / W, sy1 / H, col, col, col,
+                 col, 0);
+            quad({r.x + r.w - e, sy0, e, sy1 - sy0}, &out_v, (r.x + r.w - e) / W, sy0 / H, (r.x + r.w + bend) / W,
+                 sy1 / H, col, col, col, col, 0);
+        }
     }
     evo_agc_layer_release(h);
     evo_agc_layer_release(v);
     return ok;
+}
+
+void rim(const Rect &r, float radius, float opacity)
+{
+    if (!s_rim || opacity <= 0.f || r.w < 2 * radius || r.h < 2 * radius)
+        return;
+    /* Nine slices: the texture's 64-pixel corners drawn at the panel's radius. */
+    const float xs[4] = {r.x, r.x + radius, r.x + r.w - radius, r.x + r.w};
+    const float ys[4] = {r.y, r.y + radius, r.y + r.h - radius, r.y + r.h};
+    const float us[4] = {0.f, 0.25f, 0.75f, 1.f};
+    const uint32_t c = premul(0xffffffffu, opacity);
+    Vertex v[16];
+    for (int j = 0; j < 4; j++)
+        for (int i = 0; i < 4; i++)
+            v[j * 4 + i] = {xs[i], ys[j], c, us[i], us[j]};
+    uint16_t idx[54];
+    int n = 0;
+    for (int j = 0; j < 3; j++)
+        for (int i = 0; i < 3; i++) {
+            if (i == 1 && j == 1)
+                continue;   /* the middle is empty */
+            const uint16_t a = (uint16_t)(j * 4 + i);
+            const uint16_t q[6] = {a, (uint16_t)(a + 1), (uint16_t)(a + 4), (uint16_t)(a + 4),
+                                   (uint16_t)(a + 1), (uint16_t)(a + 5)};
+            std::memcpy(idx + n, q, sizeof q);
+            n += 6;
+        }
+    draw_mesh(v, 16, idx, n, s_rim, nullptr, 0);
 }
 
 void shadow(const Rect &r, float radius, float blur, float opacity, float dy)
