@@ -477,8 +477,32 @@ void PlayerUi::input(const nuvio_input_state &in, const NuvioStatus &st, std::ve
     }
 }
 
+/* A tap on L2/R2 jumps 10 s (seek_step); held, the scrub runs on by itself, from
+ * a few seconds per second with a light touch to five minutes per second with the
+ * trigger pressed home - against the resistance the adaptive triggers give. */
+void PlayerUi::analog_scrub(const nuvio_input_state &in, const NuvioStatus &st)
+{
+    const double now = st.now;
+    const double dt = m_trig_at > 0 ? std::min(0.1, now - m_trig_at) : 0.0;
+    m_trig_at = now;
+    if (in.pressed & (NUVIO_BTN_L2 | NUVIO_BTN_R2))
+        m_trig_down_at = now;
+    const bool l = (in.held & NUVIO_BTN_L2) != 0, r = (in.held & NUVIO_BTN_R2) != 0;
+    if (!m_req || m_music || !m_seeking || l == r || !st.error.empty() || m_overlay != Overlay::None ||
+        now - m_trig_down_at < 0.25)
+        return;
+    const float q = std::max(0.f, ((r ? in.r2 : in.l2) - 0.08f) / 0.92f);
+    const double rate = 6.0 + 294.0 * std::pow(q, 2.2);
+    m_seek_target = std::max(0.0, std::min(st.duration > 0 ? st.duration - 1 : 1e9, m_seek_target + (r ? rate : -rate) * dt));
+    m_seek_commit_at = now + 0.75;
+    m_seek_last_step = now;
+    m_hide_at = now + 4.0;
+    m_dirty = true;
+}
+
 void PlayerUi::input_local(const nuvio_input_state &in, const NuvioStatus &st, std::vector<OsdCommand> &out)
 {
+    analog_scrub(in, st);
     const uint32_t p = in.pressed;
     if (!p || !m_req)
         return;

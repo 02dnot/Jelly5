@@ -843,6 +843,9 @@ extern "C" void nuvio_player_run(const char *json)
     s_osd.begin(&s.req, s.open_started);
     if (s.req.light_color)
         nuvio_input_set_lightbar(s.req.light_color);   /* the controller glows in the title's colour */
+    const bool triggers = !headless && s.req.item_type != "Audio";
+    if (triggers)
+        nuvio_input_trigger_resistance(1);   /* L2/R2 scrub against a resistance */
     if (headless) {
         std::lock_guard<std::mutex> g(s_now_lock);
         s_now_request = s.req;
@@ -1175,6 +1178,8 @@ extern "C" void nuvio_player_run(const char *json)
     }
     nuvio_control_set_playing(0);
     nuvio_input_reset_lightbar();   /* back to the PS5 user's colour */
+    if (triggers)
+        nuvio_input_trigger_resistance(0);
     if (!headless)
         nuvio_input_close();
     evo_boot_log_flush();

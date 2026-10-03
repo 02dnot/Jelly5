@@ -30,6 +30,21 @@ int scePadOpen(int user_id, int type, int index, void *param);
 int scePadClose(int handle);
 int scePadSetVibrationMode(int handle, int mode);
 int scePadSetMotionSensorState(int handle, int enable);
+
+/* scePadSetTriggerEffect's parameter (Sony's layout, as Steamworks'
+ * isteamdualsense.h carries it: 120 bytes). */
+typedef struct {
+    uint32_t mode;                 /* 0 off, 5 slope feedback */
+    uint8_t  padding[4];
+    uint8_t  data[48];             /* slope: start position, end position, start strength, end strength */
+} pad_trigger_command;
+typedef struct {
+    uint8_t  trigger_mask;         /* 1 L2, 2 R2 */
+    uint8_t  padding[7];
+    pad_trigger_command command[2];
+} pad_trigger_param;
+_Static_assert(sizeof(pad_trigger_param) == 120, "ScePadTriggerEffectParam is 120 bytes");
+int scePadSetTriggerEffect(int handle, const pad_trigger_param *param);
 int scePadSetVibration(int handle, const void *param);
 typedef struct ScePadVibration {
     uint8_t large, small;   /* motors, 0..255 */
@@ -127,6 +142,28 @@ static void tilt_update(const pad_data *pad, double t)
     const float x = (s_fast[0] - s_rest[0]) / 0.35f, y = (s_fast[2] - s_rest[2]) / 0.35f;
     s_tilt_x = x < -1.f ? -1.f : x > 1.f ? 1.f : x;
     s_tilt_y = y < -1.f ? -1.f : y > 1.f ? 1.f : y;
+}
+
+void nuvio_input_trigger_resistance(int on)
+{
+    if (s_pad < 0)
+        return;
+    pad_trigger_param p;
+    memset(&p, 0, sizeof p);
+    p.trigger_mask = 0x03;
+    for (int i = 0; i < 2; i++) {
+        p.command[i].mode = on ? 5u : 0u;   /* slope feedback: light at first, stiffer further in */
+        if (on) {
+            p.command[i].data[0] = 1;   /* from position 1 */
+            p.command[i].data[1] = 9;   /* to the end */
+            p.command[i].data[2] = 1;   /* strength 1 */
+            p.command[i].data[3] = 6;   /* up to 6 (of 8) */
+        }
+    }
+    const int rc = scePadSetTriggerEffect(s_pad, &p);
+    static int logged;
+    if (!logged++)
+        evo_bt("input: trigger effect %s rc=%#x", on ? "on" : "off", (unsigned)rc);
 }
 
 void nuvio_input_tilt(float *x, float *y)
@@ -231,6 +268,8 @@ void nuvio_input_poll(nuvio_input_state *out)
     memset(&pad, 0, sizeof pad);
     if (s_pad >= 0 && scePadReadState(s_pad, &pad) == 0) {
         tilt_update(&pad, t);
+        out->l2 = pad.analog[0] / 255.f;
+        out->r2 = pad.analog[1] / 255.f;
         now_buttons = pad.buttons;
         if (!(now_buttons & NUVIO_BTN_DPAD))
             now_buttons |= stick_dirs(&pad);

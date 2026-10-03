@@ -67,6 +67,9 @@ private:
 
     void show_controls(double now, Zone zone);
     void seek_step(int dir, const NuvioStatus &st, double now);
+    /* L2/R2 held: scrub at a speed set by how hard the trigger is pressed. */
+    void analog_scrub(const nuvio_input_state &in, const NuvioStatus &st);
+    double m_trig_at = 0, m_trig_down_at = 0;
     int current_skip(const NuvioStatus &st) const;
     bool next_card(const NuvioStatus &st) const;
     std::vector<Button> buttons() const;

@@ -46,6 +46,7 @@ typedef struct nuvio_input_state {
     uint32_t held;       /* down now */
     uint32_t repeats;    /* the subset of pressed that is an auto-repeat */
     double   held_for;   /* seconds the current D-pad direction has been held */
+    float    l2, r2;     /* Jelly5: how far L2 and R2 are pressed, 0..1 */
 } nuvio_input_state;
 
 /* Opens the user's controller. Presses already down are ignored until they
@@ -54,6 +55,9 @@ void nuvio_input_open(int user_id);
 /* Jelly5: how far the pad is tilted from its usual pose, -1..1 left/right (x)
  * and toward/away (y); 0, 0 without motion data. */
 void nuvio_input_tilt(float *x, float *y);
+/* Jelly5: the DualSense's adaptive triggers on L2 and R2: on, a resistance that
+ * stiffens the further they are pressed (scrubbing); off, free again. */
+void nuvio_input_trigger_resistance(int on);
 void nuvio_input_close(void);
 /* Jelly5: the DualSense light bar (0xRRGGBB); reset gives back the PS5 user's colour. */
 void nuvio_input_set_lightbar(uint32_t rgb);
