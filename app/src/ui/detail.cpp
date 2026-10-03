@@ -6,6 +6,7 @@
  * .card.ep, .card.cast).
  */
 #include "ui/detail.h"
+#include "jelly5_playback.h"
 #include "app/i18n.h"
 
 #include "gfx/art.h"
@@ -241,6 +242,7 @@ void Detail::activate()
     jf::Client *c = &m_client;
     const jf::Item base = m_view.item;
     std::thread([d, c, base] {
+        jelly5_wait_reports(4000);   /* back from playing: the stop report first */
         Content fresh = fetch(*c, base);
         cache_put(cache_key(*c, base.id), fresh);
         std::lock_guard<std::mutex> g(d->lock);

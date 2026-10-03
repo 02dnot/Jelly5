@@ -1243,6 +1243,7 @@ void play(jf::Item item, bool from_start, bool shuffle = false, const std::vecto
     jf::Client *c = s_client;
     const unsigned session = s_session;
     std::thread([c, session] {
+        jelly5_wait_reports(4000);   /* the position just reported, before reading it back */
         load_home(*c, session, true);
         load_extras(*c, session);   /* what was just watched shapes "Fordi du så" */
     }).detach();

@@ -33,6 +33,8 @@ extern "C" {
 namespace {
 
 /* The playback in progress, shared with the player's callbacks. */
+std::atomic<int> s_reports{0};   /* stop reports still on their way to the server */
+
 struct Session {
     jf::Client *client = nullptr;
     jf::Playback pb;
@@ -54,7 +56,8 @@ void *reporter_thread(void *)
     double last_pos = -1, still_since = 0, t = 0, last_report = 0;
     bool reported_paused = false;
     while (s_session.active) {
-        usleep(250 * 1000);
+        for (int i = 0; i < 10 && s_session.active; i++)   /* 250 ms, but gone at once when playback ends */
+            usleep(25 * 1000);
         t += 0.25;
         if (!s_session.active)
             break;
@@ -695,8 +698,19 @@ static bool play_chain(jf::Client &client, jf::Item item, std::vector<jf::Item> 
             result = s_session.result;
             pos = position_from_result(result, s_session.position);
         }
-        client.report_stopped(pb, ticks(pos));
-        client.stop_encoding(pb);
+        /* Tell the server in the background: the menus come back at once
+         * (jelly5_wait_reports lets the home refresh wait for the position). */
+        {
+            jf::Client *c = &client;
+            const jf::Playback stopped = pb;
+            const int64_t at = ticks(pos);
+            s_reports++;
+            std::thread([c, stopped, at] {
+                c->report_stopped(stopped, at);
+                c->stop_encoding(stopped);
+                s_reports--;
+            }).detach();
+        }
         evo_bt("jelly5: playback done at %.1f s: %s", pos, result.c_str());
 
         int season = 0, number = 0;
@@ -712,4 +726,10 @@ static bool play_chain(jf::Client &client, jf::Item item, std::vector<jf::Item> 
         item.position_ticks = 0;
     }
     return true;
+}
+
+void jelly5_wait_reports(int max_ms)
+{
+    for (int waited = 0; s_reports > 0 && waited < max_ms; waited += 20)
+        usleep(20 * 1000);
 }
