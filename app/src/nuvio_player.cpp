@@ -1171,6 +1171,7 @@ extern "C" void nuvio_player_run(const char *json)
             last_report = now;
             nuvio_control_report(s.req.id.c_str(), s.st.position, s.st.duration);
         }
+#ifdef JELLY5_LOG_HOST   /* dev builds: the engine's state every 5 s */
         if (now - last_diag >= 5.0 && engine_ready) {
             last_diag = now;
             int vq = 0, aq = 0, ab = 0;
@@ -1183,6 +1184,9 @@ extern "C" void nuvio_player_run(const char *json)
                    evo_pb_video_clock_s(), evo_pb_audio_clock_s());
             evo_log_alloc_state("play");
         }
+#else
+        (void)last_diag;
+#endif
     }
 
     /* ---- leave ---- */

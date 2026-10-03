@@ -179,7 +179,8 @@ void av_log_to_boot_log(void *, int level, const char *fmt, va_list vl)
         n = (int)sizeof line - 1;
     while (n > 0 && (line[n - 1] == '\n' || line[n - 1] == '\r'))
         line[--n] = '\0';
-    if (n)
+    /* Every JSON request over avio ends this way (no Content-Length): not news. */
+    if (n && !std::strstr(line, "Stream ends prematurely"))
         evo_bt("ffmpeg[%d]: %s", level, line);
 }
 

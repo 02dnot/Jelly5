@@ -317,7 +317,11 @@ void evo_boot_log(const char *fmt, ...)
 void evo_boot_log_flush(void)
 {
     if (!g_fp) {
+#ifdef EVO_LOG_TO_USB
         FILE *fp = fopen(EVO_LOG_PATH, "a");
+#else
+        FILE *fp = NULL;   /* Jelly5: never a file on the viewer's USB stick (dev builds log over UDP) */
+#endif
         if (!fp)
             return;   /* /mnt/usb0 not reachable yet — try again next call */
         pthread_mutex_lock(&g_io_lock);

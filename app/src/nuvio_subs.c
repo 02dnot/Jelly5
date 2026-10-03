@@ -144,6 +144,8 @@ static void ass_log(int level, const char *fmt, va_list va, void *data)
         return;
     char line[256];
     vsnprintf(line, sizeof line, fmt, va);
+    if (strstr(line, "fontselect: failed to find"))
+        return;   /* a font the subtitles ask for and we lack: the fallback takes over, every time */
     evo_bt("libass: %s", line);
 }
 
