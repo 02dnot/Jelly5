@@ -17,6 +17,7 @@
  * tracks chosen) before it reopens.
  */
 #include "nuvio_player.h"
+#include "app/perf.h"
 
 #include "nuvio_bridge.h"
 #include "nuvio_control.h"
@@ -1030,6 +1031,13 @@ extern "C" void nuvio_player_run(const char *json)
             gfx::begin_overlay();
             s_osd.draw(s.st);
             evo_agc_runtime_present();
+#ifdef JELLY5_LOG_HOST
+            {   /* development builds: frame timing, split by whether the interface (glass) is up */
+                static perf::Frames video_perf("video");
+                const double done = now_s();
+                video_perf.note((done - now) * 1000.0, done, osd_changed ? "(interface up)" : nullptr);
+            }
+#endif
         } else {
             usleep(2000);
         }

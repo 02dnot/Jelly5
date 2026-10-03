@@ -12,6 +12,7 @@
 #include "jelly5_playback.h"
 #include "app/accounts.h"
 #include "app/i18n.h"
+#include "app/perf.h"
 #include "app/remote.h"
 #include "app/syncplay.h"
 #include "app/settings.h"
@@ -1332,6 +1333,11 @@ int main()
             const float dt = (float)std::min(0.1, now - last);
             last = now;
             animating = draw_frame(now - t0, dt);
+#ifdef JELLY5_LOG_HOST   /* development builds: frame timing in the log */
+            static perf::Frames ui_perf("ui");
+            const double drawn = now_s();
+            ui_perf.note((drawn - now) * 1000.0, drawn);
+#endif
             idle_frames = (changed || animating) ? 0 : idle_frames + 1;
             last_phase = phase;
             last_model = s_model_version;
@@ -1344,7 +1350,8 @@ int main()
         if (s_saver.on())
             usleep(25000);   /* the screensaver drifts slowly: ~30 frames a second is plenty */
         /* Once a minute, what the app holds (idle too): anything that only grows
-         * shows here over a long session. */
+         * shows here over a long session. Development builds only. */
+#ifdef JELLY5_LOG_HOST
         {
             static double last_health = 0;
             const double hnow = now_s();
@@ -1358,5 +1365,6 @@ int main()
                 evo_log_alloc_state("ui");
             }
         }
+#endif
     }
 }
