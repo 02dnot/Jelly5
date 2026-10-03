@@ -1338,6 +1338,12 @@ int main()
     for (;;) {
         nuvio_input_state in;
         nuvio_input_poll(&in);
+#ifdef JELLY5_LOG_HOST
+        if (in.pressed & NUVIO_BTN_R3) {   /* dev: glass test modes */
+            gfx::glass_debug_next();
+            animating = true;
+        }
+#endif
         {   /* the glass's light follows the controller's tilt */
             float tx, ty;
             nuvio_input_tilt(&tx, &ty);

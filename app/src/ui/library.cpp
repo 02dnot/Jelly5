@@ -288,9 +288,9 @@ Action Library::input(uint32_t p)
     } else if (p & NUVIO_BTN_UP) {
         if (row > 0)
             m_index -= kCols;
-        else {
+        else {   /* up to the nearest pills: the left half to the libraries, the right to the sorts */
             m_in_pills = true;
-            m_pill = ns > 0 ? m_source : m_sort;   /* to the library chosen, else the sort */
+            m_pill = ns > 0 && col < kCols / 2 ? m_source : ns + m_sort;
         }
     } else if (p & NUVIO_BTN_CIRCLE) {
         /* Back: to the top of the grid, then to the sort row. */

@@ -75,6 +75,9 @@ int backdrop_blur(const Rect &r, float radius, float sigma = 24.f, float opacity
 /* Where the glass's light comes from (screen direction, x right, y down); the
  * shell tilts it with the DualSense. Returns true when it moved enough to redraw. */
 bool set_glass_light(float x, float y);
+/* Dev builds: R3 steps through glass test modes (0 normal, 1 no glass shader,
+ * 2 no GPU barrier, 3 no alternating layers) to find what makes noise. */
+void glass_debug_next();
 /* The lit rim of a glass pane: a thin line of light around r's rounded shape. */
 void rim(const Rect &r, float radius, float opacity = 1.f);
 /* Part of a texture (u, v in 0..1), e.g. one thumbnail of a sheet. */

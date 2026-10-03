@@ -106,6 +106,17 @@ void glass_panel(const gfx::Rect &r, float radius, float a, bool shadow, float l
 {
     if (a <= 0.01f)
         return;
+    if (lift > 0) {
+        /* The focus drop sits on glass that already bends the picture: it is that
+         * glass lifted - brighter, a sheen from above, a lit rim - with no backdrop
+         * pass of its own (its own lens over a moving picture flickered). */
+        if (shadow)
+            gfx::shadow(r, radius, 30, 0.35f * a, 10);
+        gfx::fill(r, alpha(0x2effffffu, a * lift), radius);
+        gfx::fill_vgradient({r.x, r.y, r.w, r.h * 0.55f}, alpha(0x24ffffffu, a * lift), 0x00000000u, radius);
+        gfx::rim(r, radius, a);
+        return;
+    }
     if (shadow)
         gfx::shadow(r, radius, 46, 0.6f * a, 18);
     /* The drop is clearer than a pane but not sharp: it sits on panes with lit rims,
