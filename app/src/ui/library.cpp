@@ -258,11 +258,13 @@ void Library::draw(double now, float dt)
         m_ambient.set(items[0].backdrop_blurhash.empty() ? items[0].primary_blurhash : items[0].backdrop_blurhash, now);
     m_ambient.draw(dt, 0.62f, &m_animating);
 
-    /* Grid scroll: the focused row rises to the top line once past the first two. */
+    /* Grid scroll. */
     const int row = m_in_pills ? 0 : m_index / kCols;
     const bool sq = square();
     const float pitch = sq ? 360.f : kRowPitch, tile_h = sq ? kPosterW : kPosterH;
-    m_scroll.to(std::max(0.f, (float)(row - 1) * pitch));
+    /* The focused row comes up near the top (whole, with the next row peeking below);
+     * the first row stays under the header. */
+    m_scroll.to(row > 0 ? (float)row * pitch - 60.f : 0.f);
     if (m_scroll.step(dt, 11.f))
         m_animating = true;
     m_nav.to(m_scroll.target < 1.f ? 1.f : 0.f);

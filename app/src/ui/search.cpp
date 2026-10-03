@@ -253,7 +253,8 @@ void Search::draw(double now, float dt)
     const std::string heading = for_query.empty() ? T("Forslag") : T("Treff for \xC2\xAB") + for_query + "\xC2\xBB";
     gfx::text(kResX, 236, heading, {gfx::Bold, 26, 1000}, kText2);
     const int row = m_in_results ? m_result / kResCols : 0;
-    m_scroll.to(std::max(0.f, (float)(row - 1) * kResPitch));
+    /* The focused row up at the top of the results, whole. */
+    m_scroll.to(row > 0 ? (float)row * kResPitch - 14.f : 0.f);
     if (m_scroll.step(dt, 11.f))
         anim = true;
     gfx::push_scissor({kResX - 40, 256, gfx::W - kResX + 40, gfx::H - 256});
