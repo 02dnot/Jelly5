@@ -8,7 +8,8 @@
 ; canvas coordinates as the target). Per pixel, from the pane's rounded shape:
 ;   - coverage, anti-aliased on the signed distance to the rounded box;
 ;   - refraction: within the bevel the backdrop is sampled from further out
-;     along the outward normal, so the picture bends at the rim like a lens;
+;     along the outward normal, so the picture bends at the rim like a lens,
+;     with a little dispersion (the colours part slightly at the very edge);
 ;   - vibrancy: saturation and brightness lifted, then a light tint;
 ;   - a specular rim lit from the light direction (and a faint opposite glint),
 ;     and a soft sheen from above.
@@ -76,8 +77,13 @@ void main() {
     float bevel = max(g.uShape.y, 1.0);
     float t = clamp(-d / bevel, 0.0, 1.0);
     float bend = (1.0 - t) * (1.0 - t);
-    vec2 sample_px = px + n * bend * g.uLight.w;
-    vec3 col = texture(uSource, sample_px * g.uShape.zw).rgb;
+    vec2 off = n * bend * g.uLight.w;
+    /* A touch of dispersion toward the rim: red bends least, blue most. */
+    vec2 spread = n * bend * bend * 0.18 * g.uLight.w;
+    vec3 col;
+    col.r = texture(uSource, (px + off - spread) * g.uShape.zw).r;
+    col.g = texture(uSource, (px + off) * g.uShape.zw).g;
+    col.b = texture(uSource, (px + off + spread) * g.uShape.zw).b;
 
     /* Vibrancy, then the tint. */
     float luma = dot(col, vec3(0.2126, 0.7152, 0.0722));

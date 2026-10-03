@@ -512,10 +512,11 @@ static bool glass_pass(const Texture &src, const Rect &r, float radius, float op
     const float s = s_scale;
     const float k[20] = {
         r.x * s, r.y * s, (r.x + r.w) * s, (r.y + r.h) * s,              /* uRect */
-        radius * s, 16.f * s, 1.f / (float)src.w, 1.f / (float)src.h,    /* uShape: radius, bevel */
-        -0.55f, -0.83f, 0.85f, 10.f * s,                                 /* uLight: dir, rim, refraction */
-        1.35f, 1.08f, 0.18f, opacity,                                    /* uTone: saturation, brightness, tint */
-        0.06f, 0.06f, 0.08f, 0.07f,                                      /* uTint: colour, sheen */
+        radius * s, std::min(30.f, std::min(r.w, r.h) * 0.3f) * s,      /* uShape: radius, bevel */
+        1.f / (float)src.w, 1.f / (float)src.h,
+        -0.55f, -0.83f, 1.f, 26.f * s,                                   /* uLight: dir, rim, refraction */
+        1.4f, 1.06f, 0.14f, opacity,                                     /* uTone: saturation, brightness, tint */
+        0.05f, 0.05f, 0.07f, 0.06f,                                      /* uTint: colour, sheen */
     };
     std::memcpy(c, k, sizeof k);
     evo_agc_build_constant_vsharp((uint32_t *)cdesc.cpu, consts.gpu_addr, 5u * 16u);
@@ -544,16 +545,24 @@ int backdrop_blur(const Rect &r, float radius, float sigma, float opacity)
     if (opacity <= 0.f || !evo_agc_has_layers() || !evo_agc_runtime_pipeline_valid(EVO_AGC_PIPE_UI_BLUR))
         return 0;
     /* Panel pixels: the rect, and the rect grown by the blur's reach for the first pass. */
-    const float sp = sigma * s_scale, reach = 3.f * sp + 2.f;
+    /* The real glass shows the picture behind it, only softened, so the bending at
+     * the rim can be seen; without the shader a stronger blur carries the look. */
+    const bool shader = evo_agc_runtime_pipeline_valid(EVO_AGC_PIPE_UI_GLASS);
+    const float sp = (shader ? sigma * 0.45f : sigma) * s_scale, reach = 3.f * sp + 2.f;
     const int x0 = std::max(0, (int)std::floor(r.x * s_scale)), y0 = std::max(0, (int)std::floor(r.y * s_scale));
     const int x1 = std::min(s_pw, (int)std::ceil((r.x + r.w) * s_scale));
     const int y1 = std::min(s_ph, (int)std::ceil((r.y + r.h) * s_scale));
     if (x1 <= x0 || y1 <= y0)
         return 0;
-    const int gy0 = std::max(0, (int)(y0 - reach)), gy1 = std::min(s_ph, (int)(y1 + reach));
+    /* The blurred area: the pane, grown for the shader's refraction, which samples
+     * from just outside the rim. */
+    const int m = shader ? (int)std::ceil(30.f * s_scale) : 0;
+    const int bx0 = std::max(0, x0 - m), by0 = std::max(0, y0 - m), bx1 = std::min(s_pw, x1 + m),
+              by1 = std::min(s_ph, y1 + m);
+    const int gy0 = std::max(0, (int)(by0 - reach)), gy1 = std::min(s_ph, (int)(by1 + reach));
 
     evo_agc_layer_surface_t *h = nullptr, *v = nullptr;
-    evo_agc_runtime_set_scissor(x0, gy0, x1 - x0, gy1 - gy0);   /* layers clear what is scissored */
+    evo_agc_runtime_set_scissor(bx0, gy0, bx1 - bx0, gy1 - gy0);   /* layers clear what is scissored */
     if (evo_agc_layer_acquire(&h) != 0 || !h) {
         restore_scissor();
         return 0;
@@ -581,20 +590,27 @@ int backdrop_blur(const Rect &r, float radius, float sigma, float opacity)
     evo_agc_runtime_set_blend(EVO_AGC_BLEND_NONE);
     evo_agc_flush_color_target();                       /* what is drawn so far, readable */
     evo_agc_set_layer_target(h);
-    evo_agc_runtime_set_scissor(x0, gy0, x1 - x0, gy1 - gy0);
+    evo_agc_runtime_set_scissor(bx0, gy0, bx1 - bx0, gy1 - gy0);
     bool ok = blur_pass(src_scan, sp, true);
     evo_agc_flush_color_target();
     evo_agc_set_layer_target(v);
-    evo_agc_runtime_set_scissor(x0, y0, x1 - x0, y1 - y0);
+    evo_agc_runtime_set_scissor(bx0, by0, bx1 - bx0, by1 - by0);
     ok = ok && blur_pass(src_h, sp, false);
     evo_agc_flush_color_target();
     evo_agc_set_layer_target(nullptr);                  /* back on the scanout */
     int result = ok ? 1 : 0;
-    if (ok && evo_agc_runtime_pipeline_valid(EVO_AGC_PIPE_UI_GLASS)) {   /* the real glass */
+    if (ok && shader) {   /* the real glass */
         evo_agc_runtime_set_scissor(x0, y0, x1 - x0, y1 - y0);
         if (glass_pass(out_v, r, radius, opacity))
             result = 2;
     }
+#ifdef JELLY5_LOG_HOST
+    static int s_logged = -1;
+    if (result != s_logged) {
+        s_logged = result;
+        evo_boot_log("gfx: glass %s", result == 2 ? "shader" : result == 1 ? "blur" : "flat");
+    }
+#endif
     restore_scissor();
     if (result == 1) {
         /* The blurred backdrop into the panel's rounded shape, as through a lens: a
