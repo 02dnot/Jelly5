@@ -14,7 +14,8 @@
  *               Pause · Episoder · Lyd og undertekster · Neste episode
  *   scrubbing   Left/Right on the bar (or with the controls hidden) moves a
  *               playhead, accelerating; a bubble shows the time. L2/R2 scrub
- *               the same way (hold to go faster); L1/R1 jump 10 s
+ *               the same way (hold to go faster); L1/R1 step through chapters
+ *               (or jump 10 s when there are none)
  *   overlays    glass panels over the dimmed picture. Lyd og undertekster:
  *               audio and subtitle columns, "Tilpass undertekster" opens style
  *               and timing in a third. Episoder: seasons left, episodes right

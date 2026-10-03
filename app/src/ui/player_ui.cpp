@@ -496,11 +496,31 @@ void PlayerUi::input_local(const nuvio_input_state &in, const NuvioStatus &st, s
         episodes_input(p, out);
         return;
     }
-    if (p & (NUVIO_BTN_L1 | NUVIO_BTN_R1)) {   /* quick jumps, as on Netflix: 10 s back / forward */
+    if (p & (NUVIO_BTN_L1 | NUVIO_BTN_R1)) {
         const double from = m_seeking ? m_seek_target : st.position;
-        const double to = from + ((p & NUVIO_BTN_R1) ? 10.0 : -10.0);
+        const bool forward = (p & NUVIO_BTN_R1) != 0;
         m_seeking = false;
-        out.push_back({OsdCmd::SeekTo, std::max(0.0, std::min(st.duration - 1, to))});
+        const std::vector<NuvioChapter> &ch = m_req->chapters;
+        if (ch.size() > 1) {
+            /* Chapters: R1 the next, L1 back to this one's start (or, in its first
+             * 3 s, the one before); its name shows a moment. */
+            int cur = 0;
+            for (size_t i = 0; i < ch.size(); i++)
+                if (ch[i].start <= from + 0.5)
+                    cur = (int)i;
+            int to = forward ? cur + 1 : (from - ch[cur].start > 3.0 ? cur : cur - 1);
+            if (to >= (int)ch.size()) {
+                /* already in the last chapter */
+            } else {
+                to = std::max(0, to);
+                out.push_back({OsdCmd::SeekTo, std::max(0.0, std::min(st.duration - 1, ch[to].start))});
+                if (!ch[to].name.empty())
+                    toast(ch[to].name, now);
+            }
+        } else {   /* no chapters: quick jumps, as on Netflix, 10 s back / forward */
+            const double to = from + (forward ? 10.0 : -10.0);
+            out.push_back({OsdCmd::SeekTo, std::max(0.0, std::min(st.duration - 1, to))});
+        }
         show_controls(now, Zone::Bar);
         return;
     }
