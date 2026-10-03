@@ -61,9 +61,9 @@ public:
     bool post_play_active() const { return false; }
 
 private:
-    enum class Overlay { None, Tracks, Episodes };
+    enum class Overlay { None, Tracks, Episodes, Chapters };
     enum class Zone { Bar, Buttons };
-    enum class Button { PlayPause, Episodes, Tracks, Next };
+    enum class Button { PlayPause, Episodes, Chapters, Tracks, Next };
 
     void show_controls(double now, Zone zone);
     void seek_step(int dir, const NuvioStatus &st, double now);
@@ -134,6 +134,12 @@ private:
     /* Episodes: 0 seasons, 1 episodes. */
     int m_ep_col = 1, m_ep_season = 0, m_ep_index = 0;
     Anim m_ep_scroll;
+    int m_chap = 0;                     /* the chapter menu: the focused chapter */
+    Anim m_chap_scroll;
+    Drop m_chap_drop;
+    void draw_chapters(const NuvioStatus &st, float a, float dt);
+    /* A trickplay thumbnail of the moment `pos` into r; false without trickplay. */
+    bool trick_thumb(const gfx::Rect &r, double pos, float a, float radius);
     Anim m_lyric_scroll;                /* music: the lyrics' line, eased */
     float m_dt = 0;                     /* this frame's step (draw sets m_last first) */
 

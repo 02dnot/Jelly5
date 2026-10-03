@@ -161,6 +161,8 @@ std::vector<PlayerUi::Button> PlayerUi::buttons() const
     std::vector<Button> b{Button::PlayPause};
     if (m_req && m_req->episodes.size() > 1)
         b.push_back(Button::Episodes);
+    if (m_req && m_req->chapters.size() > 1)
+        b.push_back(Button::Chapters);
     b.push_back(Button::Tracks);
     if (m_req && m_req->has_next)
         b.push_back(Button::Next);
@@ -531,6 +533,19 @@ void PlayerUi::input_local(const nuvio_input_state &in, const NuvioStatus &st, s
         episodes_input(p, out);
         return;
     }
+    if (m_overlay == Overlay::Chapters) {   /* left/right through them, Cross jumps, Circle closes */
+        const int n = (int)m_req->chapters.size();
+        if (p & NUVIO_BTN_LEFT)
+            m_chap = std::max(0, m_chap - 1);
+        else if (p & NUVIO_BTN_RIGHT)
+            m_chap = std::min(n - 1, m_chap + 1);
+        else if ((p & NUVIO_BTN_CROSS) && m_chap < n) {
+            out.push_back({OsdCmd::SeekTo, std::max(0.0, m_req->chapters[m_chap].start)});
+            m_overlay = Overlay::None;
+        } else if (p & (NUVIO_BTN_CIRCLE | NUVIO_BTN_UP))
+            m_overlay = Overlay::None;
+        return;
+    }
     if (p & (NUVIO_BTN_L1 | NUVIO_BTN_R1)) {
         const double from = m_seeking ? m_seek_target : st.position;
         const bool forward = (p & NUVIO_BTN_R1) != 0;
@@ -588,6 +603,15 @@ void PlayerUi::input_local(const nuvio_input_state &in, const NuvioStatus &st, s
                 show_controls(now, Zone::Buttons);
                 break;
             case Button::Episodes: open_overlay(Overlay::Episodes); break;
+            case Button::Chapters: {   /* opens on the chapter playing now */
+                m_chap = 0;
+                for (size_t i = 0; i < m_req->chapters.size(); i++)
+                    if (m_req->chapters[i].start <= st.position + 0.5)
+                        m_chap = (int)i;
+                m_chap_scroll.snap((float)std::max(0, m_chap - 1) * 404.f);
+                open_overlay(Overlay::Chapters);
+                break;
+            }
             case Button::Tracks: open_overlay(Overlay::Tracks); break;
             case Button::Next: out.push_back({OsdCmd::PlayNext}); break;
             }
@@ -733,6 +757,77 @@ void PlayerUi::draw_bar(const NuvioStatus &st, float a)
     }
 }
 
+bool PlayerUi::trick_thumb(const gfx::Rect &r, double pos, float a, float radius)
+{
+    const NuvioTrickplay &tp = m_req->trickplay;
+    if (!tp.valid())
+        return false;
+    const int per = tp.tile_w * tp.tile_h;
+    const int i = std::max(0, std::min(tp.count - 1, (int)(pos / tp.interval)));
+    const std::string url = tp.url_base + std::to_string(i / per) + ".jpg" + tp.url_query;
+    const gfx::Texture *sheet = art::get(url, tp.width * tp.tile_w, tp.height * tp.tile_h);
+    if (!sheet)
+        return true;   /* coming */
+    const int held = std::min(per, tp.count - (i / per) * per);
+    const int cols = std::min(tp.tile_w, held), rows = (held + tp.tile_w - 1) / tp.tile_w;
+    const int cell = i % per, cx = cell % tp.tile_w, cy = cell / tp.tile_w;
+    gfx::image_uv(r, sheet, (float)cx / cols, (float)cy / rows, (float)(cx + 1) / cols, (float)(cy + 1) / rows, a, radius);
+    return true;
+}
+
+/* Kapitler: a glass strip along the bottom, a card per chapter (a trickplay frame a
+ * few seconds in, its name and time), the drop on the focused one. */
+void PlayerUi::draw_chapters(const NuvioStatus &st, float a, float dt)
+{
+    const std::vector<NuvioChapter> &ch = m_req->chapters;
+    const int n = (int)ch.size();
+    m_chap = std::max(0, std::min(n - 1, m_chap));
+    const gfx::Rect r{120, H - 500, W - 240, 420};
+    glass(r, a);
+    gfx::text(r.x + 56, r.y + 74, T("Kapitler"), {gfx::Bold, 36}, alpha(kText, a));
+    const float cw = 384, chh = 216, gap = 20, top = r.y + 110, left = r.x + 56;
+    const float view = r.w - 112;
+    const float target = std::max(0.f, std::min(std::max(0.f, n * (cw + gap) - gap - view), (m_chap - 1) * (cw + gap)));
+    m_chap_scroll.to(target);
+    if (m_chap_scroll.step(dt, 12.f))
+        m_dirty = true;
+    int now_i = 0;
+    for (int i = 0; i < n; i++)
+        if (ch[i].start <= st.position + 0.5)
+            now_i = i;
+    gfx::push_scissor({r.x + 20, r.y + 90, r.w - 40, r.h - 100});
+    bool moving = false;
+    m_chap_drop.to({left + m_chap * (cw + gap) - m_chap_scroll.value - 8, top - 8, cw + 16, chh + 96}, m_chap,
+                   -m_chap_scroll.value, 0);
+    m_chap_drop.draw(dt, a, &moving, 20);
+    if (moving)
+        m_dirty = true;
+    for (int i = 0; i < n; i++) {
+        const float x = left + i * (cw + gap) - m_chap_scroll.value;
+        if (x > r.x + r.w || x + cw < r.x)
+            continue;
+        const gfx::Rect th{x, top, cw, chh};
+        gfx::fill(th, alpha(0xff101014u, a), 14);
+        trick_thumb(th, ch[i].start + 5.0, a, 14);
+        if (i == now_i) {
+            const gfx::Rect chip{th.x + 12, th.y + 12, gfx::text_width(T("N\xC3\xA5"), {gfx::Bold, 18}) + 24, 32};
+            glass_panel(chip, 16, a, false);
+            gfx::text(chip.x + chip.w / 2, chip.y + 23, T("N\xC3\xA5"), {gfx::Bold, 18}, alpha(kText, a), 1);
+        }
+        const bool focus = i == m_chap;
+        gfx::text(x + 4, top + chh + 38, ch[i].name.empty() ? T("Kapittel ") + std::to_string(i + 1) : ch[i].name,
+                  {focus ? gfx::Bold : gfx::SemiBold, 23, cw - 8}, alpha(focus ? kText : kText2, a));
+        const int s = (int)ch[i].start;
+        char t[16];
+        if (s >= 3600)
+            std::snprintf(t, sizeof t, "%d:%02d:%02d", s / 3600, s / 60 % 60, s % 60);
+        else
+            std::snprintf(t, sizeof t, "%d:%02d", s / 60, s % 60);
+        gfx::text(x + 4, top + chh + 70, t, {gfx::Medium, 20}, alpha(kText3, a));
+    }
+    gfx::pop_scissor();
+}
+
 void PlayerUi::draw_controls(const NuvioStatus &st)
 {
     const float a = smoothstep(a_controls.value);
@@ -779,6 +874,7 @@ void PlayerUi::draw_controls(const NuvioStatus &st)
         switch (b) {
         case Button::PlayPause: return st.paused ? T("Spill av") : "Pause";
         case Button::Episodes: return T("Episoder");
+        case Button::Chapters: return T("Kapitler");
         case Button::Tracks: return T("Lyd og undertekster");
         case Button::Next: return T("Neste episode");
         }
@@ -807,6 +903,7 @@ void PlayerUi::draw_controls(const NuvioStatus &st)
         switch (bs[i]) {
         case Button::PlayPause: label = st.paused ? T("Spill av") : "Pause"; break;
         case Button::Episodes: label = T("Episoder"); break;
+        case Button::Chapters: label = T("Kapitler"); break;
         case Button::Tracks: label = T("Lyd og undertekster"); break;
         case Button::Next: label = T("Neste episode"); break;
         }
@@ -826,6 +923,12 @@ void PlayerUi::draw_controls(const NuvioStatus &st)
         case Button::Episodes:   /* a stack of cards */
             gfx::fill({ix + 4, cy - 11, 22, 3}, fg, 1.5f);
             gfx::fill({ix + 1, cy - 6, 28, 17}, fg, 3);
+            break;
+        case Button::Chapters:   /* a list: three bars with dots */
+            for (int k = -1; k <= 1; k++) {
+                gfx::fill({ix + 1, cy + k * 8 - 2, 4, 4}, fg, 2);
+                gfx::fill({ix + 9, cy + k * 8 - 1.5f, 20, 3}, fg, 1.5f);
+            }
             break;
         case Button::Tracks:     /* a speech bubble with lines */
             gfx::fill({ix, cy - 11, 30, 21}, fg, 5);
@@ -1560,6 +1663,8 @@ void PlayerUi::draw(const NuvioStatus &st)
             draw_tracks(st, oa);
         else if (m_overlay_drawn == Overlay::Episodes)
             draw_episodes(oa, dt);
+        else if (m_overlay_drawn == Overlay::Chapters)
+            draw_chapters(st, oa, dt);
         gfx::pop_opacity();
     }
 

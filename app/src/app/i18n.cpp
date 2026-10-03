@@ -115,7 +115,7 @@ const std::unordered_map<std::string, const char *> &english_table()
         {"Ingen preferanse", "No preference"}, {"Alltid", "Always"}, {"Bare tvungne", "Forced only"},
         {"Åpne", "Open"}, {"Skann med telefonen", "Scan with your phone"},
         {"og trykk Godkjenn i Jellyfin", "and tap Authorize in Jellyfin"}, {"Logg inn med brukernavn og passord", "Sign in with username and password"}, {"Versjon", "Version"}, {"Avbryt", "Cancel"}, {"Velg", "Choose"}, {"Fjern konto", "Remove account"},
-        {"Nå", "Now"}, {"Ingen kontakt med Jellyfin-serveren – prøver igjen …", "Can't reach the Jellyfin server – trying again …"},
+        {"Nå", "Now"}, {"Kapitler", "Chapters"}, {"Kapittel ", "Chapter "}, {"Ingen kontakt med Jellyfin-serveren – prøver igjen …", "Can't reach the Jellyfin server – trying again …"},
         {"Tilkoblet igjen", "Connected again"}, {"Mistet kontakten med serveren – prøver igjen …", "Lost the connection to the server – trying again …"},
         {"Fikk ikke kontakt med serveren igjen.", "Couldn't reach the server again."}, {"FUNNET PÅ NETTVERKET", "FOUND ON YOUR NETWORK"},
         {"SØKER PÅ NETTVERKET …", "SEARCHING YOUR NETWORK …"}, {"Merk sesongen som sett", "Mark season as watched"},
