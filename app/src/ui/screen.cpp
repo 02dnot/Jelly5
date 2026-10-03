@@ -108,7 +108,9 @@ void glass_panel(const gfx::Rect &r, float radius, float a, bool shadow, float l
         return;
     if (shadow)
         gfx::shadow(r, radius, 46, 0.6f * a, 18);
-    const int glass = gfx::backdrop_blur(r, radius, lift > 0 ? 2.f : 18.f, a, lift);   /* the drop is clear */
+    /* The drop is clearer than a pane but not sharp: it sits on panes with lit rims,
+     * and its lens squeezing a sharp rim into its edge aliased into blue blocks. */
+    const int glass = gfx::backdrop_blur(r, radius, lift > 0 ? 9.f : 18.f, a, lift);
     if (glass == 2)
         return;   /* the shader drew the whole pane */
     if (glass == 1) {   /* Liquid Glass: clear, a sheen from above, a lit rim */

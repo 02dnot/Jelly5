@@ -561,10 +561,10 @@ static bool glass_pass(const Texture &src, const Rect &r, float radius, float op
         r.x * s, r.y * s, (r.x + r.w) * s, (r.y + r.h) * s,              /* uRect */
         radius * s, std::min(30.f, std::min(r.w, r.h) * 0.3f) * s,      /* uShape: radius, bevel */
         1.f / (float)src.w, 1.f / (float)src.h,
-        s_light_x, s_light_y, 1.f, 1.f,                                  /* uLight: dir, rim, refraction */
+        s_light_x, s_light_y, 1.f, 1.f - 0.55f * lift,                   /* uLight: dir, rim, refraction */
         1.3f, 1.05f, 0.07f, opacity,                                     /* uTone: saturation, brightness, tint */
         0.92f, 0.94f, 1.f, 0.05f,                                        /* uTint: a milky white, sheen */
-        lift, 0.28f * (1.f - lift), 0.f, 0.10f - 0.04f * lift,           /* uMore: lift, legibility, magnify, dispersion */
+        lift, 0.28f * (1.f - lift), 0.f, 0.10f * (1.f - lift),           /* uMore: lift, legibility, magnify, dispersion */
     };
     std::memcpy(c, k, sizeof k);
     evo_agc_build_constant_vsharp((uint32_t *)cdesc.cpu, consts.gpu_addr, 6u * 16u);
