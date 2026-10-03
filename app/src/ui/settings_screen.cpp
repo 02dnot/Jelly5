@@ -234,6 +234,19 @@ void SettingsScreen::draw(double, float dt)
     const float off = m_scroll.value;
 
     gfx::text(left, 200 - off, T("Innstillinger"), {gfx::Bold, 64}, kText);
+    /* Each section is one glass card (a grouped list); the focus is the drop. */
+    for (int r0 = 0; r0 < RowCount;) {
+        const int sec = r0 == About ? 3 : section_of(r0);
+        int r1 = r0;
+        while (r1 + 1 < RowCount && (r1 + 1 == About ? 3 : section_of(r1 + 1)) == sec)
+            r1++;
+        const gfx::Rect card{left - 8, ys[r0] - off - 8, width + 16, ys[r1] + row_h - ys[r0] + 16};
+        if (card.y < gfx::H && card.y + card.h > 0)
+            glass_panel(card, 24, 1.f, false);
+        r0 = r1 + 1;
+    }
+    m_drop.to({left, ys[m_row] - off, width, row_h}, m_row, 0, -off);
+    m_drop.draw(dt, 1.f, &m_animating, 16);
     last_section = -1;
     for (int r = 0; r < RowCount; r++) {
         const int sec = r == About ? 3 : section_of(r);
@@ -243,16 +256,10 @@ void SettingsScreen::draw(double, float dt)
                 gfx::text(left + 8, ys[r] - 22 - off, T(kHeaders[sec]), {gfx::Bold, 22}, kText3);
         }
         const bool focus = r == m_row;
-        const float lift = m_lifts.step(std::to_string(r), focus, dt, &m_animating);
-        const float k = 1.f + 0.02f * lift;
-        const gfx::Rect rr{left - width * (k - 1) / 2, ys[r] - off - row_h * (k - 1) / 2, width * k, row_h * k};
-        if (lift > 0.01f)
-            gfx::shadow(rr, 16, 24, 0.5f * lift, 10 * lift);
-        gfx::fill(rr, focus ? 0xfff5f5f7u : 0x0fffffffu, 16);
-        const uint32_t fg = focus ? 0xff0b0b0fu : kText;
-        const uint32_t fg2 = focus ? 0xb30b0b0fu : kText2;
+        const gfx::Rect rr{left, ys[r] - off, width, row_h};
+        const uint32_t fg = kText, fg2 = focus ? kText : kText2;
         const float cy = rr.y + rr.h / 2 + 9;
-        gfx::text(rr.x + 32, cy, label_of(r), {gfx::SemiBold, 26}, r == SignOut && !focus ? 0xffff7a7au : fg);
+        gfx::text(rr.x + 32, cy, label_of(r), {focus ? gfx::Bold : gfx::SemiBold, 26}, r == SignOut ? 0xffff7a7au : fg);
         const std::string v = value((Row)r);
         const bool adjustable = r >= Quality && r <= Refresh;
         const float vx = rr.x + rr.w - 32 - (adjustable && focus ? 30 : 0);

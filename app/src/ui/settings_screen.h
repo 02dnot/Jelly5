@@ -45,6 +45,7 @@ private:
     int m_row = 0;
     Anim m_scroll;
     Lifts m_lifts;
+    Drop m_drop;                        /* the focus */
     bool m_animating = false;
     std::string m_server_name, m_server_version;
 };

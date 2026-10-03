@@ -42,6 +42,7 @@ private:
     int m_focus = 0;
     bool m_open = false;
     Anim m_alpha;
+    Drop m_drop;                        /* the focus */
 };
 
 } // namespace ui

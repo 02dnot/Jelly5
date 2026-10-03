@@ -42,6 +42,7 @@ private:
     int m_row = 0;
     double m_now = 0, m_refreshed = -10;
     Lifts m_lifts;
+    Drop m_drop;                        /* the focus */
 };
 
 } // namespace ui

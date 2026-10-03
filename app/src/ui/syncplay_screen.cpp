@@ -119,24 +119,31 @@ void SyncPlayScreen::draw(double now, float dt)
         rows.push_back({g.name, who, false});
     }
     m_row = std::min(m_row, (int)rows.size() - 1);
+    /* Rows' places: the actions, a gap, then the groups. */
+    std::vector<float> ys;
     float y = 360;
+    const size_t actions = in_group ? 2u : 1u;
+    for (size_t r = 0; r < rows.size(); r++) {
+        ys.push_back(y);
+        y += 92;
+        if (r + 1 == actions && !groups.empty())
+            y += 24;   /* a gap before the groups */
+    }
+    /* Two glass cards (the actions, the groups), the focus drop, then the text. */
+    glass_panel({left - 8, ys[0] - 8, width + 16, ys[actions - 1] + 84 - ys[0] + 16}, 24, 1.f, false);
+    if (rows.size() > actions)
+        glass_panel({left - 8, ys[actions] - 8, width + 16, ys.back() + 84 - ys[actions] + 16}, 24, 1.f, false);
     bool anim = false;
+    m_drop.to({left, ys[m_row], width, 84}, m_row);
+    m_drop.draw(dt, 1.f, &anim, 16);
     for (size_t r = 0; r < rows.size(); r++) {
         const bool focus = (int)r == m_row;
-        const float lift = m_lifts.step("sp" + std::to_string(r) + rows[r].label, focus, dt, &anim);
-        const float k = 1.f + 0.02f * lift;
-        const gfx::Rect rr{left - width * (k - 1) / 2, y - 84 * (k - 1) / 2, width * k, 84 * k};
-        if (lift > 0.01f)
-            gfx::shadow(rr, 16, 24, 0.5f * lift, 10 * lift);
-        gfx::fill(rr, focus ? 0xfff5f5f7u : 0x0fffffffu, 16);
-        const uint32_t fg = focus ? 0xff0b0b0fu : rows[r].danger ? 0xffff7a7au : kText;
-        gfx::text(rr.x + 32, rr.y + rr.h / 2 + 9, rows[r].label, {gfx::SemiBold, 26, width - 500}, fg);
+        const gfx::Rect rr{left, ys[r], width, 84};
+        const uint32_t fg = rows[r].danger ? 0xffff7a7au : kText;
+        gfx::text(rr.x + 32, rr.y + rr.h / 2 + 9, rows[r].label, {focus ? gfx::Bold : gfx::SemiBold, 26, width - 500}, fg);
         if (!rows[r].value.empty())
             gfx::text(rr.x + rr.w - 32, rr.y + rr.h / 2 + 9, rows[r].value, {gfx::Medium, 22, 440},
-                      focus ? 0xb30b0b0fu : kText2, 2);
-        y += 92;
-        if (r == (in_group ? 1u : 0u) && !groups.empty())
-            y += 24;   /* a gap before the groups */
+                      focus ? kText : kText2, 2);
     }
     if (loaded && groups.empty())
         gfx::text(left + 8, y + 40, T("Ingen andre grupper akkurat nå."), {gfx::Medium, 22}, kText3);

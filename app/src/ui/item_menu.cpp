@@ -108,13 +108,11 @@ void ItemMenu::draw(float dt, bool *animating)
         gfx::text(r.x + 48, y, sub, {gfx::Medium, 22, w - 96}, alpha(kText3, a));
     }
     y += 40;
+    m_drop.to({r.x + 30, y + m_focus * (row_h + 6), w - 60, row_h}, m_focus, r.x, r.y);
+    m_drop.draw(dt, a, animating, 14);
     for (size_t i = 0; i < m_options.size(); i++) {
         const bool focus = (int)i == m_focus;
         const gfx::Rect row{r.x + 30, y, w - 60, row_h};
-        if (focus) {
-            gfx::shadow(row, 14, 16, 0.4f * a, 6);
-            gfx::fill(row, alpha(0xfff5f5f7u, a), 14);
-        }
         const char *label = "";
         switch (m_options[i]) {
         case Info: label = T("Mer info"); break;
@@ -122,7 +120,7 @@ void ItemMenu::draw(float dt, bool *animating)
         case Played: label = m_item.played ? T("Merk som usett") : T("Merk som sett"); break;
         case Resume: label = T("Fjern fra Fortsett \xC3\xA5 se"); break;
         }
-        gfx::text(row.x + 26, row.y + 44, label, {gfx::SemiBold, 26}, alpha(focus ? 0xff0b0b0fu : kText2, a));
+        gfx::text(row.x + 26, row.y + 44, label, {focus ? gfx::Bold : gfx::SemiBold, 26}, alpha(focus ? kText : kText2, a));
         y += row_h + 6;
     }
     draw_pad_hints(r.x + 56, r.y + r.h - 52, {{PadButton::Cross, T("Velg")}, {PadButton::Circle, T("Lukk")}}, 0, 26,
