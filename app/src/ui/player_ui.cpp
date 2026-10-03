@@ -777,27 +777,16 @@ void PlayerUi::draw_loading(const NuvioStatus &st)
     gfx::fill_vgradient({0, 378, W, 378}, 0x99000000u, 0xcc000000u);
     gfx::fill_vgradient({0, 756, W, 324}, 0xcc000000u, 0xe6000000u);
 
-    /* The logo fades in after 400 ms, breathes, then fills as the stream opens. */
+    /* Only the picture: no logo flashing up in the moment before playback. If the
+     * stream is slow to open (over 2 s), quiet dots say it is still coming. */
     const float t = (float)(st.now - m_load_since);
-    float ia = t < 0.4f ? 0.f : std::min(1.f, (t - 0.4f) / 0.7f);
-    const float progress = std::max(0.f, std::min(1.f, st.open_progress));
-    if (progress <= 0.f)
-        ia *= 0.75f + 0.25f * (0.5f + 0.5f * std::cos((t - 0.4f) * 3.14159f));
-    if (const gfx::Texture *logo = art::get(m_req->logo, 800, 300)) {
-        const float iw = (float)gfx::texture_width(logo), ih = (float)gfx::texture_height(logo);
-        const float k = std::min(640.f / iw, 230.f / ih);
-        const gfx::Rect r{W / 2 - iw * k / 2, H / 2 - 150 + (230 - ih * k) / 2, iw * k, ih * k};
-        if (progress > 0.f) {
-            gfx::image(r, logo, ia * 0.25f, 0, false);
-            gfx::push_scissor({r.x, r.y, r.w * progress, r.h});
-            gfx::image(r, logo, ia, 0, false);
-            gfx::pop_scissor();
-        } else {
-            gfx::image(r, logo, ia, 0, false);
+    if (t > 2.f && st.error.empty()) {
+        const float da = std::min(1.f, (t - 2.f) / 0.5f);
+        for (int i = 0; i < 3; i++) {
+            const float pulse = 0.3f + 0.7f * (0.5f + 0.5f * std::sin(t * 5.f - i * 0.9f));
+            gfx::fill({W / 2 - 40 + i * 32, H - 160, 14, 14}, alpha(kText, da * pulse), 7);
         }
-    } else if (m_req->logo.empty()) {
-        gfx::text(W / 2, H / 2 - 40, m_req->header_title(), {gfx::Bold, 48, 1500}, alpha(kText, ia), 1);
-        gfx::text(W / 2, H / 2 + 14, m_req->header_subtitle(), {gfx::Medium, 30, 1500}, alpha(kText2, ia), 1);
+        m_dirty = true;
     }
     gfx::pop_opacity();
 }

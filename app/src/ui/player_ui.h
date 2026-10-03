@@ -8,7 +8,7 @@
  * every frame and the controller's input, and it answers with the same
  * commands (pause, seek, pick a track, next episode).
  *
- *   loading     the title's backdrop, its logo filling as the stream opens
+ *   loading     the title's backdrop only (dots if the stream is slow to open)
  *   controls    at the bottom: the title, the progress bar (intro and credits
  *               marked) with the time left, and a row of buttons:
  *               Pause · Episoder · Lyd og undertekster · Neste episode

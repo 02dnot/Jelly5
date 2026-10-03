@@ -1056,13 +1056,8 @@ void play(jf::Item item, bool from_start, bool shuffle = false, const std::vecto
      * loading screen (its colour, the title's backdrop at 92 %, its gradient),
      * and the art it is about to ask for is already being fetched. */
     const std::string backdrop = s_client->image_url(item.backdrop_owner, "Backdrop", item.backdrop_tag, 1920);
-    const std::string logo = s_client->image_url(item.logo_owner, "Logo", item.logo_tag, 800);
     if (!backdrop.empty())
         ui_image_request(backdrop.c_str(), 1920, 1080, 0);
-    if (!logo.empty()) {
-        ui_image_request(logo.c_str(), 640, 230, 0);
-        ui_image_request(logo.c_str(), 520, 120, 0);
-    }
     gfx::begin_frame();
     const gfx::Rect full{0, 0, gfx::W, gfx::H};
     if (item.type == "Audio") {   /* the music screen's ground: its colour and the cover's hues */
