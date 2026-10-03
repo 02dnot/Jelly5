@@ -324,6 +324,12 @@ std::string request_json(jf::Client &c, const jf::Item &it, const jf::Playback &
     cJSON_AddItemToObject(prefs, "skipIntro", cJSON_CreateBool(1));
     cJSON_AddItemToObject(prefs, "autoSkipIntro", cJSON_CreateBool(set.local.auto_skip_intro));
     cJSON_AddItemToObject(prefs, "clock24h", cJSON_CreateBool(1));
+    cJSON *style = cJSON_CreateObject();   /* how text subtitles look (Innstillinger) */
+    cJSON_AddNumberToObject(style, "size", set.local.sub_size);
+    cJSON_AddNumberToObject(style, "offset", set.local.sub_offset);
+    cJSON_AddNumberToObject(style, "background", set.local.sub_background);
+    cJSON_AddItemToObject(style, "outline", cJSON_CreateBool(set.local.sub_outline));
+    cJSON_AddItemToObject(prefs, "subtitleStyle", style);
     cJSON_AddItemToObject(o, "prefs", prefs);
 
     /* The player's interface text, in the interface's language (built per playback). */

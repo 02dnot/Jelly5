@@ -19,6 +19,11 @@ namespace ui {
 
 class SettingsScreen : public Screen {
 public:
+    enum Row {
+        SwitchUser, SignOut,
+        Quality, AudioLang, SubMode, SubLang, SubSize, SubBackground, Autoplay, AutoSkip,
+        AppLanguage, ServerInfo, About, RowCount
+    };
     explicit SettingsScreen(jf::Client &client) : m_client(client) {}
 
     void set_server_info(const std::string &name, const std::string &version)
@@ -33,11 +38,6 @@ public:
     float nav_alpha() const override { return m_scroll.value < 1.f ? 1.f : 0.f; }
 
 private:
-    enum Row {
-        SwitchUser, SignOut,
-        Quality, AudioLang, SubMode, SubLang, Autoplay, AutoSkip,
-        AppLanguage, ServerInfo, About, RowCount
-    };
     void change(Row r, int dir);
     std::string value(Row r) const;
 

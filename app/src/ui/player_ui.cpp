@@ -7,6 +7,7 @@
 #include "ui/player_ui.h"
 
 #include "app/remote.h"
+#include "app/settings.h"
 #include "app/i18n.h"
 #include "jelly5_playback.h"
 #include "gfx/art.h"
@@ -337,6 +338,13 @@ void PlayerUi::tracks_input(uint32_t p, const NuvioStatus &st, std::vector<OsdCo
         }
         nuvio_subs_set_style(&s);
         out.push_back({OsdCmd::SubtitleStyle});
+        /* Kept for the next time (and shown in Innstillinger). */
+        settings::Local l = settings::get().local;
+        l.sub_size = s.size_pct;
+        l.sub_offset = s.offset_pct;
+        l.sub_background = s.background;
+        l.sub_outline = s.outline != 0;
+        settings::set_local(l);
     } else if (p & NUVIO_BTN_LEFT) {
         if (m_col > 0)
             m_col--;

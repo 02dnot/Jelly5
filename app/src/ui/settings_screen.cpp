@@ -41,7 +41,7 @@ constexpr int kNumModes = 5;
 
 const char *kHeaders[] = {"Konto", "Avspilling", "Generelt"};
 
-int section_of(int row) { return row <= 1 ? 0 : row <= 7 ? 1 : 2; }
+int section_of(int row) { return row <= SettingsScreen::SignOut ? 0 : row <= SettingsScreen::AutoSkip ? 1 : 2; }
 
 const char *label_of(int row)
 {
@@ -51,6 +51,8 @@ const char *label_of(int row)
                                          T("Foretrukket lydspråk"),
                                          T("Undertekster"),
                                          T("Undertekstspråk"),
+                                         T("Undertekststørrelse"),
+                                         T("Undertekstbakgrunn"),
                                          T("Spill neste episode automatisk"),
                                          T("Hopp over intro automatisk"),
                                          T("Språk"),
@@ -90,6 +92,10 @@ std::string SettingsScreen::value(Row r) const
         if (s.local.language == i18n::English) return "English";
         return std::string(T("Automatisk")) + " (" + (i18n::english() ? "English" : "Norsk") + ")";
     }
+    case SubSize: return std::to_string(s.local.sub_size) + " %";
+    case SubBackground:
+        return s.local.sub_background < 0.05f ? std::string(T("Av"))
+                                              : std::to_string((int)(s.local.sub_background * 100 + 0.5f)) + " %";
     case Autoplay: return s.server.autoplay_next ? T("På") : T("Av");
     case AutoSkip: return s.local.auto_skip_intro ? T("På") : T("Av");
     case ServerInfo: return m_server_name.empty() ? m_client.server() : m_server_name + "  \xC2\xB7  " + m_server_version;
@@ -116,6 +122,16 @@ void SettingsScreen::change(Row r, int dir)
         s.local.auto_skip_intro = !s.local.auto_skip_intro;
         settings::set_local(s.local);
         break;
+    case SubSize:
+        s.local.sub_size = std::max(50, std::min(200, s.local.sub_size + dir * 10));
+        settings::set_local(s.local);
+        break;
+    case SubBackground: {   /* Av, 25, 50, 75 % */
+        const int i = (int)(s.local.sub_background * 4 + 0.5f);
+        s.local.sub_background = (float)cycle(i, 4) / 4.f;
+        settings::set_local(s.local);
+        break;
+    }
     case AppLanguage:
         s.local.language = cycle(s.local.language, 3);   /* Automatisk, Norsk, English */
         settings::set_local(s.local);

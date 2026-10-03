@@ -4,7 +4,8 @@
  *
  * Settings. Audio/subtitle languages, subtitle mode and autoplay live on the
  * Jellyfin account (so every client agrees); the console-side ones (quality
- * cap, automatic intro skipping) live in /download0/jelly5/settings.json.
+ * cap, automatic intro skipping, language, subtitle look) live in
+ * /download0/jelly5/settings.json.
  */
 #pragma once
 
@@ -16,6 +17,11 @@ struct Local {
     int max_mbps = 0;            /* 0 = no cap (direct play whatever the network allows) */
     bool auto_skip_intro = false;
     int language = 0;            /* i18n::Choice: 0 follow the PS5, 1 Norsk, 2 English */
+    /* How text subtitles look (set in Innstillinger or in the player). */
+    int sub_size = 100;          /* % */
+    float sub_offset = 0;        /* % of the height, lift from the bottom */
+    float sub_background = 0;    /* 0..1 box behind the text */
+    bool sub_outline = true;
 };
 
 struct All {

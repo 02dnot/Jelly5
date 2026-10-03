@@ -4,6 +4,8 @@
  */
 #include "app/settings.h"
 
+#include <algorithm>
+
 #include "evo_boot_trace.h"
 
 #include <cstdio>
@@ -50,6 +52,18 @@ void load_local()
         s_all.local.max_mbps = 0;
     s_all.local.auto_skip_intro = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(j, "autoSkipIntro"));
     s_all.local.language = (int)cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(j, "language"));
+    if (const cJSON *st = cJSON_GetObjectItemCaseSensitive(j, "subtitles")) {
+        Local &l = s_all.local;
+        const cJSON *v;
+        if (cJSON_IsNumber(v = cJSON_GetObjectItemCaseSensitive(st, "size")))
+            l.sub_size = std::max(50, std::min(200, (int)v->valuedouble));
+        if (cJSON_IsNumber(v = cJSON_GetObjectItemCaseSensitive(st, "offset")))
+            l.sub_offset = std::max(0.f, std::min(40.f, (float)v->valuedouble));
+        if (cJSON_IsNumber(v = cJSON_GetObjectItemCaseSensitive(st, "background")))
+            l.sub_background = std::max(0.f, std::min(1.f, (float)v->valuedouble));
+        if (cJSON_IsBool(v = cJSON_GetObjectItemCaseSensitive(st, "outline")))
+            l.sub_outline = cJSON_IsTrue(v);
+    }
     if (s_all.local.language < 0 || s_all.local.language > 2)
         s_all.local.language = 0;
     cJSON_Delete(j);
@@ -66,6 +80,12 @@ void set_local(const Local &l)
     cJSON_AddNumberToObject(j, "maxMbps", l.max_mbps);
     cJSON_AddBoolToObject(j, "autoSkipIntro", l.auto_skip_intro);
     cJSON_AddNumberToObject(j, "language", l.language);
+    cJSON *st = cJSON_CreateObject();
+    cJSON_AddNumberToObject(st, "size", l.sub_size);
+    cJSON_AddNumberToObject(st, "offset", l.sub_offset);
+    cJSON_AddNumberToObject(st, "background", l.sub_background);
+    cJSON_AddBoolToObject(st, "outline", l.sub_outline);
+    cJSON_AddItemToObject(j, "subtitles", st);
     char *text = cJSON_PrintUnformatted(j);
     cJSON_Delete(j);
     if (FILE *f = std::fopen(kFile, "wb")) {
