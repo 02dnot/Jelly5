@@ -4,6 +4,8 @@
  */
 #include "app/accounts.h"
 
+#include <map>
+
 #include "evo_boot_trace.h"
 
 #include <cstdio>
@@ -55,7 +57,11 @@ Account account_of(const cJSON *o)
 struct Store {
     std::vector<Account> list;
     std::string last_server, last_user;
+    std::map<std::string, std::pair<std::string, std::string>> by_ps5;   /* PS5 user -> server, user */
 };
+
+int s_ps5_user = -1;
+std::string ps5_key() { return std::to_string(s_ps5_user); }
 
 Store read_store()
 {
@@ -67,6 +73,10 @@ Store read_store()
             s.list.push_back(account_of(it));
         s.last_server = str(j, "lastServer");
         s.last_user = str(j, "lastUser");
+        const cJSON *m;
+        cJSON_ArrayForEach(m, cJSON_GetObjectItemCaseSensitive(j, "lastByPs5User"))
+            if (m->string)
+                s.by_ps5[m->string] = {str(m, "server"), str(m, "user")};
         cJSON_Delete(j);
         return s;
     }
@@ -101,6 +111,14 @@ void write_store(const Store &s)
     cJSON_AddItemToObject(j, "accounts", arr);
     cJSON_AddStringToObject(j, "lastServer", s.last_server.c_str());
     cJSON_AddStringToObject(j, "lastUser", s.last_user.c_str());
+    cJSON *by = cJSON_CreateObject();
+    for (const auto &kv : s.by_ps5) {
+        cJSON *o = cJSON_CreateObject();
+        cJSON_AddStringToObject(o, "server", kv.second.first.c_str());
+        cJSON_AddStringToObject(o, "user", kv.second.second.c_str());
+        cJSON_AddItemToObject(by, kv.first.c_str(), o);
+    }
+    cJSON_AddItemToObject(j, "lastByPs5User", by);
     char *text = cJSON_PrintUnformatted(j);
     cJSON_Delete(j);
     /* Write beside, then rename: a crash mid-write never loses the accounts. */
@@ -119,11 +137,19 @@ void write_store(const Store &s)
 
 std::vector<Account> load() { return read_store().list; }
 
+void set_ps5_user(int ps5_user_id) { s_ps5_user = ps5_user_id; }
+
 bool last(Account *out)
 {
     const Store s = read_store();
+    std::string server = s.last_server, user = s.last_user;
+    const auto mine = s.by_ps5.find(ps5_key());
+    if (mine != s.by_ps5.end()) {   /* this PS5 user's own */
+        server = mine->second.first;
+        user = mine->second.second;
+    }
     for (const Account &a : s.list)
-        if (a.server == s.last_server && a.user_id == s.last_user && !a.token.empty()) {
+        if (a.server == server && a.user_id == user && !a.token.empty()) {
             *out = a;
             return true;
         }
@@ -143,6 +169,8 @@ void remember(const Account &a)
         s.list.push_back(a);
     s.last_server = a.server;
     s.last_user = a.user_id;
+    if (s_ps5_user >= 0)
+        s.by_ps5[ps5_key()] = {a.server, a.user_id};
     write_store(s);
 }
 
@@ -156,6 +184,8 @@ void forget(const std::string &server, const std::string &user_id)
     s.list = keep;
     if (s.last_server == server && s.last_user == user_id)
         s.last_server.clear(), s.last_user.clear();
+    for (auto it = s.by_ps5.begin(); it != s.by_ps5.end();)
+        it = (it->second.first == server && it->second.second == user_id) ? s.by_ps5.erase(it) : std::next(it);
     write_store(s);
 }
 
@@ -164,6 +194,8 @@ void set_last(const std::string &server, const std::string &user_id)
     Store s = read_store();
     s.last_server = server;
     s.last_user = user_id;
+    if (s_ps5_user >= 0)
+        s.by_ps5[ps5_key()] = {server, user_id};
     write_store(s);
 }
 

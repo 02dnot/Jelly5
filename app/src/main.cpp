@@ -1226,6 +1226,7 @@ int main()
     std::snprintf(device, sizeof device, "jelly5-ps5-%d", s_user);
     s_device = device;
     settings::load_local();
+    accounts::set_ps5_user(s_user);   /* each PS5 user keeps their own Jellyfin account */
     i18n::set_choice(settings::get().local.language);
     /* 120 Hz where the display has it: smoother menus, and 24p film without 3:2 judder. */
     if (settings::get().local.refresh_120 && evo_agc_runtime_supports_120hz())

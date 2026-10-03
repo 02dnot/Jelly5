@@ -20,7 +20,10 @@ struct Account {
 };
 
 std::vector<Account> load();
-/* The account used last, if any. */
+/* The PS5 user running the app: "last" is kept per PS5 user, so everyone in the
+ * house lands in their own Jellyfin account. Call once at start. */
+void set_ps5_user(int ps5_user_id);
+/* The account this PS5 user used last (else the one used last on this PS5), if any. */
 bool last(Account *out);
 /* Adds or refreshes an account and makes it the last used. */
 void remember(const Account &a);
