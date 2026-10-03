@@ -498,6 +498,8 @@ float text(float x, float baseline, const std::string &s, const TextStyle &st, u
     return e.advance;
 }
 
+size_t text_cache_size() { return s_text.size(); }
+
 void collect()
 {
     /* Text not drawn for ~10 s goes; the cache never holds more than 1500. */

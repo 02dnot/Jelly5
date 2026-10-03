@@ -46,6 +46,8 @@ Texture *texture_from_pixels(const uint32_t *rgba, int w, int h, int stride_px);
 Texture *texture_from_image(const ui_image *img);
 void texture_release(Texture *t);
 int texture_width(const Texture *t);
+/* Text kept as textures (for the periodic health line). */
+size_t text_cache_size();
 int texture_height(const Texture *t);
 
 /* Multiply the opacity of everything that follows (nests). */

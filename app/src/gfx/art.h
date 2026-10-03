@@ -34,6 +34,9 @@ void draw(const gfx::Rect &r, const std::string &url, const std::string &hash, i
 /* True while some image is still fading in (keep drawing frames). */
 bool animating();
 
+/* For the periodic health line in the log: bytes held, images, BlurHash placeholders. */
+void stats(size_t *bytes, size_t *images, size_t *placeholders);
+
 /* Once per frame: uploads arrived images, evicts over budget. */
 void tick();
 

@@ -39,7 +39,13 @@ struct Entry {
 };
 
 std::unordered_map<std::string, Entry> s_art;
-std::unordered_map<std::string, gfx::Texture *> s_hash;
+/* BlurHash placeholders (32x20), kept while used; the oldest go past kMaxHashes. */
+struct HashEntry {
+    gfx::Texture *tex;
+    uint64_t used;
+};
+std::unordered_map<std::string, HashEntry> s_hash;
+constexpr size_t kMaxHashes = 1200;
 uint64_t s_tick = 0;
 size_t s_bytes = 0;
 bool s_animating = false;
@@ -177,10 +183,13 @@ const gfx::Texture *blurhash(const std::string &hash)
     if (hash.empty())
         return nullptr;
     auto it = s_hash.find(hash);
-    if (it != s_hash.end())
-        return it->second;
+    if (it != s_hash.end()) {
+        it->second.used = s_tick;
+        return it->second.tex;
+    }
     gfx::Texture *t = decode_blurhash(hash);
-    s_hash.emplace(hash, t);
+    if (t)   /* a failure (pool full) is tried again later, not remembered */
+        s_hash.emplace(hash, HashEntry{t, s_tick});
     return t;
 }
 
@@ -201,6 +210,13 @@ void draw(const gfx::Rect &r, const std::string &url, const std::string &hash, i
 
 bool animating() { return s_animating; }
 
+void stats(size_t *bytes, size_t *images, size_t *placeholders)
+{
+    *bytes = s_bytes;
+    *images = s_art.size();
+    *placeholders = s_hash.size();
+}
+
 void tick()
 {
     s_tick++;
@@ -208,6 +224,19 @@ void tick()
     s_animating = false;
     const bool pressure = s_pressure;
     s_pressure = false;
+    if (s_hash.size() > kMaxHashes) {   /* placeholders: back to 3/4 of the cap, oldest first */
+        std::vector<std::pair<uint64_t, std::string>> old;
+        for (auto &kv : s_hash)
+            if (kv.second.used + 2 < s_tick)
+                old.emplace_back(kv.second.used, kv.first);
+        std::sort(old.begin(), old.end());
+        for (auto &p : old) {
+            if (s_hash.size() <= kMaxHashes * 3 / 4)
+                break;
+            gfx::texture_release(s_hash[p.second].tex);
+            s_hash.erase(p.second);
+        }
+    }
     if (s_bytes <= budget() && !pressure)
         return;
     /* Over budget: drop the least recently drawn textures (not this frame's). */

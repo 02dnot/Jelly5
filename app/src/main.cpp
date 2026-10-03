@@ -20,6 +20,7 @@
 #include "nuvio_player.h"
 #include "gfx/art.h"
 #include "gfx/gfx.h"
+#include "gfx/gfx_pool.h"
 #include "ui/album.h"
 #include "ui/detail.h"
 #include "ui/home.h"
@@ -71,6 +72,7 @@ int sceUserServiceGetLoginUserIdList(int user_ids[4]);
 int scePadInit(void);
 int sceKernelSendNotificationRequest(int, void *, unsigned long, int);
 int sceSystemServiceHideSplashScreen(void);
+void evo_log_alloc_state(const char *when);
 extern int g_ps5_user_id;
 }
 
@@ -1177,6 +1179,21 @@ int main()
         } else {
             usleep(8000);
             last = now_s();
+        }
+        /* Once a minute, what the app holds (idle too): anything that only grows
+         * shows here over a long session. */
+        {
+            static double last_health = 0;
+            const double hnow = now_s();
+            if (hnow - last_health >= 60.0) {
+                last_health = hnow;
+                size_t art_bytes, art_n, hashes;
+                art::stats(&art_bytes, &art_n, &hashes);
+                evo_bt("health: up %.0f min, art %zu MB in %zu, blurhash %zu, text %zu, pool %zu/%zu MB, clients %zu",
+                       (hnow - t0) / 60.0, art_bytes >> 20, art_n, hashes, gfx::text_cache_size(),
+                       gfx::pool_used() >> 20, gfx::pool_size() >> 20, s_clients.size());
+                evo_log_alloc_state("ui");
+            }
         }
     }
 }
