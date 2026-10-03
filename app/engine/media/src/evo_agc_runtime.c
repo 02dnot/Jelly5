@@ -1949,9 +1949,15 @@ int evo_agc_has_layers(void)
  * plus a 33 MB cache flush per acquire, and a blurred element takes three
  * acquires per frame; for a card-sized region this is roughly 70x less work.
  * RmlUi sets the backdrop scissor before PushLayer, so the rect is current. */
+/* Jelly5: off - the backdrop blur overwrites every pixel it later reads, and this
+ * CPU clear ran while up to three earlier frames were still on the GPU using the
+ * same layers (and wrote linear rows into a tiled surface): pixel noise on glass. */
+static int s_layer_clear = 1;
+void evo_agc_layers_set_clear(int on) { s_layer_clear = on; }
+
 static void layer_surface_clear(evo_agc_layer_surface_t *layer)
 {
-    if (!layer || !layer->cpu_base || !layer->pitch_bytes)
+    if (!s_layer_clear || !layer || !layer->cpu_base || !layer->pitch_bytes)
         return;
 
     int x = g_agc_dev.scissor_x, y = g_agc_dev.scissor_y;

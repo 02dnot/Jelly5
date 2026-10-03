@@ -607,19 +607,28 @@ int backdrop_blur(const Rect &r, float radius, float sigma, float opacity, float
               by1 = std::min(s_ph, y1 + m);
     const int gy0 = std::max(0, (int)(by0 - reach)), gy1 = std::min(s_ph, (int)(by1 + reach));
 
-    evo_agc_layer_surface_t *h = nullptr, *v = nullptr;
-    evo_agc_runtime_set_scissor(bx0, gy0, bx1 - bx0, gy1 - gy0);   /* layers clear what is scissored */
-    if (evo_agc_layer_acquire(&h) != 0 || !h) {
-        glass_why("no free layer");
+    /* Two layers, alternating between two pairs from one glass pane to the next,
+     * so a pane's passes never write the layer the pane just before is still
+     * reading on the GPU. (No CPU clear: the passes write all that is read.) */
+    static bool s_no_clear = (evo_agc_layers_set_clear(0), true);
+    (void)s_no_clear;
+    static unsigned s_pane = 0;
+    evo_agc_layer_surface_t *got[4] = {nullptr, nullptr, nullptr, nullptr};
+    int n = 0;
+    while (n < 4 && evo_agc_layer_acquire(&got[n]) == 0 && got[n])
+        n++;
+    if (n < 2) {
+        glass_why(n == 0 ? "no free layer" : "no second layer");
+        for (int i = 0; i < n; i++)
+            evo_agc_layer_release(got[i]);
         restore_scissor();
         return 0;
     }
-    if (evo_agc_layer_acquire(&v) != 0 || !v) {
-        glass_why("no second layer");
-        evo_agc_layer_release(h);
-        restore_scissor();
-        return 0;
-    }
+    const int pair = (n >= 4 && (s_pane++ & 1)) ? 2 : 0;
+    evo_agc_layer_surface_t *h = got[pair], *v = got[pair + 1];
+    for (int i = 0; i < n; i++)
+        if (i != pair && i != pair + 1)
+            evo_agc_layer_release(got[i]);
     evo_agc_layer_surface_t scan;
     evo_agc_get_scanout_layer(&scan);
     Texture src_scan, src_h, out_v;

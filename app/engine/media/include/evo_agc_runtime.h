@@ -250,6 +250,8 @@ int                       evo_agc_runtime_last_video_trc(void);
  * the C++ side degrades gracefully: the UI draws, but the backdrop blur
  * simply does not appear. */
 int                       evo_agc_has_layers(void);
+/* Jelly5: whether acquiring a layer clears its scissored region on the CPU (default on). */
+void                      evo_agc_layers_set_clear(int on);
 int                       evo_agc_layer_acquire(evo_agc_layer_surface_t **out);
 void                      evo_agc_layer_release(evo_agc_layer_surface_t *layer);
 /* NULL = switch to the scanout backbuffer (the default render target for UI
