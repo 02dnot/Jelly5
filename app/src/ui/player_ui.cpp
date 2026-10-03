@@ -840,12 +840,14 @@ void PlayerUi::draw_skip_next(const NuvioStatus &st)
         if (m_req->prefs.autoplay_next && m_card_since >= 0) {
             const double left = std::max(0.0, 10.0 - (st.now - m_card_since));
             char c[48];
-            std::snprintf(c, sizeof c, T("Spilles om %d s  \xC2\xB7  \xE2\x9C\x95 n\xC3\xA5"), (int)std::ceil(left));
-            gfx::text(tx, r.y + 116, c, {gfx::Medium, 20}, kText2);
+            std::snprintf(c, sizeof c, T("Spilles om %d s"), (int)std::ceil(left));
+            const float cw = gfx::text(tx, r.y + 116, c, {gfx::Medium, 20}, kText2);
+            draw_pad_hint(tx + cw + 18, r.y + 109, PadButton::Cross, T("Nå"), 24);
             gfx::fill({tx, r.y + 132, r.w - 270, 4}, 0x33ffffffu, 2);
             gfx::fill({tx, r.y + 132, (r.w - 270) * (float)(1.0 - left / 10.0), 4}, kAccent, 2);
         } else {
-            gfx::text(tx, r.y + 116, T("\xE2\x9C\x95 spill av  \xC2\xB7  \xE2\x97\x8B se rulletekst"), {gfx::Medium, 20}, kText2);
+            draw_pad_hints(tx, r.y + 109, {{PadButton::Cross, T("Spill av")}, {PadButton::Circle, T("Se rulletekst")}}, 0,
+                           24);
         }
         gfx::pop_opacity();
     }
@@ -987,7 +989,7 @@ void PlayerUi::draw_tracks(const NuvioStatus &st, float a)
         else if (state == jelly5_subs::Done && found.empty())
             gfx::text(cols[2] + 18, sy, T("Fant ingen"), {gfx::Medium, 22}, alpha(kText3, a));
     }
-    gfx::text(r.x + 56, r.y + r.h - 40, T("\xE2\x97\x8B lukk"), {gfx::Medium, 20}, alpha(kText3, a));
+    draw_pad_hints(r.x + 56, r.y + r.h - 48, {{PadButton::Circle, T("Lukk")}}, 0, 26, a);
 }
 
 /* Episoder: seasons on the left, the season's episodes as a list of stills
@@ -1064,8 +1066,7 @@ void PlayerUi::draw_episodes(float a, float dt)
     gfx::pop_scissor();
     if (eps.empty())
         gfx::text(lx, top + 50, T("Ingen episoder i denne sesongen."), {gfx::Medium, 24}, alpha(kText3, a));
-    gfx::text(r.x + 56, r.y + r.h - 40, T("\xE2\x9C\x95 spill av   \xC2\xB7   \xE2\x97\x8B lukk"), {gfx::Medium, 20},
-              alpha(kText3, a));
+    draw_pad_hints(r.x + 56, r.y + r.h - 48, {{PadButton::Cross, T("Spill av")}, {PadButton::Circle, T("Lukk")}}, 0, 26, a);
 }
 
 void PlayerUi::draw_error(const NuvioStatus &st)

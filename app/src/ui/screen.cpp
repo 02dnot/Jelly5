@@ -118,6 +118,28 @@ float draw_pad_hint(float x, float cy, PadButton b, const std::string &label, fl
     return w + 10 + gfx::text(x + w + 10, cy + d * 0.28f, label, {gfx::Medium, d * 0.72f}, alpha(kText2, a));
 }
 
+float pad_hint_width(PadButton b, const std::string &label, float size)
+{
+    float w = size;
+    if (b == PadButton::Options)
+        w = size * 1.5f;
+    else if (b == PadButton::L1 || b == PadButton::R1)
+        w = gfx::text_width("L1", {gfx::Bold, size * 0.5f}) + size * 0.7f;
+    return label.empty() ? w : w + 10 + gfx::text_width(label, {gfx::Medium, size * 0.72f});
+}
+
+float draw_pad_hints(float x, float cy, const std::vector<PadHint> &hints, int align, float size, float a)
+{
+    const float gap = size * 0.9f;
+    float total = 0;
+    for (size_t i = 0; i < hints.size(); i++)
+        total += pad_hint_width(hints[i].button, hints[i].label, size) + (i ? gap : 0);
+    float hx = align == 1 ? x - total / 2 : align == 2 ? x - total : x;
+    for (const PadHint &h : hints)
+        hx += draw_pad_hint(hx, cy, h.button, h.label, size, a) + gap;
+    return total;
+}
+
 float brand_width(float size)
 {
     return size * 0.95f + size * 0.3f + gfx::text_width("Jelly5", {gfx::Bold, size});

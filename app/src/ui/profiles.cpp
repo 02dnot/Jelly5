@@ -94,9 +94,10 @@ void Profiles::draw(double, float dt)
     }
     const bool armed = m_armed >= 0 && m_armed == m_focus;
     gfx::text(gfx::W / 2, 1000,
-              armed ? T("Trykk \xE2\x96\xB3 igjen for \xC3\xA5 fjerne kontoen fra denne PS5-en")
-                    : T("\xE2\x9C\x95 velg   \xC2\xB7   \xE2\x96\xB3 fjern konto"),
+              armed ? T("Trykk \xE2\x96\xB3 igjen for \xC3\xA5 fjerne kontoen fra denne PS5-en") : "",
               {gfx::Medium, 22}, armed ? 0xffff6b6bu : kText3, 1);
+    if (!armed)
+        draw_pad_hints(gfx::W / 2, 992, {{PadButton::Cross, T("Velg")}, {PadButton::Triangle, T("Fjern konto")}}, 1);
     if (art::animating())
         m_animating = true;
 }

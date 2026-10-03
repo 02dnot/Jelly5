@@ -883,7 +883,7 @@ void draw_status(const std::string &title, const std::string &line, double t, co
         gfx::fill({gfx::W / 2 - 40 + i * 32, 720, 14, 14}, ((uint32_t)(a * 255) << 24) | 0xf5f5f7u, 7);
     }
     if (!hint.empty())
-        gfx::text(gfx::W / 2, 1000, hint, {gfx::Medium, 22}, 0x6bebebf5u, 1);
+        ui::draw_pad_hints(gfx::W / 2, 992, {{ui::PadButton::Circle, hint}}, 1);
 }
 
 /* The start-up splash: the mark on a deep field in the app's colours,
@@ -933,7 +933,7 @@ bool draw_frame(double t, float dt)
         draw_splash(t, 1.f);
         break;
     case Phase::Failed:
-        draw_status(message, "", t, T("\xE2\x97\x8B bytt bruker eller server"));
+        draw_status(message, "", t, T("Bytt bruker eller server"));
         break;
     case Phase::Gate:
         s_splash.snap(0.f);

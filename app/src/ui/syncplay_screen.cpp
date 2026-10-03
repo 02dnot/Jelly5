@@ -140,7 +140,7 @@ void SyncPlayScreen::draw(double now, float dt)
     }
     if (loaded && groups.empty())
         gfx::text(left + 8, y + 40, T("Ingen andre grupper akkurat nå."), {gfx::Medium, 22}, kText3);
-    gfx::text(left, gfx::H - 70, T("○ tilbake"), {gfx::Medium, 20}, kText3);
+    draw_pad_hints(left, gfx::H - 78, {{PadButton::Circle, T("Tilbake")}}, 0, 26);
 }
 
 } // namespace ui

@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <map>
 #include <string>
+#include <vector>
 
 namespace ui {
 
@@ -118,6 +119,15 @@ void glass_panel(const gfx::Rect &r, float radius, float opacity = 1.f, bool sha
 enum class PadButton { Cross, Circle, Triangle, Square, Options, L1, R1 };
 float draw_pad_hint(float x, float cy, PadButton b, const std::string &label, float size = 30.f,
                     float opacity = 1.f);
+float pad_hint_width(PadButton b, const std::string &label, float size = 30.f);
+/* A row of hints ("[✕] Spill av   [○] Lukk"); align 0 left of x, 1 centred on x,
+ * 2 ending at x. Returns the width. */
+struct PadHint {
+    PadButton button;
+    std::string label;
+};
+float draw_pad_hints(float x, float cy, const std::vector<PadHint> &hints, int align = 0, float size = 28.f,
+                     float opacity = 1.f);
 float brand_width(float size);
 
 /* Landscape art for an item: an episode's still, else a thumb, else a backdrop. */

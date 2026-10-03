@@ -247,7 +247,7 @@ void Search::draw(double now, float dt)
         gfx::text(rr.x + rr.w / 2, rr.y + rr.h / 2 + 9, label, {gfx::SemiBold, s > 1 ? 22.f : 26.f},
                   focus ? 0xff0b0b0fu : kText2, 1);
     }
-    gfx::text(kKbX, kKbY + 7 * (kKeyH + kKeyGap) + 30, T("\xE2\x96\xA2 sletter"), {gfx::Medium, 20}, kText3);
+    draw_pad_hints(kKbX, kKbY + 7 * (kKeyH + kKeyGap) + 22, {{PadButton::Square, T("Slett")}}, 0, 26);
 
     /* Results. */
     const std::string heading = for_query.empty() ? T("Forslag") : T("Treff for \xC2\xAB") + for_query + "\xC2\xBB";

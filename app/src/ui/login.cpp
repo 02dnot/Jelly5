@@ -340,7 +340,7 @@ void Login::draw(double now, float dt)
             gfx::text(box.x + box.w / 2, box.y + 130, "\xE2\x80\xA6", {gfx::Bold, 80}, kText3, 1);
         else
             gfx::text(box.x + box.w / 2, box.y + 158, spaced, {gfx::Bold, 120}, kText, 1);
-        gfx::text(kX, 830, T("\xE2\x97\x8B avbryter"), {gfx::Medium, 22}, kText3);
+        draw_pad_hints(kX, 822, {{PadButton::Circle, T("Avbryt")}});
     }
     if (!error.empty())
         gfx::text(kX, 1000, error, {gfx::SemiBold, 24, 1600}, 0xffff6b6bu);
