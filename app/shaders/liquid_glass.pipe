@@ -46,7 +46,7 @@ layout(set = 0, binding = 0, std140) uniform GlassConstants {
     vec4 uLight;   /* xy = direction toward the light, z = rim strength, w = refraction (0..1) */
     vec4 uTone;    /* x = saturation, y = brightness, z = tint amount, w = opacity */
     vec4 uTint;    /* rgb = tint colour, a = sheen strength */
-    vec4 uMore;    /* x = lift (0 pane, 1 the brighter focus drop), y = legibility (darken bright backdrops) */
+    vec4 uMore;    /* x = lift (0 pane, 1 the focus drop), y = legibility, z = magnification, w = dispersion */
 } g;
 
 layout(set = 1, binding = 0) uniform sampler2D uSource;
@@ -84,9 +84,10 @@ void main() {
     float t = max(-d, 0.0) / h;
     float f = 1.0 - 2.3 * pow(5.2 * 2.718281828, -6.9 * t - 0.7);
     float pull = h * (1.0 - pow(clamp(f, 0.0, 1.0), 3.0)) * g.uLight.w;
-    vec2 off = -n * pull;
-    /* A touch of dispersion right at the rim: red bends least, blue most. */
-    vec2 spread = -n * pull * 0.06;
+    /* The drop is a lens: it magnifies what lies under its middle as well. */
+    vec2 off = -n * pull - rel * (g.uMore.z / (1.0 + g.uMore.z));
+    /* Dispersion along the rim: red bends least, blue most - the rainbow edge. */
+    vec2 spread = -n * pull * g.uMore.w;
     vec3 col;
     col.r = texture(uSource, (px + off - spread) * g.uShape.zw).r;
     col.g = texture(uSource, (px + off) * g.uShape.zw).g;
@@ -112,10 +113,13 @@ void main() {
      * light, as the pane's edge turns away. */
     float inner = smoothstep(1.5, 4.0, -d) * (1.0 - smoothstep(4.0, 14.0, -d));
     col *= 1.0 - inner * (0.10 + 0.12 * max(-lit, 0.0)) * g.uLight.z;
-    /* A double rim: a bright line toward the light and a fainter one opposite,
-     * where light passing through the pane leaves it. */
-    float rim_band = 1.0 - smoothstep(0.0, 2.4, -d);
-    col += vec3(rim_band * (0.08 + 0.62 * max(lit, 0.0) + 0.30 * max(-lit, 0.0)) * g.uLight.z * (1.0 + 0.4 * g.uMore.x));
+    /* The rim: not a drawn line but a soft band of light where the pane turns -
+     * broad toward the light, fainter opposite where the light leaves it - with
+     * only a hairline of its own. */
+    float band = 1.0 - smoothstep(0.0, max(0.22 * h, 3.0), -d);
+    float hair = 1.0 - smoothstep(0.0, 1.4, -d);
+    float side = 0.55 * max(lit, 0.0) + 0.28 * max(-lit, 0.0);
+    col += vec3((band * band * (0.10 + side) * 0.55 + hair * (0.05 + 0.25 * side)) * g.uLight.z * (1.0 + 0.5 * g.uMore.x));
     /* Sheen from above, and a little grain so it reads as a material. */
     float from_top = (px.y - lo.y) / max(hi.y - lo.y, 1.0);
     col += vec3((1.0 - smoothstep(0.0, 0.5, from_top)) * g.uTint.a);

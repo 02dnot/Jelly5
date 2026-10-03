@@ -53,6 +53,14 @@ void Nav::draw(float a, int active, int focus, float dt, bool *animating)
         }
         x += widths[i] + 6;
     }
+    /* The labels first: the focus drop is a lens over them and magnifies its own. */
+    x = px + 7;
+    for (int i = 0; i < n; i++) {
+        const bool f = m_tabs[i] == focus;
+        const uint32_t c = f || m_tabs[i] == active ? kText : kText2;
+        gfx::text(x + widths[i] / 2, cy + 9, tab_label(m_tabs[i]), st, alpha(c, a), 1);
+        x += widths[i] + 6;
+    }
     if (focus >= 0 && focus != Settings) {
         if (m_focus_x.value == 0)
             m_focus_x.snap(m_focus_x.target), m_focus_w.snap(m_focus_w.target);
@@ -67,13 +75,6 @@ void Nav::draw(float a, int active, int focus, float dt, bool *animating)
         const float x0 = m_focus_x.value - 4 - (travel < 0 ? stretch : 0) * 0.5f;
         const float hh = 66 - stretch * 0.14f;
         glass_panel({x0, cy - hh / 2, m_focus_w.value + 8 + stretch * 0.5f, hh}, hh / 2, a, false, 1.f);
-    }
-    x = px + 7;
-    for (int i = 0; i < n; i++) {
-        const bool f = m_tabs[i] == focus;
-        const uint32_t c = f || m_tabs[i] == active ? kText : kText2;
-        gfx::text(x + widths[i] / 2, cy + 9, tab_label(m_tabs[i]), st, alpha(c, a), 1);
-        x += widths[i] + 6;
     }
 
     /* Clock and the viewer's initial. */
