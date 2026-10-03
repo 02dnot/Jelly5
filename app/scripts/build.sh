@@ -271,7 +271,8 @@ mkdir -p "${APPDIR}/sce_sys" "${APPDIR}/sce_module"
 "${TOOL}" self --sign --in "${BUILD}/eboot.elf" --out "${APPDIR}/eboot.bin" --magic "${FSELF_MAGIC}"
 cp "${PARAM}" "${APPDIR}/sce_sys/param.json"
 cp "${LIBC_PRX}" "${APPDIR}/sce_module/libc.prx"
-for asset in icon0.png pic0.png pic1.png; do
+# pic0/pic1.dds: the home screen's backgrounds (scripts/make_dds.py); the PNGs are PS4-style leftovers
+for asset in icon0.png pic0.png pic1.png pic0.dds pic1.dds; do
     [[ -f "${APP_ROOT}/sce_sys/${asset}" ]] && cp "${APP_ROOT}/sce_sys/${asset}" "${APPDIR}/sce_sys/"
 done
 "${TOOL}" self --inspect --file "${APPDIR}/eboot.bin" | grep -E "integrity|digest" || true
