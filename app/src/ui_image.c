@@ -101,6 +101,73 @@ static void jpeg_fail(j_common_ptr cinfo)
     longjmp(((struct jerr *)cinfo->err)->jump, 1);
 }
 
+/* Jelly5: the EXIF orientation of a JPEG (1 = as stored; 2..8 mirrored and/or
+ * rotated). Phone photos - profile pictures above all - are stored sideways
+ * with this tag; Jellyfin passes it through, even when it scales the image. */
+static int jpeg_orientation(const uint8_t *d, size_t n)
+{
+    size_t i = 2;
+    while (i + 4 <= n && d[i] == 0xff) {
+        const int marker = d[i + 1];
+        const size_t len = ((size_t)d[i + 2] << 8) | d[i + 3];
+        if (marker == 0xda || len < 2 || i + 2 + len > n)
+            break;   /* image data, or a broken segment: no orientation found */
+        if (marker == 0xe1 && len >= 16 && memcmp(d + i + 4, "Exif\0\0", 6) == 0) {
+            const uint8_t *t = d + i + 10;
+            const size_t tn = len - 8;
+            const int le = t[0] == 'I';
+            #define RD16(p) (le ? (uint32_t)(p)[0] | ((uint32_t)(p)[1] << 8) : ((uint32_t)(p)[0] << 8) | (p)[1])
+            #define RD32(p) (le ? (uint32_t)(p)[0] | ((uint32_t)(p)[1] << 8) | ((uint32_t)(p)[2] << 16) | ((uint32_t)(p)[3] << 24) \
+                            : ((uint32_t)(p)[0] << 24) | ((uint32_t)(p)[1] << 16) | ((uint32_t)(p)[2] << 8) | (p)[3])
+            const uint32_t ifd = RD32(t + 4);
+            if (ifd + 2 > tn)
+                return 1;
+            const uint32_t count = RD16(t + ifd);
+            for (uint32_t k = 0; k < count && ifd + 2 + 12 * (k + 1) <= tn; k++) {
+                const uint8_t *e = t + ifd + 2 + 12 * k;
+                if (RD16(e) == 0x0112) {
+                    const uint32_t v = RD16(e + 8);
+                    return v >= 1 && v <= 8 ? (int)v : 1;
+                }
+            }
+            #undef RD16
+            #undef RD32
+            return 1;
+        }
+        i += 2 + len;
+    }
+    return 1;
+}
+
+/* Turns a decoded image upright for its EXIF orientation. */
+static int orient(ui_image *img, int o)
+{
+    if (o <= 1)
+        return 0;
+    const int w = img->w, h = img->h;
+    const int swap = o >= 5;   /* 5..8 rotate by 90 degrees: width and height trade places */
+    ui_image r;
+    if (ui_image_alloc(&r, swap ? h : w, swap ? w : h) != 0)
+        return -1;
+    for (int y = 0; y < h; y++)
+        for (int x = 0; x < w; x++) {
+            int nx, ny;
+            switch (o) {
+            case 2: nx = w - 1 - x; ny = y; break;              /* mirrored */
+            case 3: nx = w - 1 - x; ny = h - 1 - y; break;      /* 180 */
+            case 4: nx = x; ny = h - 1 - y; break;              /* mirrored vertically */
+            case 5: nx = y; ny = x; break;                      /* transposed */
+            case 6: nx = h - 1 - y; ny = x; break;              /* 90 clockwise */
+            case 7: nx = h - 1 - y; ny = w - 1 - x; break;      /* transversed */
+            default: nx = y; ny = w - 1 - x; break;             /* 8: 90 counter-clockwise */
+            }
+            r.px[(size_t)ny * r.w + nx] = img->px[(size_t)y * w + x];
+        }
+    ui_image_free(img);
+    *img = r;
+    return 0;
+}
+
 static int decode_jpeg(const uint8_t *d, size_t n, int max_w, int max_h, ui_image *out)
 {
     struct jpeg_decompress_struct ci;
@@ -134,6 +201,7 @@ static int decode_jpeg(const uint8_t *d, size_t n, int max_w, int max_h, ui_imag
     }
     jpeg_finish_decompress(&ci);
     jpeg_destroy_decompress(&ci);
+    orient(out, jpeg_orientation(d, n));
     return 0;
 }
 
