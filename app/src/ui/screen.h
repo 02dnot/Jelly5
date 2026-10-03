@@ -87,6 +87,8 @@ public:
     void set_focused(bool f) { m_focused = f; }
     /* The focus came down from the top bar: where it lands (default: as it was). */
     virtual void enter_from_top() {}
+    /* A sheet is open over the screen (it owns every button until it closes). */
+    virtual bool modal() const { return false; }
 
 protected:
     bool m_bump = false;
@@ -181,7 +183,7 @@ void glass_panel(const gfx::Rect &r, float radius, float opacity = 1.f, bool sha
  * Sony's artwork): the button on a dark disc (Options and the shoulder buttons
  * as a pill), then the label. x is the left edge, cy the vertical centre, size
  * the disc's height. Returns the width drawn. */
-enum class PadButton { Cross, Circle, Triangle, Square, Options, Touchpad, L1, R1 };
+enum class PadButton { Cross, Circle, Triangle, Square, Options, Touchpad, L1, R1, L2, R2 };
 float draw_pad_hint(float x, float cy, PadButton b, const std::string &label, float size = 30.f,
                     float opacity = 1.f);
 float pad_hint_width(PadButton b, const std::string &label, float size = 30.f);

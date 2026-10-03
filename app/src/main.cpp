@@ -782,6 +782,22 @@ void shell_input(uint32_t p, jf::Item *play, bool *chose, bool *from_start, bool
         open_tab(ui::Nav::Search);
         return;
     }
+    /* L1/R1: the previous / next tab, as across the PS5's own menus. */
+    if ((p & (NUVIO_BTN_L1 | NUVIO_BTN_R1)) && s_stack.empty() && !screen_for(s_tab)->modal()) {
+        std::vector<int> order = s_nav.tabs();
+        order.push_back(ui::Nav::Settings);
+        const int at = (int)(std::find(order.begin(), order.end(), s_tab) - order.begin());
+        const int to = at + ((p & NUVIO_BTN_R1) ? 1 : -1);
+        if (at < (int)order.size() && to >= 0 && to < (int)order.size()) {
+            s_nav_tab = order[to];
+            open_tab(order[to]);
+            if (!s_nav_focus)
+                screen_for(order[to])->enter_from_top();
+        } else {
+            nuvio_input_pulse(70, 45);   /* the end: a soft bump */
+        }
+        return;
+    }
     if (s_nav_focus && s_stack.empty()) {
         const int before = s_nav_tab;
         std::vector<int> order = s_nav.tabs();

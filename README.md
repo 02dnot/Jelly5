@@ -90,8 +90,9 @@ console.
 | ✕ | Select | Play / pause, select |
 | ○ | Back one level at a time | Hide the controls, then leave the player |
 | D-pad | Move | Show the controls; left/right seek in 10 s steps (faster when held) |
-| L2 / R2 | | Rewind / fast forward |
-| L1 / R1 | | Previous / next chapter |
+| L2 / R2 | | Rewind / fast forward (harder = faster) |
+| L1 / R1 | Previous / next tab | Previous / next chapter |
+| L2 / R2 (sorted A–Å) | Previous / next letter | |
 | △ | Search | Episodes (a film: its chapters) |
 | □ | Sort & filter (in the libraries) | Audio and subtitles |
 | Options | Options for the selected title (watched, favourite, …) | Audio, subtitles, versions and more |

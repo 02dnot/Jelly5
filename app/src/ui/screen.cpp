@@ -196,8 +196,10 @@ float draw_pad_hint(float x, float cy, PadButton b, const std::string &label, fl
         break;
     }
     case PadButton::L1:
-    case PadButton::R1: {
-        const char *t = b == PadButton::L1 ? "L1" : "R1";
+    case PadButton::R1:
+    case PadButton::L2:
+    case PadButton::R2: {
+        const char *t = b == PadButton::L1 ? "L1" : b == PadButton::R1 ? "R1" : b == PadButton::L2 ? "L2" : "R2";
         const gfx::TextStyle ts{gfx::Bold, d * 0.5f};
         w = gfx::text_width(t, ts) + d * 0.7f;
         gfx::fill({x, cy - r, w, d}, disc, r);
@@ -217,7 +219,7 @@ float pad_hint_width(PadButton b, const std::string &label, float size)
         w = size * 1.5f;
     else if (b == PadButton::Touchpad)
         w = size * 1.7f;
-    else if (b == PadButton::L1 || b == PadButton::R1)
+    else if (b == PadButton::L1 || b == PadButton::R1 || b == PadButton::L2 || b == PadButton::R2)
         w = gfx::text_width("L1", {gfx::Bold, size * 0.5f}) + size * 0.7f;
     return label.empty() ? w : w + 10 + gfx::text_width(label, {gfx::Medium, size * 0.72f});
 }

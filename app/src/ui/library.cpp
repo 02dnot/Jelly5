@@ -242,8 +242,8 @@ Action Library::input(uint32_t p)
         return a;
     }
     const int row = m_index / kCols, col = m_index % kCols;
-    if ((p & (NUVIO_BTN_L1 | NUVIO_BTN_R1)) && by_name()) {   /* A-Å: to the previous / next letter */
-        jump_letter((p & NUVIO_BTN_R1) ? 1 : -1);
+    if ((p & (NUVIO_BTN_L2 | NUVIO_BTN_R2)) && by_name()) {   /* A-Å: to the previous / next letter */
+        jump_letter((p & NUVIO_BTN_R2) ? 1 : -1);
         return a;
     }
     if (p & NUVIO_BTN_RIGHT) {
@@ -642,7 +642,7 @@ void Library::draw(double now, float dt)
         gfx::text(bx - 18, hy, state, {gfx::Medium, 22, 520}, alpha(here ? kText2 : kText3, ha), 2);
         const float sw = gfx::text_width(state, {gfx::Medium, 22, 520});
         if (by_name() && !m_in_pills) {   /* A-Å: the letter jump, shown where it works */
-            draw_pad_hints(bx - 18 - sw, hy + 44, {{PadButton::L1, ""}, {PadButton::R1, T("Hopp til bokstav")}}, 0, 22, ha);
+            draw_pad_hints(bx - 18 - sw, hy + 44, {{PadButton::L2, ""}, {PadButton::R2, T("Hopp til bokstav")}}, 0, 22, ha);
         }
     }
 

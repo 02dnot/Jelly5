@@ -48,6 +48,7 @@ public:
     bool animating() const override { return m_animating; }
     float nav_alpha() const override { return m_nav.value * (1.f - m_menu.visibility()) * (1.f - m_filter_a.value); }
     void enter_from_top() override;
+    bool modal() const override { return m_filter_open || m_menu.active(); }
     bool focused_card(Card *c) const override
     {
         if (m_has_card && !m_in_pills)
