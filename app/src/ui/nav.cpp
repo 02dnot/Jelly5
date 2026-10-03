@@ -39,7 +39,7 @@ void Nav::draw(float a, int active, int focus, float dt, bool *animating)
         total += widths[i] + 6;
     }
     const float px = (gfx::W - total) / 2;
-    gfx::fill({px, cy - 37, total, 74}, alpha(0x8c1e1e24u, a), 37);
+    glass_panel({px, cy - 37, total, 74}, 37, a, false);   /* the tab pill: frosted over the page */
     float x = px + 7;
     for (int i = 0; i < n; i++) {
         const gfx::Rect r{x, cy - 30, widths[i], 60};

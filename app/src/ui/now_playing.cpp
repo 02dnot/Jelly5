@@ -102,9 +102,7 @@ void draw_mini_player(double now, float a)
     const float w = 560, h = 112;
     const gfx::Rect r{gfx::W - kPad - w, gfx::H - 56 - h, w, h};
     gfx::push_opacity(a);
-    gfx::shadow(r, 22, 40, 0.7f, 16);
-    gfx::fill(r, 0xe61c1c22u, 22);
-    gfx::fill({r.x, r.y, r.w, 1.5f}, 0x24ffffffu);
+    glass_panel(r, 22);
     const gfx::Rect cover{r.x + 14, r.y + 14, h - 28, h - 28};
     art::draw(cover, req.cover, req.cover_blurhash, 800, 800, 12, 1.f, 0xff2a2a30u);
     const float tx = cover.x + cover.w + 20, tw = r.x + r.w - tx - 20;

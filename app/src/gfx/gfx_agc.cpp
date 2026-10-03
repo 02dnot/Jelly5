@@ -34,6 +34,8 @@ struct Texture {
     uint8_t *mem = nullptr;     /* in the texture pool, 256-byte aligned */
     int w = 0, h = 0;
     uint32_t pitch = 0;
+    bool tiled = false;         /* a colour target (64KB_R_X tiled), sampled as rendered */
+    bool bgra = false;          /* memory order B,G,R,A (the scanout) */
 };
 
 namespace {
@@ -79,6 +81,23 @@ void free_texture_now(Texture *t)
 }
 
 /* One draw: nv vertices, ni uint16 indices, texture t, rounded clip at r. */
+/* The descriptor a texture is sampled through: linear RGBA for uploads; colour
+ * targets (the blur's layers, the scanout) tiled, the scanout with its blue and
+ * red swapped back. */
+bool build_tsharp(const Texture *t, uint32_t *td)
+{
+    if (!t->tiled)
+        return evo_agc_build_tsharp_rgba8(td, (uint64_t)(uintptr_t)t->mem, (uint32_t)t->w, (uint32_t)t->h,
+                                          t->pitch) == 0;
+    if (evo_agc_build_tsharp_render_target(td, (uint64_t)(uintptr_t)t->mem, (uint32_t)t->w, (uint32_t)t->h, 0) != 0)
+        return false;
+    if (t->bgra) {   /* DST_SEL_X <-> DST_SEL_Z (word 3, bits 0-2 and 6-8), as the bgra8 builder does */
+        const uint32_t x = td[3] & 7u, z = (td[3] >> 6) & 7u;
+        td[3] = (td[3] & ~(7u | (7u << 6))) | z | (x << 6);
+    }
+    return true;
+}
+
 void draw_mesh(const Vertex *v, int nv, const uint16_t *idx, int ni, const Texture *t, const Rect *clip,
                float radius, bool bilinear = true)
 {
@@ -127,8 +146,7 @@ void draw_mesh(const Vertex *v, int nv, const uint16_t *idx, int ni, const Textu
 
     evo_agc_build_constant_vsharp((uint32_t *)cons_d.cpu, cons.gpu_addr, 128);
     evo_agc_build_vsharp((uint32_t *)vsh.cpu, verts.gpu_addr, sizeof(Vertex), (uint32_t)nv);
-    if (evo_agc_build_tsharp_rgba8((uint32_t *)tex_d.cpu, (uint64_t)(uintptr_t)t->mem, (uint32_t)t->w,
-                                   (uint32_t)t->h, t->pitch) != 0)
+    if (!build_tsharp(t, (uint32_t *)tex_d.cpu))
         return;
     evo_agc_build_ssharp((uint32_t *)tex_d.cpu + 8, 1, bilinear ? 1 : 0);
 
@@ -313,6 +331,18 @@ void pop_scissor()
     }
 }
 
+/* The scissor of the current clip (after a pass that set its own). */
+static void restore_scissor()
+{
+    if (s_scissors.empty()) {
+        evo_agc_runtime_set_scissor(0, 0, s_pw, s_ph);
+    } else {
+        const Rect &c = s_scissors.back();
+        evo_agc_runtime_set_scissor((int)std::floor(c.x * s_scale), (int)std::floor(c.y * s_scale),
+                                    (int)std::ceil(c.w * s_scale), (int)std::ceil(c.h * s_scale));
+    }
+}
+
 void fill(const Rect &r, uint32_t color, float radius)
 {
     const uint32_t c = premul(color);
@@ -358,6 +388,127 @@ void image_uv(const Rect &r, const Texture *t, float u0, float v0, float u1, flo
         return;
     const uint32_t c = premul(0xffffffffu, opacity);
     quad(r, t, u0, v0, u1, v1, c, c, c, c, radius);
+}
+
+/* One pass of the separable Gaussian (EVO's ui_backdrop_blur pipe): src is
+ * sampled, the bound target written; the taps cover 3 sigma. */
+static bool blur_pass(const Texture &src, float sigma, bool horizontal)
+{
+    SceAgcCommandBuffer *cb = evo_agc_runtime_get_current_cb();
+    evo_agc_transient_ring_t *ring = evo_agc_runtime_get_transient_ring();
+    const uint32_t slot = evo_agc_runtime_get_current_slot();
+    const evo_agc_user_data_layout_t ud = evo_agc_runtime_get_user_data_layout(EVO_AGC_PIPE_UI_BLUR);
+    if (!cb || !ring || ud.ps_count == 0 || ud.ps_count > 16 || ud.ps_const_table_dword < 0 ||
+        ud.ps_texture_table_dword < 0 || ud.vs_count > 16)
+        return false;
+    evo_agc_transient_slice_t consts, cdesc, tdesc, ib;
+    if (evo_agc_transient_ring_alloc(ring, slot, 33u * 16u, 16, &consts) != EVO_AGC_TRANSIENT_OK ||
+        evo_agc_transient_ring_alloc(ring, slot, 16u, 16, &cdesc) != EVO_AGC_TRANSIENT_OK ||
+        evo_agc_transient_ring_alloc(ring, slot, 48u, 16, &tdesc) != EVO_AGC_TRANSIENT_OK ||
+        evo_agc_transient_ring_alloc(ring, slot, 12u, 16, &ib) != EVO_AGC_TRANSIENT_OK) {
+        evo_agc_runtime_note_drop(0);
+        return false;
+    }
+    /* BlurConstants: uParams, uOffsets[16], uWeights[16] (33 vec4). */
+    const int taps = std::max(1, std::min(15, (int)std::ceil(3.f * std::max(sigma, 1.f))));
+    const float radius = 3.f * sigma, two_s2 = 2.f * sigma * sigma;
+    float *c = (float *)consts.cpu;
+    std::memset(c, 0, 33u * 16u);
+    c[0] = 1.f / (float)src.w;
+    c[1] = 1.f / (float)src.h;
+    c[2] = (float)taps;
+    float w[16] = {0}, total = 1.f;
+    for (int i = 1; i <= taps; i++) {
+        const float d = radius * (float)i / (float)taps;
+        w[i] = std::exp(-(d * d) / two_s2);
+        total += 2.f * w[i];
+    }
+    c[68] = 1.f / total;
+    for (int i = 1; i <= taps; i++) {
+        const float d = radius * (float)i / (float)taps;
+        c[4 + 4 * i + 0] = horizontal ? d / (float)src.w : 0.f;
+        c[4 + 4 * i + 1] = horizontal ? 0.f : d / (float)src.h;
+        c[68 + 4 * i] = w[i] / total;
+    }
+    evo_agc_build_constant_vsharp((uint32_t *)cdesc.cpu, consts.gpu_addr, 33u * 16u);
+    std::memset(tdesc.cpu, 0, 48u);
+    if (!build_tsharp(&src, (uint32_t *)tdesc.cpu))
+        return false;
+    evo_agc_build_ssharp((uint32_t *)tdesc.cpu + 8, 1, 1);
+    std::memcpy(ib.cpu, kQuad, sizeof kQuad);
+
+    uint32_t vs_user[16] = {0};
+    evo_agc_writer_set_user_data_gs(cb, vs_user, ud.vs_count);
+    uint32_t ps_user[16] = {0};
+    ps_user[ud.ps_const_table_dword] = (uint32_t)cdesc.gpu_addr;
+    ps_user[ud.ps_texture_table_dword] = (uint32_t)tdesc.gpu_addr;
+    evo_agc_writer_set_user_data_ps(cb, ps_user, ud.ps_count);
+    evo_agc_writer_draw_index_modifier(cb, 6, (const uint16_t *)(uintptr_t)ib.gpu_addr,
+                                       evo_agc_runtime_get_pipe_draw_modifier(EVO_AGC_PIPE_UI_BLUR));
+    evo_agc_runtime_note_draw();
+    return true;
+}
+
+bool backdrop_blur(const Rect &r, float radius, float sigma, float opacity)
+{
+    if (opacity <= 0.f || !evo_agc_has_layers() || !evo_agc_runtime_pipeline_valid(EVO_AGC_PIPE_UI_BLUR))
+        return false;
+    /* Panel pixels: the rect, and the rect grown by the blur's reach for the first pass. */
+    const float sp = sigma * s_scale, reach = 3.f * sp + 2.f;
+    const int x0 = std::max(0, (int)std::floor(r.x * s_scale)), y0 = std::max(0, (int)std::floor(r.y * s_scale));
+    const int x1 = std::min(s_pw, (int)std::ceil((r.x + r.w) * s_scale));
+    const int y1 = std::min(s_ph, (int)std::ceil((r.y + r.h) * s_scale));
+    if (x1 <= x0 || y1 <= y0)
+        return false;
+    const int gy0 = std::max(0, (int)(y0 - reach)), gy1 = std::min(s_ph, (int)(y1 + reach));
+
+    evo_agc_layer_surface_t *h = nullptr, *v = nullptr;
+    evo_agc_runtime_set_scissor(x0, gy0, x1 - x0, gy1 - gy0);   /* layers clear what is scissored */
+    if (evo_agc_layer_acquire(&h) != 0 || !h) {
+        restore_scissor();
+        return false;
+    }
+    if (evo_agc_layer_acquire(&v) != 0 || !v) {
+        evo_agc_layer_release(h);
+        restore_scissor();
+        return false;
+    }
+    evo_agc_layer_surface_t scan;
+    evo_agc_get_scanout_layer(&scan);
+    Texture src_scan, src_h, out_v;
+    src_scan.mem = (uint8_t *)(uintptr_t)scan.gpu_addr;
+    src_scan.w = (int)scan.width;
+    src_scan.h = (int)scan.height;
+    src_scan.tiled = src_scan.bgra = true;
+    src_h.mem = (uint8_t *)(uintptr_t)h->gpu_addr;
+    src_h.w = (int)h->width;
+    src_h.h = (int)h->height;
+    src_h.tiled = true;
+    out_v = src_h;
+    out_v.mem = (uint8_t *)(uintptr_t)v->gpu_addr;
+
+    evo_agc_runtime_bind_pipeline(EVO_AGC_PIPE_UI_BLUR);
+    evo_agc_runtime_set_blend(EVO_AGC_BLEND_NONE);
+    evo_agc_flush_color_target();                       /* what is drawn so far, readable */
+    evo_agc_set_layer_target(h);
+    evo_agc_runtime_set_scissor(x0, gy0, x1 - x0, gy1 - gy0);
+    bool ok = blur_pass(src_scan, sp, true);
+    evo_agc_flush_color_target();
+    evo_agc_set_layer_target(v);
+    evo_agc_runtime_set_scissor(x0, y0, x1 - x0, y1 - y0);
+    ok = ok && blur_pass(src_h, sp, false);
+    evo_agc_flush_color_target();
+    evo_agc_set_layer_target(nullptr);                  /* back on the scanout */
+    restore_scissor();
+    if (ok) {   /* the blurred backdrop into the panel's rounded shape */
+        const float u0 = r.x * s_scale / out_v.w, v0 = r.y * s_scale / out_v.h;
+        const float u1 = (r.x + r.w) * s_scale / out_v.w, v1 = (r.y + r.h) * s_scale / out_v.h;
+        const uint32_t col = premul(0xffffffffu, opacity);
+        quad(r, &out_v, u0, v0, u1, v1, col, col, col, col, radius);
+    }
+    evo_agc_layer_release(h);
+    evo_agc_layer_release(v);
+    return ok;
 }
 
 void shadow(const Rect &r, float radius, float blur, float opacity, float dy)

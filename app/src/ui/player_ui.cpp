@@ -604,9 +604,7 @@ bool PlayerUi::wants_frame(const NuvioStatus &st)
 /* A glass panel over the dimmed picture (the app's look). */
 static void glass(const gfx::Rect &r, float a)
 {
-    gfx::shadow(r, 28, 46, 0.7f * a, 18);
-    gfx::fill(r, alpha(0xdc1c1c22u, a), 28);
-    gfx::fill({r.x, r.y, r.w, 1.5f}, alpha(0x24ffffffu, a));   /* a hairline of light on top */
+    glass_panel(r, std::min(28.f, r.h / 2), a);   /* frosted: the picture shows through, blurred */
 }
 
 void PlayerUi::draw_bar(const NuvioStatus &st, float a)

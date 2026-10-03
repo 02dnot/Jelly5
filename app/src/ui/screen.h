@@ -104,6 +104,13 @@ std::string poster_url(jf::Client &c, const jf::Item &it, int width);
  * size is the wordmark's font size. Returns the total width. */
 float draw_brand(float x, float baseline, float size, float opacity = 1.f, bool glow = false);
 
+/* Frosted glass (Apple TV's panels): a soft shadow, what lies under r blurred,
+ * a tint over it and a hairline of light along the top. The tint is lighter
+ * when the blur is there (the colours behind show through) and the old solid
+ * dark glass when the GPU had no room for it. shadow = false for small pieces
+ * (pills) that sit on other glass. */
+void glass_panel(const gfx::Rect &r, float radius, float opacity = 1.f, bool shadow = true);
+
 /* A controller hint, drawn the way the PS5's own hints look (our shapes, not
  * Sony's artwork): the button on a dark disc (Options and the shoulder buttons
  * as a pill), then the label. x is the left edge, cy the vertical centre, size

@@ -99,9 +99,7 @@ void ItemMenu::draw(float dt, bool *animating)
     const float h = 60 + 52 + (sub.empty() ? 0 : 34) + 24 + m_options.size() * (row_h + 6) + 40;
     const float rise = 24 * (1.f - a);
     const gfx::Rect r{(gfx::W - w) / 2, (gfx::H - h) / 2 + rise, w, h};
-    gfx::shadow(r, 28, 46, 0.7f * a, 18);
-    gfx::fill(r, alpha(0xdc1c1c22u, a), 28);
-    gfx::fill({r.x, r.y, r.w, 1.5f}, alpha(0x24ffffffu, a));
+    glass_panel(r, 28, a);
 
     float y = r.y + 60 + 30;
     gfx::text(r.x + 48, y, title, {gfx::Bold, 34, w - 96}, alpha(kText, a));

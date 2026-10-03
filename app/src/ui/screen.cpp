@@ -32,6 +32,17 @@ std::string poster_url(jf::Client &c, const jf::Item &it, int width)
     return c.image_url(it.id, "Primary", it.primary_tag, width);
 }
 
+void glass_panel(const gfx::Rect &r, float radius, float a, bool shadow)
+{
+    if (a <= 0.01f)
+        return;
+    if (shadow)
+        gfx::shadow(r, radius, 46, 0.6f * a, 18);
+    const bool frosted = gfx::backdrop_blur(r, radius, 22.f, a);
+    gfx::fill(r, alpha(frosted ? 0x8c1c1c24u : 0xdc1c1c22u, a), radius);
+    gfx::fill({r.x + radius * 0.6f, r.y, r.w - radius * 1.2f, 1.5f}, alpha(0x2effffffu, a));
+}
+
 float draw_pad_hint(float x, float cy, PadButton b, const std::string &label, float size, float a)
 {
     const uint32_t disc = alpha(0xff3a3a42u, a), ink = alpha(0xfff5f5f7u, a);
