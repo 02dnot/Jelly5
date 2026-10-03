@@ -53,6 +53,7 @@ private:
     int m_track = 0;
     Anim m_scroll, m_enter, m_content;
     Lifts m_lifts;
+    Drop m_btn_drop, m_track_drop;      /* the focus on the buttons and the tracks */
     bool m_animating = false;
 };
 

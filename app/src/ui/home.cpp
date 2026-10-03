@@ -362,33 +362,41 @@ void Home::draw_info(const jf::Item &it, float bottom, bool hero, float a)
         gfx::text(kPad, meta_y + 50, it.overview, ov, alpha(kText2, a));
 
     if (hero) {
-        /* "Spill av" / "Fortsett" and "Mer info"; the focused one is white (.btn.focus). */
+        /* "Spill av" / "Fortsett" and "Mer info": glass buttons, the focus drop on
+         * the focused one, then their glyphs and labels. */
         const float by = bottom - 76;
         const bool resume = it.position_ticks > 0;
         const gfx::TextStyle bt{gfx::Bold, 26};
-        float bx = kPad;
-        for (int b = 0; b < 2; b++) {
-            const std::string label = b == 0 ? (resume ? T("Fortsett") : T("Spill av")) : T("Mer info");
-            const float bw = gfx::text_width(label, bt) + 80 + 34;
-            const bool focused = m_row < 0 && m_hero_button == b;
-            const float k = focused ? 1.08f : 1.f;
-            const gfx::Rect r{bx - bw * (k - 1) / 2, by - 76 * (k - 1) / 2, bw * k, 76 * k};
-            if (focused)
-                gfx::shadow(r, 16, 24, 0.55f * a, 14);
-            gfx::fill(r, alpha(focused ? 0xfff5f5f7u : 0x24ffffffu, a), 16 * k);
-            const uint32_t fg = focused ? 0xff0b0b0fu : kText;
-            const float px = r.x + 40 * k, py = r.y + r.h / 2;
-            if (b == 0) {
-                for (int i = 0; i < 14; i++)   /* play glyph */
-                    gfx::fill({px + i * 1.5f, py - (14 - i) * 1.0f, 1.5f, (14 - i) * 2.0f}, alpha(fg, a));
-            } else {                         /* info glyph: a ring with an "i" */
-                gfx::fill({px - 2, py - 15, 30, 30}, alpha(fg, a), 15);
-                gfx::fill({px + 1, py - 12, 24, 24}, alpha(focused ? 0xfff5f5f7u : 0xff2a2a30u, a), 12);
-                gfx::fill({px + 11.5f, py - 8, 3, 3}, alpha(fg, a), 1.5f);
-                gfx::fill({px + 11.5f, py - 3, 3, 11}, alpha(fg, a), 1.5f);
+        if (m_row >= 0)
+            m_hero_drop.hide();
+        for (int pass = 0; pass < 2; pass++) {
+            if (pass == 1)
+                m_hero_drop.draw(m_dt, a, &m_animating, 16);
+            float bx = kPad;
+            for (int b = 0; b < 2; b++) {
+                const std::string label = b == 0 ? (resume ? T("Fortsett") : T("Spill av")) : T("Mer info");
+                const float bw = gfx::text_width(label, bt) + 80 + 34;
+                const bool focused = m_row < 0 && m_hero_button == b;
+                const gfx::Rect r{bx, by, bw, 76};
+                bx += bw + 20;
+                if (pass == 0) {
+                    glass_panel(r, 16, a, false);
+                    if (focused)
+                        m_hero_drop.to(r, b, 0, by);
+                    continue;
+                }
+                const uint32_t fg = kText;
+                const float px = r.x + 40, py = r.y + r.h / 2;
+                if (b == 0) {
+                    for (int i = 0; i < 14; i++)   /* play glyph */
+                        gfx::fill({px + i * 1.5f, py - (14 - i) * 1.0f, 1.5f, (14 - i) * 2.0f}, alpha(fg, a));
+                } else {                         /* info glyph: a disc with an "i" */
+                    gfx::fill({px - 2, py - 15, 30, 30}, alpha(fg, a), 15);
+                    gfx::fill({px + 11.5f, py - 8, 3, 3}, alpha(0xff0b0b0fu, a), 1.5f);
+                    gfx::fill({px + 11.5f, py - 3, 3, 11}, alpha(0xff0b0b0fu, a), 1.5f);
+                }
+                gfx::text(r.x + 72, r.y + r.h / 2 + 9, label, focused ? bt : gfx::TextStyle{gfx::SemiBold, 26}, alpha(fg, a));
             }
-            gfx::text(r.x + 72 * k, r.y + r.h / 2 + 9, label, bt, alpha(fg, a));
-            bx += bw + 20;
         }
     }
 }
@@ -486,6 +494,7 @@ void Home::draw_rows(float dt)
 void Home::draw(double now, float dt)
 {
     m_now = now;
+    m_dt = dt;
     m_animating = false;
 
     /* The hero rotates every 10 s while it has focus. */

@@ -203,23 +203,32 @@ void Album::draw(double now, float dt)
     gfx::text(x, kTop + 168, meta, {gfx::Medium, 24}, alpha(kText3, m_content.value));
 
     /* Spill av, Bland, Miks, the artist. */
-    float bx = x;
+    /* Glass buttons, the focus drop, then the labels. */
     const std::vector<Button> bs = buttons();
-    for (int i = 0; i < (int)bs.size(); i++) {
-        const bool focus = !m_in_tracks && m_button == i;
-        const float lift = m_lifts.step("btn" + std::to_string((int)bs[i]), focus, dt, &m_animating);
-        const gfx::TextStyle st{gfx::Bold, 26};
-        const std::string label = bs[i] == PlayAll   ? T("Spill av")
-                                  : bs[i] == Shuffle ? T("Bland")
-                                  : bs[i] == Mix     ? T("Miks")
-                                                     : m_album.album_artist + " \xE2\x80\xBA";
-        const float bw = std::min(520.f, gfx::text_width(label, st)) + 80, k = 1.f + 0.08f * lift;
-        const gfx::Rect r{bx - bw * (k - 1) / 2, kTop + 230 - 76 * (k - 1) / 2, bw * k, 76 * k};
-        if (lift > 0.01f)
-            gfx::shadow(r, 16, 24, 0.55f * lift, 14 * lift);
-        gfx::fill(r, focus ? 0xfff5f5f7u : 0x24ffffffu, 16 * k);
-        gfx::text(r.x + r.w / 2, r.y + r.h / 2 + 9, label, {gfx::Bold, 26, 520}, focus ? 0xff0b0b0fu : kText, 1);
-        bx += bw + 20;
+    if (m_in_tracks)
+        m_btn_drop.hide();
+    for (int pass = 0; pass < 2; pass++) {
+        if (pass == 1)
+            m_btn_drop.draw(dt, 1.f, &m_animating, 16);
+        float bx = x;
+        for (int i = 0; i < (int)bs.size(); i++) {
+            const bool focus = !m_in_tracks && m_button == i;
+            const gfx::TextStyle st{gfx::Bold, 26};
+            const std::string label = bs[i] == PlayAll   ? T("Spill av")
+                                      : bs[i] == Shuffle ? T("Bland")
+                                      : bs[i] == Mix     ? T("Miks")
+                                                         : m_album.album_artist + " \xE2\x80\xBA";
+            const float bw = std::min(520.f, gfx::text_width(label, st)) + 80;
+            const gfx::Rect r{bx, kTop + 230, bw, 76};
+            bx += bw + 20;
+            if (pass == 0) {
+                glass_panel(r, 16, 1.f, false);
+                if (focus)
+                    m_btn_drop.to(r, (int)bs[i]);
+                continue;
+            }
+            gfx::text(r.x + r.w / 2, r.y + r.h / 2 + 9, label, {focus ? gfx::Bold : gfx::SemiBold, 26, 520}, kText, 1);
+        }
     }
 
     /* Tracks: the list scrolls so the focused one stays in view. */
@@ -231,18 +240,19 @@ void Album::draw(double now, float dt)
     gfx::push_opacity(m_content.value);
     gfx::push_scissor({0, kListTop - 8, gfx::W, gfx::H - kListTop + 8});
     const bool discs = n > 0 && m_tracks.back().parent_index > 1;
+    if (m_in_tracks && m_track < n)
+        m_track_drop.to({x - 20, kListTop + m_track * kRowH - m_scroll.value, w + 20, kRowH - 6}, m_track, 0,
+                        -m_scroll.value);
+    else
+        m_track_drop.hide();
+    m_track_drop.draw(dt, 1.f, &m_animating, 14);
     for (int i = 0; i < n; i++) {
         const float y = kListTop + i * kRowH - m_scroll.value;
         if (y < kListTop - kRowH || y > gfx::H)
             continue;
         const jf::Item &t = m_tracks[i];
         const bool focus = m_in_tracks && i == m_track;
-        const gfx::Rect r{x - 20, y, w + 20, kRowH - 6};
-        if (focus) {
-            gfx::shadow(r, 14, 16, 0.4f, 6);
-            gfx::fill(r, 0xfff5f5f7u, 14);
-        }
-        const uint32_t fg = focus ? 0xff0b0b0fu : kText, dim = focus ? 0x990b0b0fu : kText3;
+        const uint32_t fg = kText, dim = focus ? kText2 : kText3;
         char num[16];
         if (discs)
             std::snprintf(num, sizeof num, "%d.%d", std::max(1, t.parent_index), std::max(0, t.index));

@@ -94,6 +94,8 @@ private:
     double m_focus_changed = 0;
 
     ItemMenu m_menu;                    /* Options on a title */
+    Drop m_hero_drop;                   /* the focus on the hero's buttons */
+    float m_dt = 0;
     Card m_card;                        /* the focused card as drawn (for the page it opens) */
     bool m_has_card = false;
 
