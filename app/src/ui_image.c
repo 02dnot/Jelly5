@@ -15,6 +15,9 @@
 #include <libavformat/avio.h>
 #include <libavutil/dict.h>
 
+/* The SVG decoder is compiled here (Jelly5: it was in the old interface's ui_icons.c). */
+#define NANOSVG_IMPLEMENTATION
+#define NANOSVGRAST_IMPLEMENTATION
 #include "nanosvg/nanosvg.h"
 #include "nanosvg/nanosvgrast.h"
 

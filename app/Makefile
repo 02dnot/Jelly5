@@ -35,7 +35,7 @@ ENGINE_CXX := engine/core/src/services/PlaybackController.cpp
 # Nuvio's system-browser host is not part of Jelly5 (no WebBrowserDialog import).
 # Nuvio's payload link (browser host, bridge, control) is replaced by
 # src/jelly5_bridge.cpp, which reports to Jellyfin instead.
-APP_C   := $(filter-out src/nuvio_webui.c src/nuvio_bridge.c src/nuvio_control.c,$(wildcard src/*.c))
+APP_C   := $(wildcard src/*.c)
 APP_CXX := $(wildcard src/*.cpp) $(wildcard src/jf/*.cpp) $(wildcard src/gfx/*.cpp) $(wildcard src/ui/*.cpp) $(wildcard src/app/*.cpp) $(wildcard src/platform/*.cpp)
 
 OBJS := $(patsubst %.c,$(OBJDIR)/%.o,$(ENGINE_C) $(APP_C)) \

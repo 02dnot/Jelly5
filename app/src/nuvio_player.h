@@ -6,8 +6,8 @@
 #pragma once
 /*
  * The Nuvio Player: full-screen native playback on EVO Player's engine, with
- * Nuvio's player interface drawn over it (nuvio_osd*.cpp) and subtitles by
- * libass (nuvio_subs.c).
+ * Jelly5's player interface drawn over it (ui::PlayerUi, behind the
+ * nuvio_osd.h contract) and subtitles by libass (nuvio_subs.c).
  *
  * Hardware HEVC/H.264 (sceVideodec2) up to 4K, 10-bit HDR10/HLG output,
  * software AV1/VP9/MPEG-2/VC-1, and every audio format FFmpeg decodes (TrueHD,

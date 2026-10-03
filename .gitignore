@@ -4,6 +4,4 @@ build/
 .DS_Store
 *.ffpfsc
 .env.local
-app/tools/preview/osd_preview
-app/tools/preview/build/
-app/tools/preview/out/
+app/build-assets.mk

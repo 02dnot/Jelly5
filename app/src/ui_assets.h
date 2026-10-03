@@ -27,23 +27,7 @@ ui_asset ui_asset_font_roboto_bold(void);
 ui_asset ui_asset_font_naskh_regular(void);
 ui_asset ui_asset_font_naskh_bold(void);
 ui_asset ui_asset_font_noto_emoji(void);
-ui_asset ui_asset_font_noto_symbols(void);   /* Jelly5 */
-ui_asset ui_asset_img_wordmark(void);
-ui_asset ui_asset_svg_aspect_ratio(void);
-ui_asset ui_asset_svg_audio_filled(void);
-ui_asset ui_asset_svg_audio_outline(void);
-ui_asset ui_asset_svg_episodes(void);
-ui_asset ui_asset_svg_pause(void);
-ui_asset ui_asset_svg_play(void);
-ui_asset ui_asset_svg_skip_next(void);
-ui_asset ui_asset_svg_source(void);
-ui_asset ui_asset_svg_subtitles(void);
-ui_asset ui_asset_svg_check(void);
-ui_asset ui_asset_svg_chevron_left(void);
-ui_asset ui_asset_svg_chevron_right(void);
-ui_asset ui_asset_svg_fast_forward(void);
-ui_asset ui_asset_svg_fast_rewind(void);
-ui_asset ui_asset_svg_warning(void);
+ui_asset ui_asset_font_noto_symbols(void);
 
 #ifdef __cplusplus
 }
