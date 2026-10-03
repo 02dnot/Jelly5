@@ -790,8 +790,10 @@ void shell_input(uint32_t p, jf::Item *play, bool *chose, bool *from_start, bool
             s_nav_tab = order[at - 1];
         else if ((p & NUVIO_BTN_RIGHT) && at + 1 < (int)order.size())
             s_nav_tab = order[at + 1];
-        else if (p & (NUVIO_BTN_DOWN | NUVIO_BTN_CROSS))
+        else if (p & (NUVIO_BTN_DOWN | NUVIO_BTN_CROSS)) {
             s_nav_focus = false;
+            screen_for(s_tab)->enter_from_top();
+        }
         else if ((p & NUVIO_BTN_CIRCLE) && s_tab != ui::Nav::Home)
             s_nav_tab = ui::Nav::Home;   /* back from any tab goes home, as on Netflix */
         if (s_nav_tab != before && s_nav_tab != s_tab)

@@ -85,6 +85,8 @@ public:
     /* The top bar has the focus, not this screen: it shows no focus of its own
      * (no drop, no lifted card), so there is only ever one place that looks focused. */
     void set_focused(bool f) { m_focused = f; }
+    /* The focus came down from the top bar: where it lands (default: as it was). */
+    virtual void enter_from_top() {}
 
 protected:
     bool m_bump = false;

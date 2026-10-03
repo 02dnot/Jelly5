@@ -47,6 +47,7 @@ public:
     void draw(double now, float dt) override;
     bool animating() const override { return m_animating; }
     float nav_alpha() const override { return m_nav.value * (1.f - m_menu.visibility()) * (1.f - m_filter_a.value); }
+    void enter_from_top() override;
     bool focused_card(Card *c) const override
     {
         if (m_has_card && !m_in_pills)
@@ -78,6 +79,9 @@ private:
     void draw_filters(float dt);
     void jump_letter(int dir);
     bool by_name() const;
+    void open_sheet();
+    void switch_source(int i);
+    double m_source_at = -1;            /* a source pill rested on: switch to it then */
     void load_more();
     void reload();
     const Source &source() const { return m_sources[std::min(m_source, (int)m_sources.size() - 1)]; }

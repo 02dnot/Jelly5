@@ -212,47 +212,28 @@ Action Library::input(uint32_t p)
     }
     /* The pill row: the sources (when there is a choice), then the sorts. */
     const int ns = m_sources.size() > 1 ? (int)m_sources.size() : 0;
+    if ((p & NUVIO_BTN_SQUARE) && !m_menu.active()) {   /* □: sort & filter, from anywhere here */
+        open_sheet();
+        return a;
+    }
     if (m_in_pills) {
-        if (p & NUVIO_BTN_LEFT)
-            m_pill = std::max(0, m_pill - 1);
-        else if (p & NUVIO_BTN_RIGHT)
-            m_pill = std::min(pill_count() - 1, m_pill + 1);
+        if (p & (NUVIO_BTN_LEFT | NUVIO_BTN_RIGHT)) {
+            m_pill = (p & NUVIO_BTN_LEFT) ? std::max(0, m_pill - 1) : std::min(pill_count() - 1, m_pill + 1);
+            m_source_at = m_pill < ns && m_pill != m_source ? m_now + 0.35 : -1;   /* the library follows the focus */
+        }
         else if (p & NUVIO_BTN_CROSS) {
             if (m_pill == ns) {   /* the sort & filter button: the sheet, on the current sort */
-                m_filter_open = true;
-                m_filter_row = m_sort;
-                m_filter_a.to(1.f);
-                std::shared_ptr<Data> d = m_data;
-                bool need;
-                {
-                    std::lock_guard<std::mutex> g(d->lock);
-                    need = !d->genres_loaded;
-                    d->genres_loaded = true;
-                }
-                if (need) {
-                    jf::Client *c = &m_client;
-                    const Source src = source();
-                    std::thread([d, c, src] {
-                        std::vector<std::string> gs = c->genres_in(src.view, src.types);
-                        std::lock_guard<std::mutex> g(d->lock);
-                        d->genres = std::move(gs);
-                    }).detach();
-                }
+                open_sheet();
             } else if (m_pill < ns) {
-                if (m_pill != m_source) {
-                    m_source = m_pill;
-                    m_filters.genre = 0;   /* the genres are the library's own */
-                    {
-                        std::lock_guard<std::mutex> g(m_data->lock);
-                        m_data->genres.clear();
-                        m_data->genres_loaded = false;
-                    }
-                    reload();
-                }
+                switch_source(m_pill);
             }
         } else if (p & NUVIO_BTN_DOWN) {
-            if (count > 0)
+            if (m_source_at >= 0)
+                switch_source(m_pill);   /* going down: the library under the focus, now */
+            if (count > 0 || m_source_at < 0) {
                 m_in_pills = false;
+                m_index = 0;             /* the first title, leftmost */
+            }
         } else if (p & NUVIO_BTN_CIRCLE) {
             a.kind = m_pushed ? Action::Back : Action::ToNav;
         } else if ((p & NUVIO_BTN_UP) && !m_pushed) {
@@ -307,6 +288,52 @@ Action Library::input(uint32_t p)
     if (m_index > count - 24)
         load_more();
     return a;
+}
+
+void Library::enter_from_top()
+{
+    const int ns = m_sources.size() > 1 ? (int)m_sources.size() : 0;
+    m_in_pills = true;   /* the header row is always on the way down */
+    m_pill = ns > 0 ? m_source : ns;
+    m_source_at = -1;
+}
+
+void Library::switch_source(int i)
+{
+    m_source_at = -1;
+    if (i == m_source || i < 0 || i >= (int)m_sources.size())
+        return;
+    m_source = i;
+    m_filters.genre = 0;   /* the genres are the library's own */
+    {
+        std::lock_guard<std::mutex> g(m_data->lock);
+        m_data->genres.clear();
+        m_data->genres_loaded = false;
+    }
+    reload();
+}
+
+void Library::open_sheet()
+{
+    m_filter_open = true;
+    m_filter_row = m_sort;
+    m_filter_a.to(1.f);
+    std::shared_ptr<Data> d = m_data;
+    bool need;
+    {
+        std::lock_guard<std::mutex> g(d->lock);
+        need = !d->genres_loaded;
+        d->genres_loaded = true;
+    }
+    if (need) {
+        jf::Client *c = &m_client;
+        const Source src = source();
+        std::thread([d, c, src] {
+            std::vector<std::string> gs = c->genres_in(src.view, src.types);
+            std::lock_guard<std::mutex> g(d->lock);
+            d->genres = std::move(gs);
+        }).detach();
+    }
 }
 
 /* The filter sheet: Usett and Favoritter toggle, Sjanger and Tiår step with
@@ -510,6 +537,11 @@ void Library::draw(double now, float dt)
     int total;
     bool loading;
     m_now = now;
+    if (m_source_at >= 0) {   /* a library pill rested on long enough: show that library */
+        m_animating = true;
+        if (now >= m_source_at && m_in_pills)
+            switch_source(m_pill);
+    }
     {
         std::lock_guard<std::mutex> g(m_data->lock);
         if (m_data->jump_to >= 0) {   /* an A-Å jump landed */
@@ -608,8 +640,9 @@ void Library::draw(double now, float dt)
         if (nf > 0)
             state += std::string("  \xC2\xB7  ") + (nf == 1 ? T("1 filter") : std::to_string(nf) + T(" filtre"));
         gfx::text(bx - 18, hy, state, {gfx::Medium, 22, 520}, alpha(here ? kText2 : kText3, ha), 2);
+        const float sw = gfx::text_width(state, {gfx::Medium, 22, 520});
+        draw_pad_hint(bx - 18 - sw - 36, hy - 8, PadButton::Square, "", 24, ha);   /* □ opens it from anywhere */
         if (by_name() && !m_in_pills) {   /* A-Å: the letter jump, shown where it works */
-            const float sw = gfx::text_width(state, {gfx::Medium, 22, 520});
             draw_pad_hints(bx - 18 - sw, hy + 44, {{PadButton::L1, ""}, {PadButton::R1, T("Hopp til bokstav")}}, 0, 22, ha);
         }
     }
