@@ -12,6 +12,7 @@
 #include "platform/ime.h"
 
 #include <algorithm>
+#include <functional>
 #include <thread>
 #include <vector>
 #include <unistd.h>
@@ -21,28 +22,39 @@ namespace {
 
 constexpr float kX = 160, kW = 860;
 
-void field(const gfx::Rect &r, const std::string &label, const std::string &value, const std::string &hint,
-           bool focus, float lift)
+/* Fields and buttons are glass; the focused one gets the drop (Login::m_drop),
+ * which is drawn after every pane, so their text waits in s_later until then. */
+Drop *s_drop = nullptr;
+bool s_focused = false;
+std::vector<std::function<void()>> s_later;
+
+void focus_on(const gfx::Rect &r, bool focus)
 {
-    const float k = 1.f + 0.02f * lift;
-    const gfx::Rect rr{r.x - r.w * (k - 1) / 2, r.y - r.h * (k - 1) / 2, r.w * k, r.h * k};
-    gfx::text(r.x, r.y - 14, label, {gfx::SemiBold, 20}, kText3);
-    /* Focused: a white ring (a white box with the field drawn inside it). */
-    if (focus)
-        gfx::fill({rr.x - 3, rr.y - 3, rr.w + 6, rr.h + 6}, 0xfff5f5f7u, 19);
-    gfx::fill(rr, focus ? 0xff2a2a31u : 0x14ffffffu, 16);
-    gfx::text(rr.x + 26, rr.y + rr.h / 2 + 10, value.empty() ? hint : value, {gfx::Medium, 28, rr.w - 52},
-              value.empty() ? kText3 : kText);
+    if (focus && s_drop) {
+        s_drop->to(r, (int)(r.x * 7 + r.y));
+        s_focused = true;
+    }
 }
 
-void button(const gfx::Rect &r, const std::string &label, bool focus, float lift)
+void field(const gfx::Rect &r, const std::string &label, const std::string &value, const std::string &hint,
+           bool focus, float)
 {
-    const float k = 1.f + 0.08f * lift;
-    const gfx::Rect rr{r.x - r.w * (k - 1) / 2, r.y - r.h * (k - 1) / 2, r.w * k, r.h * k};
-    if (lift > 0.01f)
-        gfx::shadow(rr, 16, 24, 0.5f * lift, 12 * lift);
-    gfx::fill(rr, focus ? 0xfff5f5f7u : 0x24ffffffu, 16 * k);
-    gfx::text(rr.x + rr.w / 2, rr.y + rr.h / 2 + 9, label, {gfx::Bold, 26}, focus ? 0xff0b0b0fu : kText, 1);
+    gfx::text(r.x, r.y - 14, label, {gfx::SemiBold, 20}, kText3);
+    glass_panel(r, 16, 1.f, false);
+    focus_on(r, focus);
+    s_later.push_back([=] {
+        gfx::text(r.x + 26, r.y + r.h / 2 + 10, value.empty() ? hint : value, {gfx::Medium, 28, r.w - 52},
+                  value.empty() ? kText3 : kText);
+    });
+}
+
+void button(const gfx::Rect &r, const std::string &label, bool focus, float)
+{
+    glass_panel(r, 16, 1.f, false);
+    focus_on(r, focus);
+    s_later.push_back([=] {
+        gfx::text(r.x + r.w / 2, r.y + r.h / 2 + 9, label, {focus ? gfx::Bold : gfx::SemiBold, 26}, kText, 1);
+    });
 }
 
 } // namespace
@@ -298,6 +310,9 @@ void Login::draw(double now, float dt)
 
     gfx::fill({0, 0, gfx::W, gfx::H}, kBg);
     gfx::fill_vgradient({0, 0, gfx::W, gfx::H}, 0x40302048u, 0x00000000u);
+    s_drop = &m_drop;
+    s_focused = false;
+    s_later.clear();
     draw_brand(kX, 190, 60);
 
     auto lift = [&](const std::string &k, bool f) { return m_lifts.step(k, f, dt, &anim); };
@@ -322,8 +337,8 @@ void Login::draw(double now, float dt)
                 const gfx::Rect r{x + 60 - d / 2, y + 60 - d / 2, d, d};
                 if (l > 0.01f)
                     gfx::shadow(r, d / 2, 20, 0.6f * l, 10 * l);
-                if (f)
-                    gfx::fill({r.x - 6, r.y - 6, d + 12, d + 12}, 0xfff5f5f7u, d / 2 + 6);
+                if (f)   /* a ring of the focus glass round the picture */
+                    glass_panel({r.x - 8, r.y - 8, d + 16, d + 16}, d / 2 + 8, 1.f, false, 1.f);
                 const std::string url = users[i].image_tag.empty()
                                             ? std::string()
                                             : m_client.server() + "/Users/" + users[i].id + "/Images/Primary?tag=" +
@@ -353,7 +368,7 @@ void Login::draw(double now, float dt)
                   T("Åpne Jellyfin på telefonen eller PC-en, gå til Innstillinger → Quick Connect og skriv inn koden:"),
                   {gfx::Medium, 30, 1100, 2, 44}, kText2);
         const gfx::Rect box{kX, 540, 760, 220};
-        gfx::fill(box, 0x24ffffffu, 32);
+        glass_panel(box, 32, 1.f, false);   /* the code on glass */
         std::string spaced;
         for (char ch : code)
             (spaced += ch) += ' ';
@@ -393,6 +408,12 @@ void Login::draw(double now, float dt)
         button({kX, 800, 560, 76}, T("Logg inn med brukernavn og passord"), m_focus == 0, lift("pw", m_focus == 0));
         button({kX + 580, 800, 250, 76}, T("Annen server"), m_focus == 1, lift("other2", m_focus == 1));
     }
+    if (!s_focused)
+        m_drop.hide();
+    m_drop.draw(dt, 1.f, &anim, 16);
+    for (const auto &f : s_later)
+        f();
+    s_later.clear();
     if (!error.empty())
         gfx::text(kX, 1000, error, {gfx::SemiBold, 24, 1600}, 0xffff6b6bu);
     (void)now;

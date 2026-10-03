@@ -37,6 +37,7 @@ private:
     bool m_chosen = false;
     Choice m_choice;
     Lifts m_lifts;
+    Drop m_drop;                        /* the focus ring */
     bool m_animating = false;
 };
 

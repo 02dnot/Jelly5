@@ -61,6 +61,7 @@ private:
     int m_focus = 0;
     int m_user_col = 0;               /* focused public user */
     Lifts m_lifts;
+    Drop m_drop;                        /* the focus on fields and buttons */
 };
 
 } // namespace ui
