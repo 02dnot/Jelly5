@@ -120,6 +120,7 @@ static void note_vdec_result(int fatal)
     toast("PLAYBACK", "Video decode failed - can't play this file");
 }
 
+extern volatile double evo_av_offset_s;   /* Jelly5: the audio delay (below) */
 volatile int video_thread_running = 0;
 pthread_t    video_thread;
 
@@ -391,7 +392,7 @@ int decode_next_video_frame(void)
                 video_rel = video_clock_seconds - first_video_pts_seconds;
             if (video_rel < 0.0)
                 video_rel = 0.0;
-            audio_rel = audio_clock_seconds;
+            audio_rel = audio_clock_seconds - evo_av_offset_s;   /* Jelly5: the audio delay setting */
             behind = audio_rel - video_rel; /* >0 => video late; <0 => video early */
 
             if (seek_discarding) {
@@ -420,7 +421,7 @@ int decode_next_video_frame(void)
                     if (sleep_us < 500)
                         sleep_us = 500;
                     usleep(sleep_us);
-                    audio_rel = audio_clock_seconds;
+                    audio_rel = audio_clock_seconds - evo_av_offset_s;
                     behind = audio_rel - video_rel;
                     wait_iters++;
                     if (audio_rel <= audio_at_wait + 0.0005)
@@ -608,6 +609,11 @@ int evo_pb_is_paused(void)          { return player_paused; }
 int evo_pb_is_eof(void)            { return video_decode_done; }
 double evo_pb_position_s(void)      { return prospero_media_clock_seconds(); }
 double evo_pb_duration_s(void)      { return media_duration_sec; }
+/* Jelly5: how late the sound arrives at the viewer (a soundbar's or receiver's
+ * delay), in seconds; the picture is held back by as much, so they meet again.
+ * Negative when the sound is early. */
+volatile double evo_av_offset_s = 0.0;
+void evo_pb_set_av_offset(double seconds) { evo_av_offset_s = seconds; }
 double evo_pb_audio_clock_s(void)   { return (double)audio_clock_seconds; }
 double evo_pb_video_clock_s(void)   { return video_clock_seconds; }
 double evo_pb_video_fps(void)       { return video_fps; }

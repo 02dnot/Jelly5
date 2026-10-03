@@ -115,7 +115,7 @@ const std::unordered_map<std::string, const char *> &english_table()
         {"Ingen preferanse", "No preference"}, {"Alltid", "Always"}, {"Bare tvungne", "Forced only"},
         {"Åpne", "Open"}, {"Skann med telefonen", "Scan with your phone"},
         {"og trykk Godkjenn i Jellyfin", "and tap Authorize in Jellyfin"}, {"Logg inn med brukernavn og passord", "Sign in with username and password"}, {"Versjon", "Version"}, {"Avbryt", "Cancel"}, {"Velg", "Choose"}, {"Fjern konto", "Remove account"},
-        {"Nå", "Now"}, {"Strøm", "Stream"}, {"Beholder", "Container"}, {"Buffer", "Buffer"},
+        {"Nå", "Now"}, {"Lydforsinkelse", "Audio delay"}, {"Ingen", "None"}, {"Strøm", "Stream"}, {"Beholder", "Container"}, {"Buffer", "Buffer"},
         {"%.0f s fremover", "%.0f s ahead"}, {"Køer", "Queues"}, {"video %d  \xC2\xB7  lyd %d pakker", "video %d  \xC2\xB7  audio %d packets"},
         {"Rebuffringer", "Rebuffers"}, {"Video", "Video"}, {"Fargeområde", "Colour"}, {"Dekoder", "Decoder"},
         {"Maskinvare (sceVideodec2)", "Hardware (sceVideodec2)"}, {"Programvare (FFmpeg)", "Software (FFmpeg)"},

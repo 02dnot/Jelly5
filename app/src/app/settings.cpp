@@ -52,6 +52,8 @@ void load_local()
         s_all.local.max_mbps = 0;
     s_all.local.auto_skip_intro = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(j, "autoSkipIntro"));
     s_all.local.language = (int)cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(j, "language"));
+    s_all.local.audio_delay_ms =
+        std::max(-500, std::min(500, (int)cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(j, "audioDelayMs"))));
     if (const cJSON *hz = cJSON_GetObjectItemCaseSensitive(j, "refresh120"))
         s_all.local.refresh_120 = cJSON_IsTrue(hz);
     if (const cJSON *st = cJSON_GetObjectItemCaseSensitive(j, "subtitles")) {
@@ -83,6 +85,7 @@ void set_local(const Local &l)
     cJSON_AddBoolToObject(j, "autoSkipIntro", l.auto_skip_intro);
     cJSON_AddNumberToObject(j, "language", l.language);
     cJSON_AddBoolToObject(j, "refresh120", l.refresh_120);
+    cJSON_AddNumberToObject(j, "audioDelayMs", l.audio_delay_ms);
     cJSON *st = cJSON_CreateObject();
     cJSON_AddNumberToObject(st, "size", l.sub_size);
     cJSON_AddNumberToObject(st, "offset", l.sub_offset);

@@ -43,7 +43,7 @@ constexpr int kNumModes = 5;
 
 const char *kHeaders[] = {"Konto", "Avspilling", "Generelt"};
 
-int section_of(int row) { return row <= SettingsScreen::SignOut ? 0 : row <= SettingsScreen::AutoSkip ? 1 : 2; }
+int section_of(int row) { return row <= SettingsScreen::SignOut ? 0 : row <= SettingsScreen::AudioDelay ? 1 : 2; }
 
 const char *label_of(int row)
 {
@@ -57,6 +57,7 @@ const char *label_of(int row)
                                          T("Undertekstbakgrunn"),
                                          T("Spill neste episode automatisk"),
                                          T("Hopp over intro automatisk"),
+                                         T("Lydforsinkelse"),
                                          T("Språk"),
                                          T("Bildefrekvens"),
                                          T("Se sammen"),
@@ -102,6 +103,9 @@ std::string SettingsScreen::value(Row r) const
                                               : std::to_string((int)(s.local.sub_background * 100 + 0.5f)) + " %";
     case Autoplay: return s.server.autoplay_next ? T("På") : T("Av");
     case AutoSkip: return s.local.auto_skip_intro ? T("På") : T("Av");
+    case AudioDelay:
+        return s.local.audio_delay_ms == 0 ? std::string(T("Ingen"))
+                                           : (s.local.audio_delay_ms > 0 ? "+" : "") + std::to_string(s.local.audio_delay_ms) + " ms";
     case Refresh:
         if (!evo_agc_runtime_supports_120hz())
             return T("60 Hz (TV-en har ikke 120 Hz)");
@@ -129,6 +133,10 @@ void SettingsScreen::change(Row r, int dir)
     }
     case AutoSkip:
         s.local.auto_skip_intro = !s.local.auto_skip_intro;
+        settings::set_local(s.local);
+        break;
+    case AudioDelay:   /* 20 ms steps: a soundbar's delay is typically 40-200 ms */
+        s.local.audio_delay_ms = std::max(-500, std::min(500, s.local.audio_delay_ms + dir * 20));
         settings::set_local(s.local);
         break;
     case SubSize:
