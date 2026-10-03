@@ -198,6 +198,13 @@ public:
     /* A music library's album artists (Jellyfin's "Album Artists"), paged like library(). */
     Page album_artists(const std::string &parent_id, const std::string &sort_by, bool descending, int start,
                        int limit);
+    /* The genres in one library (for its filter). */
+    std::vector<std::string> genres_in(const std::string &parent_id, const std::string &types);
+    /* How many titles of a library (with its filter) sort before `letter` by name:
+     * the index of the first one from that letter on (A-Å jumps). -1 on failure. */
+    int count_before(const std::string &parent_id, const std::string &types, const std::string &filter,
+                     const std::string &letter);
+    static std::string escape(const std::string &s);   /* for a query value */
     /* The user's display settings for libraries (from /Users/Me): ids of libraries
      * left out of "Nylig lagt til". */
     const std::vector<std::string> &latest_excludes() const { return latest_excludes_; }

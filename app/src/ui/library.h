@@ -46,7 +46,7 @@ public:
     Action input(uint32_t pressed) override;
     void draw(double now, float dt) override;
     bool animating() const override { return m_animating; }
-    float nav_alpha() const override { return m_nav.value * (1.f - m_menu.visibility()); }
+    float nav_alpha() const override { return m_nav.value * (1.f - m_menu.visibility()) * (1.f - m_filter_a.value); }
     bool focused_card(Card *c) const override
     {
         if (m_has_card && !m_in_pills)
@@ -61,7 +61,23 @@ private:
         int total = -1;
         bool loading = false;
         unsigned generation = 0;    /* bumped on reload: stale pages are dropped */
+        std::vector<std::string> genres;   /* this source's, for the filter */
+        bool genres_loaded = false;
+        int jump_to = -1;           /* an A-Å jump that has landed: the index */
+        std::string jump_letter;
     };
+    /* What the viewer narrows the library to (Jellyfin's own filters). */
+    struct Filters {
+        bool unplayed = false, favorites = false;
+        int genre = 0;              /* 0 all, else genres[genre - 1] */
+        int decade = 0;             /* 0 all, else kDecades[decade] */
+    };
+    std::string filter_query() const;
+    int active_filters() const;
+    void filter_input(uint32_t p);
+    void draw_filters(float dt);
+    void jump_letter(int dir);
+    bool by_name() const;
     void load_more();
     void reload();
     const Source &source() const { return m_sources[std::min(m_source, (int)m_sources.size() - 1)]; }
@@ -85,6 +101,13 @@ private:
     Anim m_scroll, m_nav;
     Lifts m_lifts;
     Drop m_src_drop, m_sort_drop;       /* the focus on the sources and the sorts */
+    Drop m_filter_drop;                 /* ... and in the filter sheet */
+    Filters m_filters;
+    bool m_filter_open = false;
+    int m_filter_row = 0;
+    Anim m_filter_a;
+    std::string m_letter;               /* the big letter after an A-Å jump */
+    double m_letter_at = -10, m_now = 0;
     Ambient m_ambient;
     bool m_animating = false;
 };

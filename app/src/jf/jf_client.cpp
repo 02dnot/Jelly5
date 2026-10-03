@@ -560,6 +560,38 @@ std::vector<std::string> Client::genres()
     return out;
 }
 
+std::string Client::escape(const std::string &s) { return url_escape(s); }
+
+std::vector<std::string> Client::genres_in(const std::string &parent_id, const std::string &types)
+{
+    std::vector<std::string> out;
+    std::string body;
+    if (!get_json("/Genres?userId=" + user_id_ + (parent_id.empty() ? std::string() : "&parentId=" + parent_id) +
+                      "&IncludeItemTypes=" + types + "&Recursive=true&SortBy=SortName&EnableTotalRecordCount=false",
+                  &body))
+        return out;
+    for (const Item &g : items_of(body))
+        out.push_back(g.name);
+    return out;
+}
+
+int Client::count_before(const std::string &parent_id, const std::string &types, const std::string &filter,
+                         const std::string &letter)
+{
+    std::string body;
+    if (!get_json("/Items?userId=" + user_id_ + (parent_id.empty() ? std::string() : "&parentId=" + parent_id) +
+                      "&IncludeItemTypes=" + types + "&Recursive=true&Limit=0&EnableTotalRecordCount=true" +
+                      "&NameLessThan=" + url_escape(letter) + filter,
+                  &body))
+        return -1;
+    int n = -1;
+    if (cJSON *j = cJSON_Parse(body.c_str())) {
+        n = (int)num_of(j, "TotalRecordCount", -1);
+        cJSON_Delete(j);
+    }
+    return n;
+}
+
 std::vector<Item> Client::genre_items(const std::string &genre, int limit)
 {
     std::string body;

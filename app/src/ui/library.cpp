@@ -9,6 +9,7 @@
 #include "nuvio_input.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <thread>
 
@@ -31,6 +32,11 @@ const Sort kSorts[] = {
     {"Vurdering", "CommunityRating,SortName", true},
 };
 constexpr int kNumSorts = 4;
+constexpr int kSortByName = 1;
+/* The decades the filter offers (index 0: all). */
+const int kDecades[] = {0, 2020, 2010, 2000, 1990, 1980, 1970, 1960, 1950};
+constexpr int kNumDecades = 9;
+enum FilterRow { FUnplayed, FFavorites, FGenre, FDecade, FReset, FRowCount };
 
 } // namespace
 
@@ -78,7 +84,36 @@ bool Library::square() const
     return t == "MusicAlbum" || t == "MusicArtist" || t == "Playlist";
 }
 
-int Library::pill_count() const { return (m_sources.size() > 1 ? (int)m_sources.size() : 0) + kNumSorts; }
+int Library::pill_count() const { return (m_sources.size() > 1 ? (int)m_sources.size() : 0) + kNumSorts + 1; }
+
+bool Library::by_name() const { return m_sort == kSortByName && source().types != "MusicArtist"; }
+
+std::string Library::filter_query() const
+{
+    std::string q, f;
+    if (m_filters.unplayed)
+        f = "IsUnplayed";
+    if (m_filters.favorites)
+        f += std::string(f.empty() ? "" : ",") + "IsFavorite";
+    if (!f.empty())
+        q += "&Filters=" + f;
+    {
+        std::lock_guard<std::mutex> g(m_data->lock);
+        if (m_filters.genre > 0 && m_filters.genre <= (int)m_data->genres.size())
+            q += "&Genres=" + jf::Client::escape(m_data->genres[m_filters.genre - 1]);
+    }
+    if (m_filters.decade > 0 && m_filters.decade < kNumDecades) {
+        q += "&Years=";
+        for (int y = 0; y < 10; y++)
+            q += std::to_string(kDecades[m_filters.decade] + y) + (y < 9 ? "," : "");
+    }
+    return q;
+}
+
+int Library::active_filters() const
+{
+    return (int)m_filters.unplayed + (int)m_filters.favorites + (m_filters.genre > 0) + (m_filters.decade > 0);
+}
 
 std::string Library::types_for(const std::string &collection_type)
 {
@@ -134,10 +169,11 @@ void Library::load_more()
     const Sort s = kSorts[m_sort];
     jf::Client *c = &m_client;
     const Source src = source();
-    std::thread([d, c, src, s, start, gen] {
+    const std::string fq = filter_query();
+    std::thread([d, c, src, s, start, gen, fq] {
         /* Artists are Jellyfin's album artists, as its own music tab shows them. */
         jf::Page page = src.types == "MusicArtist" ? c->album_artists(src.view, s.by, s.desc, start, kPage)
-                                                   : c->library(src.view, src.types, s.by, s.desc, start, kPage, src.filter);
+                                                   : c->library(src.view, src.types, s.by, s.desc, start, kPage, src.filter + fq);
         std::lock_guard<std::mutex> g(d->lock);
         if (gen != d->generation)
             return;   /* the sort changed meanwhile */
@@ -154,6 +190,10 @@ Action Library::input(uint32_t p)
     {
         std::lock_guard<std::mutex> g(m_data->lock);
         count = (int)m_data->items.size();
+    }
+    if (m_filter_open) {
+        filter_input(p);
+        return a;
     }
     if (m_menu.active()) {
         m_menu.input(p, &a);
@@ -178,9 +218,35 @@ Action Library::input(uint32_t p)
         else if (p & NUVIO_BTN_RIGHT)
             m_pill = std::min(pill_count() - 1, m_pill + 1);
         else if (p & NUVIO_BTN_CROSS) {
-            if (m_pill < ns) {
+            if (m_pill == ns + kNumSorts) {   /* Filter: the sheet */
+                m_filter_open = true;
+                m_filter_row = 0;
+                m_filter_a.to(1.f);
+                std::shared_ptr<Data> d = m_data;
+                bool need;
+                {
+                    std::lock_guard<std::mutex> g(d->lock);
+                    need = !d->genres_loaded;
+                    d->genres_loaded = true;
+                }
+                if (need) {
+                    jf::Client *c = &m_client;
+                    const Source src = source();
+                    std::thread([d, c, src] {
+                        std::vector<std::string> gs = c->genres_in(src.view, src.types);
+                        std::lock_guard<std::mutex> g(d->lock);
+                        d->genres = std::move(gs);
+                    }).detach();
+                }
+            } else if (m_pill < ns) {
                 if (m_pill != m_source) {
                     m_source = m_pill;
+                    m_filters.genre = 0;   /* the genres are the library's own */
+                    {
+                        std::lock_guard<std::mutex> g(m_data->lock);
+                        m_data->genres.clear();
+                        m_data->genres_loaded = false;
+                    }
                     reload();
                 }
             } else if (m_pill - ns != m_sort) {
@@ -198,6 +264,10 @@ Action Library::input(uint32_t p)
         return a;
     }
     const int row = m_index / kCols, col = m_index % kCols;
+    if ((p & (NUVIO_BTN_L1 | NUVIO_BTN_R1)) && by_name()) {   /* A-Å: to the previous / next letter */
+        jump_letter((p & NUVIO_BTN_R1) ? 1 : -1);
+        return a;
+    }
     if (p & NUVIO_BTN_RIGHT) {
         if (col + 1 < kCols && m_index + 1 < count)
             m_index++;
@@ -242,14 +312,195 @@ Action Library::input(uint32_t p)
     return a;
 }
 
+/* The filter sheet: Usett and Favoritter toggle, Sjanger and Tiår step with
+ * left/right, Nullstill clears. Every change reloads at once. */
+void Library::filter_input(uint32_t p)
+{
+    if (p & (NUVIO_BTN_CIRCLE | NUVIO_BTN_OPTIONS)) {
+        m_filter_open = false;
+        m_filter_a.to(0.f);
+        return;
+    }
+    if (p & NUVIO_BTN_UP) {
+        m_filter_row = std::max(0, m_filter_row - 1);
+        return;
+    }
+    if (p & NUVIO_BTN_DOWN) {
+        m_filter_row = std::min((int)FRowCount - 1, m_filter_row + 1);
+        return;
+    }
+    int ngenres;
+    {
+        std::lock_guard<std::mutex> g(m_data->lock);
+        ngenres = (int)m_data->genres.size();
+    }
+    const int dir = (p & NUVIO_BTN_LEFT) ? -1 : (p & (NUVIO_BTN_RIGHT | NUVIO_BTN_CROSS)) ? 1 : 0;
+    if (!dir)
+        return;
+    const Filters was = m_filters;
+    auto cycle = [dir](int i, int n) { return n > 0 ? ((i + dir) % n + n) % n : 0; };
+    switch (m_filter_row) {
+    case FUnplayed: m_filters.unplayed = !m_filters.unplayed; break;
+    case FFavorites: m_filters.favorites = !m_filters.favorites; break;
+    case FGenre: m_filters.genre = cycle(m_filters.genre, ngenres + 1); break;
+    case FDecade: m_filters.decade = cycle(m_filters.decade, kNumDecades); break;
+    case FReset:
+        if (p & NUVIO_BTN_CROSS)
+            m_filters = Filters();
+        break;
+    }
+    if (m_filters.unplayed != was.unplayed || m_filters.favorites != was.favorites || m_filters.genre != was.genre ||
+        m_filters.decade != was.decade)
+        reload();
+}
+
+void Library::draw_filters(float dt)
+{
+    if (m_filter_a.step(dt, 14.f))
+        m_animating = true;
+    const float a = m_filter_a.value;
+    if (a <= 0.01f)
+        return;
+    std::vector<std::string> genres;
+    {
+        std::lock_guard<std::mutex> g(m_data->lock);
+        genres = m_data->genres;
+    }
+    gfx::fill({0, 0, gfx::W, gfx::H}, alpha(0x99000000u, a));
+    const float w = 760, row_h = 72, h = 120 + FRowCount * (row_h + 6) + 80;
+    const gfx::Rect r{(gfx::W - w) / 2, (gfx::H - h) / 2 + 24 * (1.f - a), w, h};
+    glass_panel(r, 28, a);
+    gfx::text(r.x + 48, r.y + 76, T("Filtrer"), {gfx::Bold, 36}, alpha(kText, a));
+    const float top = r.y + 110;
+    m_filter_drop.to({r.x + 30, top + m_filter_row * (row_h + 6), w - 60, row_h}, m_filter_row, r.x, r.y);
+    m_filter_drop.draw(dt, a, &m_animating, 16);
+    for (int i = 0; i < FRowCount; i++) {
+        const bool focus = i == m_filter_row;
+        const float y = top + i * (row_h + 6), cy = y + row_h / 2 + 9;
+        std::string label, value;
+        switch (i) {
+        case FUnplayed: label = T("Bare usette"); value = m_filters.unplayed ? T("På") : T("Av"); break;
+        case FFavorites: label = T("Bare favoritter"); value = m_filters.favorites ? T("På") : T("Av"); break;
+        case FGenre:
+            label = T("Sjanger");
+            value = m_filters.genre > 0 && m_filters.genre <= (int)genres.size() ? genres[m_filters.genre - 1]
+                                                                                  : std::string(T("Alle"));
+            break;
+        case FDecade: {
+            label = T("Tiår");
+            char b[32];
+            std::snprintf(b, sizeof b, T("%d-tallet"), kDecades[m_filters.decade]);
+            value = m_filters.decade > 0 ? std::string(b) : std::string(T("Alle"));
+            break;
+        }
+        case FReset: label = T("Nullstill filtre"); break;
+        }
+        gfx::text(r.x + 60, cy, label, {focus ? gfx::Bold : gfx::SemiBold, 26}, alpha(focus ? kText : kText2, a));
+        if (!value.empty()) {
+            const bool on = value != T("Av") && value != T("Alle");
+            gfx::text(r.x + w - 60 - (focus && i >= FGenre ? 30 : 0), cy, value, {gfx::Medium, 24, 330},
+                      alpha(on ? kText : kText3, a), 2);
+            if (focus && (i == FGenre || i == FDecade))
+                gfx::text(r.x + w - 56, cy, "\xE2\x80\xBA", {gfx::Bold, 30}, alpha(kText2, a), 2);
+        }
+    }
+    draw_pad_hints(r.x + 60, r.y + r.h - 42, {{PadButton::Cross, T("Endre")}, {PadButton::Circle, T("Ferdig")}}, 0, 26,
+                   a);
+}
+
+/* A-Å (sorted by name): L1/R1 to the start of the previous / next letter. Jellyfin
+ * counts what sorts before a letter (NameLessThan, case-blind); that count is the
+ * first title of the letter. The pages up to it load in one request. */
+void Library::jump_letter(int dir)
+{
+    std::shared_ptr<Data> d = m_data;
+    std::string name;
+    int total;
+    {
+        std::lock_guard<std::mutex> g(d->lock);
+        if (m_index >= (int)d->items.size() || d->loading)
+            return;
+        name = d->items[m_index].name;
+        total = d->total;
+    }
+    size_t k = 0;
+    while (k < name.size() && !std::isalnum((unsigned char)name[k]))
+        k++;   /* past quotes and the like, as SortName does */
+    const char c0 = k < name.size() ? (char)std::toupper((unsigned char)name[k]) : '#';
+    const int cur = c0 >= 'A' && c0 <= 'Z' ? c0 - 'A' : -1;   /* -1: a digit or other, before A */
+    const int at = m_index;
+    jf::Client *c = &m_client;
+    const Source src = source();
+    const Sort s = kSorts[m_sort];
+    const std::string fq = src.filter + filter_query();
+    unsigned gen;
+    {
+        std::lock_guard<std::mutex> g(d->lock);
+        gen = d->generation;
+        d->loading = true;
+    }
+    std::thread([d, c, src, s, fq, dir, cur, at, total, gen] {
+        auto letter = [](int i) { return std::string(1, (char)('A' + i)); };
+        int target = -1;
+        std::string shown;
+        if (dir > 0) {
+            for (int i = cur + 1; i < 26 && target < 0; i++) {
+                const int n = c->count_before(src.view, src.types, fq, letter(i));
+                if (n < 0)
+                    break;
+                if (n > at && n < total)
+                    target = n, shown = letter(i);
+            }
+        } else {
+            const int here = cur >= 0 ? c->count_before(src.view, src.types, fq, letter(cur)) : 0;
+            if (here >= 0 && here < at)
+                target = here, shown = cur >= 0 ? letter(cur) : "#";
+            for (int i = cur - 1; i >= 0 && target < 0; i--) {
+                const int n = c->count_before(src.view, src.types, fq, letter(i));
+                if (n < 0)
+                    break;
+                if (n < at)
+                    target = n, shown = letter(i);
+            }
+            if (target < 0 && at > 0)
+                target = 0, shown = "#";
+        }
+        int have;
+        {
+            std::lock_guard<std::mutex> g(d->lock);
+            have = (int)d->items.size();
+        }
+        jf::Page page;
+        if (target >= 0 && have < target + kPage)
+            page = c->library(src.view, src.types, s.by, s.desc, have, target + kPage - have, fq);
+        std::lock_guard<std::mutex> g(d->lock);
+        d->loading = false;
+        if (gen != d->generation)
+            return;
+        d->items.insert(d->items.end(), page.items.begin(), page.items.end());
+        if (target >= 0 && target < (int)d->items.size()) {
+            d->jump_to = target;
+            d->jump_letter = shown;
+        }
+    }).detach();
+}
+
 void Library::draw(double now, float dt)
 {
     m_animating = false;
     std::vector<jf::Item> items;
     int total;
     bool loading;
+    m_now = now;
     {
         std::lock_guard<std::mutex> g(m_data->lock);
+        if (m_data->jump_to >= 0) {   /* an A-Å jump landed */
+            m_index = m_data->jump_to;
+            m_in_pills = false;
+            m_letter = m_data->jump_letter;
+            m_letter_at = now;
+            m_data->jump_to = -1;
+        }
         items = m_data->items;
         total = m_data->total;
         loading = m_data->loading;
@@ -313,15 +564,23 @@ void Library::draw(double now, float dt)
             std::snprintf(cnt, sizeof cnt, T("%d titler"), total);
             gfx::text(kPad + tw + 20, hy, cnt, {gfx::Medium, 24}, alpha(kText3, ha));
         }
-        /* The sorts: a glass bar on the right, the drop on the focused or picked one. */
+        /* The sorts: a glass bar on the right, and the filter pill after it; the
+         * drop on the focused or picked sort (or on Filter while it is focused). */
         const gfx::TextStyle st{gfx::SemiBold, 23};
+        const int nf = active_filters();
+        std::string flabel = T("Filter");
+        if (nf > 0)
+            flabel += " \xC2\xB7 " + std::to_string(nf);
+        const float fw = gfx::text_width(flabel, st) + 56;
         float sw[kNumSorts], bw = 12;
         for (int i = 0; i < kNumSorts; i++) {
             sw[i] = gfx::text_width(T(kSorts[i].label), st) + 56;
             bw += sw[i] + 6;
         }
-        const float sx0 = gfx::W - kPad - bw + 6;
+        const float fx = gfx::W - kPad - fw - 6;
+        const float sx0 = fx - 18 - bw + 6;
         glass_panel({sx0 - 6, hy - 44, bw, 66}, 33, ha, false);
+        glass_panel({fx - 6, hy - 44, fw + 12, 66}, 33, ha, false);
         const bool here = m_in_pills && m_pill >= ns;
         const int on = here ? m_pill - ns : m_sort;
         float x = sx0;
@@ -330,6 +589,8 @@ void Library::draw(double now, float dt)
                 m_sort_drop.to({x, hy - 38, sw[i], 54}, i, 0, hy);
             x += sw[i] + 6;
         }
+        if (on == kNumSorts)
+            m_sort_drop.to({fx, hy - 38, fw, 54}, kNumSorts, 0, hy);
         m_sort_drop.draw(dt, ha * (here ? 1.f : 0.55f), &m_animating);
         x = sx0;
         for (int i = 0; i < kNumSorts; i++) {
@@ -337,6 +598,10 @@ void Library::draw(double now, float dt)
                       alpha(i == on ? kText : kText2, ha), 1);
             x += sw[i] + 6;
         }
+        gfx::text(fx + fw / 2, hy - 38 + 27 + 8, flabel, on == kNumSorts || nf > 0 ? gfx::TextStyle{gfx::Bold, 23} : st,
+                  alpha(on == kNumSorts || nf > 0 ? kText : kText2, ha), 1);
+        if (by_name() && !m_in_pills)   /* A-Å: the letter jump, shown where it works */
+            draw_pad_hints(sx0, hy + 48, {{PadButton::L1, ""}, {PadButton::R1, T("Hopp til bokstav")}}, 0, 22, ha);
     }
 
     /* The grid, clipped below the header. */
@@ -369,11 +634,23 @@ void Library::draw(double now, float dt)
     (void)focus_i;
 
     if (items.empty())
-        gfx::text(gfx::W / 2, 560, loading || total < 0 ? T("Henter \xE2\x80\xA6") : T("Ingenting her ennå"),
+        gfx::text(gfx::W / 2, 560, loading || total < 0 ? T("Henter \xE2\x80\xA6")
+                  : active_filters() > 0 ? T("Ingen titler passer filteret") : T("Ingenting her ennå"),
                   {gfx::Medium, 30}, kText2, 1);
     m_menu.draw(dt, &m_animating);
     if (art::animating())
         m_animating = true;
+
+    /* After an A-Å jump: the letter, large on glass, for a moment. */
+    const double since = now - m_letter_at;
+    if (since < 1.1 && !m_letter.empty()) {
+        const float la = since < 0.15 ? (float)(since / 0.15) : since > 0.8 ? (float)((1.1 - since) / 0.3) : 1.f;
+        const gfx::Rect lr{gfx::W / 2 - 110, gfx::H / 2 - 110, 220, 220};
+        glass_panel(lr, 44, la);
+        gfx::text(gfx::W / 2, gfx::H / 2 + 46, m_letter, {gfx::Bold, 130}, alpha(kText, la), 1);
+        m_animating = true;
+    }
+    draw_filters(dt);
 }
 
 } // namespace ui
