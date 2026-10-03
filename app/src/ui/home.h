@@ -48,7 +48,7 @@ public:
     Action input(uint32_t pressed) override;
     void draw(double now, float dt) override;
     bool animating() const override { return m_animating; }
-    float nav_alpha() const override { return m_hero_mode.value; }
+    float nav_alpha() const override { return m_hero_mode.value * (1.f - m_menu.visibility()); }
 
 private:
     const jf::Item *focused_item() const;

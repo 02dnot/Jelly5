@@ -25,6 +25,8 @@ class ItemMenu {
 public:
     void open(const jf::Item &item, bool in_resume_row);
     bool active() const { return m_open; }
+    /* 0..1 as it fades: the screen hides its top navigation under it. */
+    float visibility() const { return m_alpha.value; }
 
     /* While active: handles the press. *action becomes Open (Mer info) or
      * Changed (with its change), else stays None. */

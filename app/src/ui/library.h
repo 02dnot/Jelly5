@@ -32,7 +32,7 @@ public:
     Action input(uint32_t pressed) override;
     void draw(double now, float dt) override;
     bool animating() const override { return m_animating; }
-    float nav_alpha() const override { return m_nav.value; }
+    float nav_alpha() const override { return m_nav.value * (1.f - m_menu.visibility()); }
 
 private:
     struct Data {

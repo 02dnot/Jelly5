@@ -221,7 +221,8 @@ void PlayerUi::seek_step(int dir, const NuvioStatus &st, double now)
 
 void PlayerUi::playback_ended(const NuvioStatus &, std::vector<OsdCommand> &out)
 {
-    if (m_req && m_req->has_next && m_req->prefs.autoplay_next)
+    /* An album always plays on; episodes follow the autoplay setting. */
+    if (m_req && m_req->has_next && (m_req->prefs.autoplay_next || m_music))
         out.push_back({OsdCmd::PlayNext});
     else
         out.push_back({OsdCmd::Stop});
