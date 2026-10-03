@@ -513,20 +513,8 @@ static bool blur_pass(const Texture &src, float sigma, bool horizontal)
 /* Before a pass samples what the pass before it drew (the screen, then each blur
  * layer): a real barrier, so the GPU never reads a half-written surface (that read
  * showed as pixel noise on the glass). The fence word lives in the frame's ring. */
-static int s_glass_debug = 0;
-void glass_debug_next()
-{
-    s_glass_debug = (s_glass_debug + 1) % 4;
-    static const char *names[] = {"normal", "no glass shader", "no barrier", "no alternating layers"};
-    evo_boot_log("gfx: glass debug mode %d (%s)", s_glass_debug, names[s_glass_debug]);
-}
-
 static void gpu_barrier()
 {
-    if (s_glass_debug == 2) {
-        evo_agc_flush_color_target();
-        return;
-    }
     SceAgcCommandBuffer *cb = evo_agc_runtime_get_current_cb();
     evo_agc_transient_ring_t *ring = evo_agc_runtime_get_transient_ring();
     evo_agc_transient_slice_t f;
@@ -650,7 +638,7 @@ int backdrop_blur(const Rect &r, float radius, float sigma, float opacity, float
         restore_scissor();
         return 0;
     }
-    const int pair = (n >= 4 && s_glass_debug != 3 && (s_pane++ & 1)) ? 2 : 0;
+    const int pair = (n >= 4 && (s_pane++ & 1)) ? 2 : 0;
     evo_agc_layer_surface_t *h = got[pair], *v = got[pair + 1];
     for (int i = 0; i < n; i++)
         if (i != pair && i != pair + 1)
@@ -682,7 +670,7 @@ int backdrop_blur(const Rect &r, float radius, float sigma, float opacity, float
     gpu_barrier();
     evo_agc_set_layer_target(nullptr);                  /* back on the scanout */
     int result = ok ? 1 : 0;
-    if (ok && shader && s_glass_debug != 1) {   /* the real glass */
+    if (ok && shader) {   /* the real glass */
         evo_agc_runtime_set_scissor(x0, y0, x1 - x0, y1 - y0);
         if (glass_pass(out_v, r, radius, opacity, lift))
             result = 2;

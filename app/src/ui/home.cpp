@@ -376,7 +376,7 @@ void Home::draw_info(const jf::Item &it, float bottom, bool hero, float a)
         const float by = bottom - 76;
         const bool resume = it.position_ticks > 0;
         const gfx::TextStyle bt{gfx::Bold, 26};
-        if (m_row >= 0)
+        if (m_row >= 0 || !m_focused)
             m_hero_drop.hide();
         for (int pass = 0; pass < 2; pass++) {
             if (pass == 1)
@@ -385,7 +385,7 @@ void Home::draw_info(const jf::Item &it, float bottom, bool hero, float a)
             for (int b = 0; b < 2; b++) {
                 const std::string label = b == 0 ? (resume ? T("Fortsett") : T("Spill av")) : T("Mer info");
                 const float bw = gfx::text_width(label, bt) + 80 + 34;
-                const bool focused = m_row < 0 && m_hero_button == b;
+                const bool focused = m_focused && m_row < 0 && m_hero_button == b;
                 const gfx::Rect r{bx, by, bw, 76};
                 bx += bw + 20;
                 if (pass == 0) {
@@ -447,7 +447,7 @@ void Home::draw_rows(float dt)
             if (cx > gfx::W + 20 || cx + kCardW < -60)
                 continue;
             const jf::Item &it = row.items[i];
-            const bool focused = (int)r == m_row && (int)i == col;
+            const bool focused = m_focused && (int)r == m_row && (int)i == col;
             if (focused) {
                 focus_i = (int)i;
                 continue;   /* drawn last, over its neighbours */

@@ -542,14 +542,14 @@ void Library::draw(double now, float dt)
             for (int i = 0; i < ns; i++)
                 bw += gfx::text_width(m_sources[i].label, ss) + 64 + 6;
             glass_panel({kPad - 6, hy - 50, bw, 76}, 38, ha, false);
-            const bool here = m_in_pills && m_pill < ns;
+            const bool here = m_focused && m_in_pills && m_pill < ns;
             for (int i = 0; i < ns; i++) {
                 const float w = gfx::text_width(m_sources[i].label, ss) + 64;
                 if (i == (here ? m_pill : m_source))
                     m_src_drop.to({kPad + tw, hy - 44, w, 64}, i, 0, hy);
                 tw += w + 6;
             }
-            m_src_drop.draw(dt, ha * (here ? 1.f : 0.55f), &m_animating);
+            m_src_drop.draw(dt, ha * (here ? 1.f : 0.4f), &m_animating);
             tw = 0;
             for (int i = 0; i < ns; i++) {
                 const float w = gfx::text_width(m_sources[i].label, ss) + 64;
@@ -581,7 +581,7 @@ void Library::draw(double now, float dt)
         const float sx0 = fx - 18 - bw + 6;
         glass_panel({sx0 - 6, hy - 44, bw, 66}, 33, ha, false);
         glass_panel({fx - 6, hy - 44, fw + 12, 66}, 33, ha, false);
-        const bool here = m_in_pills && m_pill >= ns;
+        const bool here = m_focused && m_in_pills && m_pill >= ns;
         const int on = here ? m_pill - ns : m_sort;
         float x = sx0;
         for (int i = 0; i < kNumSorts; i++) {
@@ -591,7 +591,7 @@ void Library::draw(double now, float dt)
         }
         if (on == kNumSorts)
             m_sort_drop.to({fx, hy - 38, fw, 54}, kNumSorts, 0, hy);
-        m_sort_drop.draw(dt, ha * (here ? 1.f : 0.55f), &m_animating);
+        m_sort_drop.draw(dt, ha * (here ? 1.f : 0.4f), &m_animating);
         x = sx0;
         for (int i = 0; i < kNumSorts; i++) {
             gfx::text(x + sw[i] / 2, hy - 38 + 27 + 8, T(kSorts[i].label), i == on ? gfx::TextStyle{gfx::Bold, 23} : st,
@@ -614,7 +614,7 @@ void Library::draw(double now, float dt)
             const float y = top + r * pitch;
             if (y > gfx::H + 20 || y + tile_h + 60 < 0)
                 continue;
-            const bool f = !m_in_pills && i == m_index;
+            const bool f = m_focused && !m_in_pills && i == m_index;
             if (f)
                 focus_i = i;
             if ((pass == 0) == f)

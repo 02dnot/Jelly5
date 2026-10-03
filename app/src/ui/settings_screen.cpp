@@ -253,7 +253,10 @@ void SettingsScreen::draw(double, float dt)
             glass_panel(card, 24, 1.f, false);
         r0 = r1 + 1;
     }
-    m_drop.to({left, ys[m_row] - off, width, row_h}, m_row, 0, -off);
+    if (m_focused)
+        m_drop.to({left, ys[m_row] - off, width, row_h}, m_row, 0, -off);
+    else
+        m_drop.hide();
     m_drop.draw(dt, 1.f, &m_animating, 16);
     last_section = -1;
     for (int r = 0; r < RowCount; r++) {

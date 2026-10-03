@@ -239,14 +239,14 @@ void Search::draw(double now, float dt)
         for (int k = 0; k < kNumKeys; k++) {
             int r, c, s;
             key_cell(k, &r, &c, &s);
-            const bool focus = !m_in_results && k == m_key;
+            const bool focus = m_focused && !m_in_results && k == m_key;
             const float w = s * kKeyW + (s - 1) * kKeyGap;
             const gfx::Rect rr{kKbX + c * (kKeyW + kKeyGap), kKbY + r * (kKeyH + kKeyGap), w, kKeyH};
             if (pass == 0) {
                 if (focus)
                     m_drop.to(rr, k);
                 if (k + 1 == kNumKeys) {
-                    if (m_in_results)
+                    if (m_in_results || !m_focused)
                         m_drop.hide();
                     m_drop.draw(dt, 1.f, &anim, 12);
                 }

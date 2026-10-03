@@ -82,8 +82,13 @@ public:
         return b;
     }
 
+    /* The top bar has the focus, not this screen: it shows no focus of its own
+     * (no drop, no lifted card), so there is only ever one place that looks focused. */
+    void set_focused(bool f) { m_focused = f; }
+
 protected:
     bool m_bump = false;
+    bool m_focused = true;
 
 public:
     /* 0..1: how much of the top navigation shows over this screen. */

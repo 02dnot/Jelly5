@@ -1066,6 +1066,7 @@ bool draw_frame(double t, float dt)
                 }
                 gfx::push_opacity(enter);
             }
+            scr->set_focused(!s_nav_focus || !s_stack.empty());
             scr->draw(t, dt);
             if (enter < 1.f)
                 gfx::pop_opacity();
@@ -1338,12 +1339,6 @@ int main()
     for (;;) {
         nuvio_input_state in;
         nuvio_input_poll(&in);
-#ifdef JELLY5_LOG_HOST
-        if (in.pressed & NUVIO_BTN_R3) {   /* dev: glass test modes */
-            gfx::glass_debug_next();
-            animating = true;
-        }
-#endif
         ime::poll();
         if (ime::active())
             in.pressed = 0;   /* the system keyboard has the controller */

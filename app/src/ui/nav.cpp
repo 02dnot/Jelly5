@@ -72,7 +72,7 @@ void Nav::draw(float a, int active, int focus, float dt, bool *animating)
     } else {
         m_drop.hide();
     }
-    m_drop.draw(dt, a, animating);
+    m_drop.draw(dt, a * (focus >= 0 ? 1.f : 0.35f), animating);   /* faint where it only marks the open tab */
     float lx = px + 7;
     for (int i = 0; i < n; i++) {
         if (m_tabs[i] == drop)
