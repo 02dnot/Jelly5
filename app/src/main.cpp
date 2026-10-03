@@ -1167,6 +1167,9 @@ int main()
     s_device = device;
     settings::load_local();
     i18n::set_choice(settings::get().local.language);
+    /* 120 Hz where the display has it: smoother menus, and 24p film without 3:2 judder. */
+    if (settings::get().local.refresh_120 && evo_agc_runtime_supports_120hz())
+        evo_agc_runtime_set_120hz(1);
     s_boot_has_account = accounts::last(&s_boot_account);
     s_client = s_boot_client = s_boot_has_account ? client_for(s_boot_account) : new_client(JELLY5_SERVER);
     reset_screens();

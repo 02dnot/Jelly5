@@ -5,6 +5,7 @@
 #include "ui/settings_screen.h"
 
 #include "app/settings.h"
+#include "evo_agc_runtime.h"
 #include "app/syncplay.h"
 #include "app/i18n.h"
 #include "nuvio_input.h"
@@ -57,6 +58,7 @@ const char *label_of(int row)
                                          T("Spill neste episode automatisk"),
                                          T("Hopp over intro automatisk"),
                                          T("Språk"),
+                                         T("Bildefrekvens"),
                                          T("Se sammen"),
                                          "Server",
                                          T("Om Jelly5")};
@@ -100,6 +102,10 @@ std::string SettingsScreen::value(Row r) const
                                               : std::to_string((int)(s.local.sub_background * 100 + 0.5f)) + " %";
     case Autoplay: return s.server.autoplay_next ? T("På") : T("Av");
     case AutoSkip: return s.local.auto_skip_intro ? T("På") : T("Av");
+    case Refresh:
+        if (!evo_agc_runtime_supports_120hz())
+            return T("60 Hz (TV-en har ikke 120 Hz)");
+        return s.local.refresh_120 ? "120 Hz" : "60 Hz";
     case Together: return syncplay::active() ? syncplay::group_name() : std::string(T("Av"));
     case ServerInfo: return m_server_name.empty() ? m_client.server() : m_server_name + "  \xC2\xB7  " + m_server_version;
     case About: return std::string(T("Versjon ")) + JELLY5_VERSION;
@@ -135,6 +141,13 @@ void SettingsScreen::change(Row r, int dir)
         settings::set_local(s.local);
         break;
     }
+    case Refresh:
+        if (!evo_agc_runtime_supports_120hz())
+            break;
+        s.local.refresh_120 = !s.local.refresh_120;
+        settings::set_local(s.local);
+        evo_agc_runtime_set_120hz(s.local.refresh_120 ? 1 : 0);
+        break;
     case AppLanguage:
         s.local.language = cycle(s.local.language, 3);   /* Automatisk, Norsk, English */
         settings::set_local(s.local);
@@ -237,7 +250,7 @@ void SettingsScreen::draw(double, float dt)
         const float cy = rr.y + rr.h / 2 + 9;
         gfx::text(rr.x + 32, cy, label_of(r), {gfx::SemiBold, 26}, r == SignOut && !focus ? 0xffff7a7au : fg);
         const std::string v = value((Row)r);
-        const bool adjustable = r >= Quality && r <= AppLanguage;
+        const bool adjustable = r >= Quality && r <= Refresh;
         const float vx = rr.x + rr.w - 32 - (adjustable && focus ? 30 : 0);
         gfx::text(vx, cy, v, {gfx::Medium, 24, 700}, fg2, 2);
         if (adjustable && focus) {

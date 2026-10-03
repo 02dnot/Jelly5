@@ -22,6 +22,7 @@ struct Local {
     float sub_offset = 0;        /* % of the height, lift from the bottom */
     float sub_background = 0;    /* 0..1 box behind the text */
     bool sub_outline = true;
+    bool refresh_120 = true;     /* the display at 120 Hz when it can (smoother menus, 24p without judder) */
 };
 
 struct All {

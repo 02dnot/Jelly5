@@ -113,7 +113,8 @@ const std::unordered_map<std::string, const char *> &english_table()
         {"✕ velg   ·   △ fjern konto", "✕ choose   ·   △ remove account"},
         /* settings */
         {"Ingen preferanse", "No preference"}, {"Alltid", "Always"}, {"Bare tvungne", "Forced only"},
-        {"Åpne", "Open"}, {"Se sammen", "Watch Together"}, {"Forlat gruppe", "Leave group"}, {"Lag ny gruppe", "Create group"},
+        {"Åpne", "Open"}, {"Bildefrekvens", "Refresh rate"},
+        {"60 Hz (TV-en har ikke 120 Hz)", "60 Hz (the TV has no 120 Hz)"}, {"Se sammen", "Watch Together"}, {"Forlat gruppe", "Leave group"}, {"Lag ny gruppe", "Create group"},
         {"Ingen andre grupper akkurat nå.", "No other groups right now."}, {"○ tilbake", "○ back"},
         {"Jelly5: startes for hele gruppen", "Jelly5: starting for the whole group"},
         {"Du er med i en gruppe. Det noen i gruppen starter, spilles for alle, i takt.",

@@ -22,7 +22,7 @@ public:
     enum Row {
         SwitchUser, SignOut,
         Quality, AudioLang, SubMode, SubLang, SubSize, SubBackground, Autoplay, AutoSkip,
-        AppLanguage, Together, ServerInfo, About, RowCount
+        AppLanguage, Refresh, Together, ServerInfo, About, RowCount
     };
     explicit SettingsScreen(jf::Client &client) : m_client(client) {}
 
