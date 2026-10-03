@@ -185,7 +185,11 @@ Action SettingsScreen::input(uint32_t p)
         else
             m_row--;
     } else if (p & NUVIO_BTN_CIRCLE) {
-        a.kind = Action::ToNav;
+        /* Back, as elsewhere: to the top of the list first, then up to the tabs. */
+        if (m_row > 0)
+            m_row = 0;
+        else
+            a.kind = Action::ToNav;
     } else if (p & (NUVIO_BTN_LEFT | NUVIO_BTN_RIGHT)) {
         change((Row)m_row, (p & NUVIO_BTN_RIGHT) ? 1 : -1);
     } else if (p & NUVIO_BTN_CROSS) {
