@@ -510,6 +510,20 @@ static bool blur_pass(const Texture &src, float sigma, bool horizontal)
 
 /* The liquid glass pane in one pass (app/shaders/liquid_glass.pipe) over the
  * scissored pane: refraction at the rim, vibrancy, tint, lit rim and sheen. */
+/* Before a pass samples what the pass before it drew (the screen, then each blur
+ * layer): a real barrier, so the GPU never reads a half-written surface (that read
+ * showed as pixel noise on the glass). The fence word lives in the frame's ring. */
+static void gpu_barrier()
+{
+    SceAgcCommandBuffer *cb = evo_agc_runtime_get_current_cb();
+    evo_agc_transient_ring_t *ring = evo_agc_runtime_get_transient_ring();
+    evo_agc_transient_slice_t f;
+    if (!cb || !ring ||
+        evo_agc_transient_ring_alloc(ring, evo_agc_runtime_get_current_slot(), 8, 8, &f) != EVO_AGC_TRANSIENT_OK ||
+        evo_agc_writer_wait_idle(cb, f.gpu_addr, (volatile uint32_t *)f.cpu, 1) != 0)
+        evo_agc_flush_color_target();   /* no room: at least the flush, as before */
+}
+
 static float s_light_x = -0.55f, s_light_y = -0.83f;
 
 bool set_glass_light(float x, float y)
@@ -645,15 +659,15 @@ int backdrop_blur(const Rect &r, float radius, float sigma, float opacity, float
 
     evo_agc_runtime_bind_pipeline(EVO_AGC_PIPE_UI_BLUR);
     evo_agc_runtime_set_blend(EVO_AGC_BLEND_NONE);
-    evo_agc_flush_color_target();                       /* what is drawn so far, readable */
+    gpu_barrier();                                      /* what is drawn so far, finished and readable */
     evo_agc_set_layer_target(h);
     evo_agc_runtime_set_scissor(bx0, gy0, bx1 - bx0, gy1 - gy0);
     bool ok = blur_pass(src_scan, sp, true);
-    evo_agc_flush_color_target();
+    gpu_barrier();
     evo_agc_set_layer_target(v);
     evo_agc_runtime_set_scissor(bx0, by0, bx1 - bx0, by1 - by0);
     ok = ok && blur_pass(src_h, sp, false);
-    evo_agc_flush_color_target();
+    gpu_barrier();
     evo_agc_set_layer_target(nullptr);                  /* back on the scanout */
     int result = ok ? 1 : 0;
     if (ok && shader) {   /* the real glass */

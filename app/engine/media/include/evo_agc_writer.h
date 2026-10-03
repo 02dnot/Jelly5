@@ -146,6 +146,9 @@ int evo_agc_writer_set_flip(SceAgcCommandBuffer *cb, uint32_t video_handle, int3
  * 32-bit `marker` there. `marker` must be non-zero and must differ from the
  * value already in the slot, or the waiter cannot tell old from new. */
 int evo_agc_writer_flush_color_target(SceAgcCommandBuffer *cb);
+/* Jelly5: wait until everything before has finished, caches flushed (see the .c). */
+int evo_agc_writer_wait_idle(SceAgcCommandBuffer *cb, uint64_t fence_address, volatile uint32_t *fence_cpu,
+                             uint32_t marker);
 int evo_agc_writer_release_mem(SceAgcCommandBuffer *cb, uint64_t fence_address,
                                uint32_t marker);
 

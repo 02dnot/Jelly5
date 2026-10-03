@@ -387,6 +387,33 @@ int evo_agc_writer_flush_color_target(SceAgcCommandBuffer *cb)
     return sceAgcCbReleaseMem(cb, 45, 12, 1, 0, NULL, 0, 0, 0, 1, 0, 0) ? 0 : -1;
 }
 
+/* Jelly5: a full barrier inside the command buffer. Everything before it finishes
+ * and the caches are flushed and invalidated (release_mem: CACHE_FLUSH_AND_INV_TS,
+ * writing `marker` at end of pipe); then the CP waits (PM4 WAIT_REG_MEM, equal,
+ * memory) until the marker has landed before it reads the next packet. Needed
+ * before sampling a target that was just drawn: release_mem alone does not stall. */
+int evo_agc_writer_wait_idle(SceAgcCommandBuffer *cb, uint64_t fence_address, volatile uint32_t *fence_cpu,
+                             uint32_t marker)
+{
+    if (!cb || !fence_cpu || !fence_address || (fence_address & 7u) != 0u || !marker)
+        return -1;
+    *fence_cpu = 0;
+    if (evo_agc_writer_release_mem(cb, fence_address, marker) != 0)
+        return -1;
+    if (cb->down - cb->up < 7)
+        return -1;
+    uint32_t *p = cb->up;
+    p[0] = 0xC0053C00u;                      /* PKT3(IT_WAIT_REG_MEM = 0x3C, count 5) */
+    p[1] = 0x3u | (1u << 4);                 /* function: equal; mem space: memory; engine: ME */
+    p[2] = (uint32_t)fence_address;          /* poll address (dword aligned) */
+    p[3] = (uint32_t)(fence_address >> 32);
+    p[4] = marker;                           /* reference */
+    p[5] = 0xFFFFFFFFu;                      /* mask */
+    p[6] = 4u;                               /* poll interval */
+    cb->up = p + 7;
+    return 0;
+}
+
 int evo_agc_writer_release_mem(SceAgcCommandBuffer *cb, uint64_t fence_address,
                                uint32_t marker)
 {
