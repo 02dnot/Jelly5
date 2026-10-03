@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "app/settings.h"
+#include "app/i18n.h"
 
 #include <algorithm>
 
@@ -68,7 +69,7 @@ void load_local()
         if (cJSON_IsBool(v = cJSON_GetObjectItemCaseSensitive(st, "outline")))
             l.sub_outline = cJSON_IsTrue(v);
     }
-    if (s_all.local.language < 0 || s_all.local.language > 2)
+    if (s_all.local.language < 0 || s_all.local.language >= i18n::ChoiceCount)
         s_all.local.language = 0;
     cJSON_Delete(j);
 }

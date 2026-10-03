@@ -93,9 +93,9 @@ std::string SettingsScreen::value(Row r) const
     case SubMode: return T(kModes[index_of(kModes, s.server.subtitle_mode)].name);
     case SubLang: return T(kLangs[index_of(kLangs, s.server.subtitle_language)].name);
     case AppLanguage: {   /* each language in its own name */
-        if (s.local.language == i18n::Norwegian) return "Norsk";
-        if (s.local.language == i18n::English) return "English";
-        return std::string(T("Automatisk")) + " (" + (i18n::english() ? "English" : "Norsk") + ")";
+        if (s.local.language > i18n::Auto)
+            return i18n::choice_name(s.local.language);
+        return std::string(T("Automatisk")) + " (" + i18n::choice_name((int)i18n::lang() + 1) + ")";
     }
     case SubSize: return std::to_string(s.local.sub_size) + " %";
     case SubBackground:
@@ -157,7 +157,7 @@ void SettingsScreen::change(Row r, int dir)
         evo_agc_runtime_set_120hz(s.local.refresh_120 ? 1 : 0);
         break;
     case AppLanguage:
-        s.local.language = cycle(s.local.language, 3);   /* Automatisk, Norsk, English */
+        s.local.language = cycle(s.local.language, i18n::ChoiceCount);   /* Automatisk, then each language */
         settings::set_local(s.local);
         i18n::set_choice(s.local.language);
         break;

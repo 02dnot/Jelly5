@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "app/i18n.h"
+#include "app/i18n_tables.h"
 
 #include "evo_boot_trace.h"
 
@@ -21,6 +22,20 @@ std::atomic<unsigned> s_gen{0};
 
 constexpr int kParamLang = 1;           /* SCE_SYSTEM_SERVICE_PARAM_ID_LANG */
 constexpr int kSystemNorwegian = 15;    /* SCE_SYSTEM_PARAM_LANG_NORWEGIAN */
+
+/* SCE_SYSTEM_PARAM_LANG_* -> the language Jelly5 has for it. */
+Lang from_system(int sys)
+{
+    switch (sys) {
+    case 15: return Lang::Norwegian;
+    case 3: case 20: return Lang::Spanish;          /* Spain, Latin America */
+    case 2: case 22: return Lang::French;           /* France, Canada */
+    case 4: return Lang::German;
+    case 7: case 17: return Lang::Portuguese;       /* Portugal, Brazil */
+    case 5: return Lang::Italian;
+    default: return Lang::English;
+    }
+}
 
 /* Norwegian -> English. Texts that read the same in both are not listed. */
 const std::unordered_map<std::string, const char *> &english_table()
@@ -160,16 +175,23 @@ const std::unordered_map<std::string, const char *> &english_table()
 
 } // namespace
 
+const char *choice_name(int choice)
+{
+    static const char *const names[ChoiceCount] = {"",        "Norsk",   "English",   "Espa\xC3\xB1ol",
+                                                   "Fran\xC3\xA7" "ais", "Deutsch", "Portugu\xC3\xAAs", "Italiano"};
+    return choice > 0 && choice < ChoiceCount ? names[choice] : "";
+}
+
 void set_choice(int choice)
 {
-    Lang l = Lang::Norwegian;
-    if (choice == English) {
-        l = Lang::English;
-    } else if (choice != Norwegian) {
+    Lang l;
+    if (choice > Auto && choice < ChoiceCount) {
+        l = (Lang)(choice - 1);
+    } else {
         int sys = kSystemNorwegian;
         if (sceSystemServiceParamGetInt(kParamLang, &sys) != 0)
             sys = kSystemNorwegian;
-        l = sys == kSystemNorwegian ? Lang::Norwegian : Lang::English;
+        l = from_system(sys);
         evo_bt("i18n: system language %d", sys);
     }
     if ((int)l != s_lang.exchange((int)l))
@@ -183,8 +205,21 @@ unsigned generation() { return s_gen.load(); }
 
 const char *T(const char *nb)
 {
-    if (!nb || i18n::lang() == i18n::Lang::Norwegian)
+    const i18n::Lang l = i18n::lang();
+    if (!nb || l == i18n::Lang::Norwegian)
         return nb;
+    const std::unordered_map<std::string, const char *> *own =
+        l == i18n::Lang::Spanish      ? &i18n::spanish_table()
+        : l == i18n::Lang::French     ? &i18n::french_table()
+        : l == i18n::Lang::German     ? &i18n::german_table()
+        : l == i18n::Lang::Portuguese ? &i18n::portuguese_table()
+        : l == i18n::Lang::Italian    ? &i18n::italian_table()
+                                      : nullptr;
+    if (own) {
+        const auto it = own->find(nb);
+        if (it != own->end())
+            return it->second;
+    }
     const auto &t = i18n::english_table();
     const auto it = t.find(nb);
     if (it != t.end())

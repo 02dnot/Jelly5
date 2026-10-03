@@ -29,10 +29,10 @@ your Jellyfin server.
 - Liquid glass throughout: controls on frosted, light-bending glass, and one springy glass drop that marks the focus wherever you are
 - Home with a hero, *Continue watching*, *Next up*, *Recently added* per library, recommendations and genres, in the order you set in Jellyfin
 - Detail pages with logo art, cast, seasons and episodes, trailers, extras and *More like this*
-- Libraries for movies, shows and music: sort, filter (unwatched, favourites, genre, decade) and jump A–Å by letter
+- Libraries for movies, shows and music: sort, filter (unwatched, favourites, genre, decade) and jump A–Z by letter
 - Search across movies, shows, episodes, music and people
 - Several users and servers with profile pictures, and a screensaver drawn from your own backdrops
-- Norwegian and English, following the PS5's system language
+- English, Spanish, French, German, Portuguese, Italian and Norwegian, following the PS5's system language
 
 **Signing in**
 - Finds Jellyfin servers on your network by itself
@@ -150,7 +150,7 @@ sees it); nothing else on the console is touched.
 | ○ | Back one level at a time | Hide the controls, then leave the player |
 | D-pad | Move | Show the controls; left/right seek in 10 s steps |
 | L1 / R1 | Previous / next tab | Previous / next chapter |
-| L2 / R2 | Previous / next letter (libraries sorted A–Å) | Rewind / fast forward, faster the harder you press |
+| L2 / R2 | Previous / next letter (libraries sorted A–Z) | Rewind / fast forward, faster the harder you press |
 | △ | Search | Episodes (a film: its chapters) |
 | □ | Sort & filter (libraries) | Audio and subtitles |
 | Options | Options for the selected title (watched, favourite, …) | The controls |
@@ -196,8 +196,6 @@ A plain `scripts/build.sh` is the development build. It reads the git-ignored
 and sends a debug log over UDP to your Mac (`scripts/log.sh`). `scripts/deploy.py`
 uploads it to the console over FTP. `--release` leaves all of that out.
 
-The decisions and design plan are in [`PLAN.md`](PLAN.md) (Norwegian), and
-`concept/` holds the interactive HTML prototype the interface is built from.
 
 ## Credits
 
