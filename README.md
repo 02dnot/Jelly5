@@ -76,30 +76,75 @@ your Jellyfin server.
 | Containers | MKV, MP4, TS/M2TS, AVI and more | Blu-ray folders and ISO files are not supported |
 | 3D | — | Side-by-side and top-and-bottom files are refused; 3D Blu-ray (MVC) plays in 2D |
 
-## Requirements
+## Installation
 
-- A jailbroken PS5 with **ShadowMount+** and an FTP server (for example ftpsrv or etaHEN's). Tested on firmware **11.60**; other firmware with ShadowMount+ should work but is untested.
-- A Jellyfin server (developed and tested against 12.1) on the same network or reachable from the console.
+### What you need
 
-## Install
+- A **jailbroken PS5** that can load payloads. Jelly5 is tested on firmware
+  **11.60**; other firmware with the same tools should work but is untested.
+- **ShadowMount+**, which turns a homebrew folder into a tile on the home screen.
+- An **FTP server** on the console: **ftpsrv** (port 2121) or the one in
+  **etaHEN** (port 1337).
+- An **FTP client** on your computer, for example FileZilla, Cyberduck or
+  WinSCP.
+- A **Jellyfin server** (tested with 12.1) that the PS5 can reach, on the same
+  network or over the internet.
 
-1. Download `Jelly5-<version>.zip` from the [latest release](../../releases/latest) and unzip it.
-2. Over FTP, copy the `PPSA99505` folder to `/data/homebrew/` on the console,
-   so that you have `/data/homebrew/PPSA99505/eboot.bin`.
-3. ShadowMount+ mounts it and adds the **Jelly5** tile under Media. If the tile
-   doesn't show up, rerun your payloads or reboot and jailbreak again.
-4. Open Jelly5. It looks for Jellyfin servers on your network; pick yours, or
-   type its address, and sign in with Quick Connect.
+### Install
 
-The zip also has `PPSA99505.ffpfsc`, a PFS image of the same app for loaders
-that mount images. The folder route above is the tested one.
+1. **Download** `Jelly5-<version>.zip` from the
+   [latest release](../../releases/latest) and unzip it. Inside is a folder
+   called `PPSA99505`.
+2. **Start the jailbreak** on the PS5 as usual, with ShadowMount+ and your FTP
+   server loaded.
+3. **Connect over FTP** from your computer to the PS5's IP address (*Settings ->
+   Network -> Connection status* on the console) on your FTP server's port.
+4. **Copy the folder** `PPSA99505` into `/data/homebrew/` on the console, so
+   that `/data/homebrew/PPSA99505/eboot.bin` exists. Create `/data/homebrew`
+   if it is not there yet.
+5. **Wait a moment.** ShadowMount+ picks the folder up and adds a **Jelly5**
+   tile under *Media* on the home screen (next to TV & Video). If it does not
+   appear, run your payloads again, or reboot and jailbreak again.
+6. **Open Jelly5.** It looks for Jellyfin servers on your network:
+   - pick yours from the list, or type its address (for example
+     `192.168.1.20:8096`, or `https://jellyfin.example.com`);
+   - sign in with **Quick Connect**: scan the QR code with your phone and tap
+     *Authorize*, or type the code under *Quick Connect* in Jellyfin. You can
+     also sign in with your user name and password.
 
-**Updating:** close Jelly5 completely first (PS button → close the app), then
-overwrite the files in `/data/homebrew/PPSA99505/`. Don't delete the folder and
-copy a new one, and never keep a second folder with the same title ID anywhere
-under `/data/homebrew`: ShadowMount+ bind-mounts the folder, and replacing it
-breaks the mount. Replacing files while the app is running can crash the
-console.
+That's it. Jelly5 remembers the account, and several accounts and servers can
+be added from the profile picker.
+
+The zip also holds `PPSA99505.ffpfsc`, the same app as a PFS image, for
+loaders that mount images. The folder route above is the tested one.
+
+### Update
+
+1. **Close Jelly5 completely** first: PS button, then close it from the
+   switcher. Replacing files under a running app can crash the console.
+2. Copy the new `PPSA99505` folder's **files** over the old ones in
+   `/data/homebrew/PPSA99505/` (overwrite).
+
+Do not delete the old folder and copy a new one, and never keep a second
+folder with the same title ID anywhere under `/data/homebrew`: ShadowMount+
+bind-mounts the folder, and replacing it breaks the mount. Your accounts and
+settings are kept.
+
+### Uninstall
+
+Close Jelly5, then delete `/data/homebrew/PPSA99505`. Its accounts, settings
+and image cache are in the app's own data area (`/download0/jelly5` as the app
+sees it); nothing else on the console is touched.
+
+### Troubleshooting
+
+| Problem | What to do |
+| --- | --- |
+| No Jelly5 tile | Check the path is exactly `/data/homebrew/PPSA99505/eboot.bin`; rerun ShadowMount+ or reboot and jailbreak again. |
+| The FTP copy fails (for example "Text file busy") | Jelly5 is still running: close it with the PS button first. |
+| Your server is not in the list | Type its address. Discovery needs UDP port 7359 to reach the server (in Docker: publish `7359/udp`, and *Enable auto discovery* on in Jellyfin's networking settings). |
+| A title won't play or stutters | Press **L3** while it plays and include that info in an issue. Over Wi-Fi, lower *Max quality* in Jelly5's settings. |
+| The receiver shows PCM, not Dolby Atmos | Expected: the PS5 gives apps no bitstream passthrough (see *Known limits*). |
 
 ## Controls
 
