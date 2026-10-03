@@ -116,7 +116,7 @@ void glass_panel(const gfx::Rect &r, float radius, float a, bool shadow, float l
         if (shadow)
             gfx::shadow(r, radius, 30, 0.35f * a, 10);
         gfx::fill(r, alpha(0x2effffffu, a * lift), radius);
-        gfx::fill_vgradient({r.x, r.y, r.w, r.h * 0.55f}, alpha(0x24ffffffu, a * lift), 0x00000000u, radius);
+        gfx::fill_vgradient(r, alpha(0x30ffffffu, a * lift), 0x00000000u, radius);   /* the whole shape: a part of it had its own corners */
         gfx::rim(r, radius, 0.45f * a);
         return;
     }
@@ -129,7 +129,7 @@ void glass_panel(const gfx::Rect &r, float radius, float a, bool shadow, float l
         return;   /* the shader drew the whole pane */
     if (glass == 1) {   /* Liquid Glass: clear, a sheen from above, a lit rim */
         gfx::fill(r, lift > 0 ? alpha(0x33ffffffu, a * lift) : alpha(0x4d0c0c12u, a), radius);
-        gfx::fill_vgradient({r.x, r.y, r.w, r.h * 0.45f}, alpha(0x1affffffu, a), 0x00000000u, radius);
+        gfx::fill_vgradient(r, alpha(0x22ffffffu, a), 0x00000000u, radius);
         gfx::rim(r, radius, 0.9f * a);
     } else {
         gfx::fill(r, lift > 0 ? alpha(0x40ffffffu, a * lift) : alpha(0xdc1c1c22u, a), radius);
@@ -331,7 +331,7 @@ void draw_poster(jf::Client &c, const jf::Item &it, const gfx::Rect &base, float
      * of glass (tint, sheen, lit rim - no blur: there are dozens on screen). */
     auto chip = [&](const gfx::Rect &b) {
         gfx::fill(b, alpha(0x66101014u, opacity), b.h / 2);
-        gfx::fill_vgradient({b.x, b.y, b.w, b.h * 0.55f}, alpha(0x2effffffu, opacity), 0x00000000u, b.h / 2);
+        gfx::fill_vgradient(b, alpha(0x3cffffffu, opacity), 0x00000000u, b.h / 2);
         gfx::rim(b, b.h / 2, 0.8f * opacity);
     };
     if (it.played) {
