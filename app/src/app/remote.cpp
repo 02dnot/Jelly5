@@ -151,6 +151,8 @@ void start(jf::Client *client, std::function<bool()> alive)
     std::thread([client, alive, gen] { run(client, alive, gen); }).detach();
 }
 
+void send(const Command &c) { push(c); }
+
 bool take(Command *out)
 {
     std::lock_guard<std::mutex> g(s_lock);

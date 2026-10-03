@@ -237,12 +237,13 @@ void PlayerUi::playback_ended(const NuvioStatus &, std::vector<OsdCommand> &out)
         out.push_back({OsdCmd::Stop});
 }
 
-void PlayerUi::tick(const NuvioStatus &st, std::vector<OsdCommand> &out)
+void PlayerUi::tick(const NuvioStatus &st, std::vector<OsdCommand> &out, bool poll_remote)
 {
     m_now = st.now;
     if (!m_req)
         return;
-    remote_poll(st, out);
+    if (poll_remote)
+        remote_poll(st, out);
     int track = -1;
     switch (jelly5_subs::download_state(&track)) {
     case jelly5_subs::Done:

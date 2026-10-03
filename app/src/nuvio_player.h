@@ -26,6 +26,12 @@ void nuvio_player_init(int user_id);
  * then posts the result for Nuvio's page. Blocks for the whole playback. */
 void nuvio_player_run(const char *request_json);
 
+/* Jelly5: music while the app's menus stay up. Set before nuvio_player_run (on
+ * its own thread): the player draws nothing and reads no controller - the app
+ * draws (from nuvio_player_now_playing) and sends commands through app/remote.
+ * Only for audio: there is no picture to show. */
+void nuvio_player_set_headless(int headless);
+
 #ifdef __cplusplus
 }
 #endif

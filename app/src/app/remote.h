@@ -38,6 +38,8 @@ struct Command {
  * stops). alive: false once the session has changed. */
 void start(jf::Client *client, std::function<bool()> alive);
 
+/* Queues a command as if a phone had sent it (the app's own music controls). */
+void send(const Command &c);
 /* The next command, if any (any thread). */
 bool take(Command *out);
 /* Puts a command back at the front (the player stops for a new Play, which

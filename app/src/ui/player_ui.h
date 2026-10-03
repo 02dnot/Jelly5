@@ -39,7 +39,9 @@ public:
     void end() { m_req = nullptr; }
 
     void input(const nuvio_input_state &in, const NuvioStatus &st, std::vector<OsdCommand> &out);
-    void tick(const NuvioStatus &st, std::vector<OsdCommand> &out);
+    /* poll_remote: take the phone's commands (the player does; a copy drawn by the
+     * app for music behind the menus must not). */
+    void tick(const NuvioStatus &st, std::vector<OsdCommand> &out, bool poll_remote = true);
     /* Draws into the current frame (after the video and subtitles). */
     void draw(const NuvioStatus &st);
     /* Something is moving or changed: the player should present a frame. */

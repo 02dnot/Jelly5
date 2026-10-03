@@ -26,6 +26,7 @@
 #include "ui/home.h"
 #include "ui/library.h"
 #include "ui/nav.h"
+#include "ui/now_playing.h"
 #include "ui/person.h"
 #include "ui/login.h"
 #include "ui/profiles.h"
@@ -541,16 +542,63 @@ std::unique_ptr<ui::Login> s_login;
 Gate s_gate = Gate::None;
 ui::Nav s_nav;
 std::vector<std::unique_ptr<ui::Screen>> s_stack;   /* detail pages over the tab */
+ui::Screen *s_now_page = nullptr;                   /* the now-playing page, while it is on the stack */
 std::vector<jf::Item> s_queue;                      /* what the chosen Play hands over as a queue */
 size_t s_queue_start = 0;
 int s_tab = ui::Nav::Home;
 bool s_nav_focus = false;
 int s_nav_tab = ui::Nav::Home;     /* focused tab while s_nav_focus */
 
+/* ---- music behind the menus ------------------------------------------------------------ */
+std::atomic<bool> s_music_on{false};      /* a track (and its queue) plays headless */
+
+/* Ends the music and waits for its thread to let go of the player. */
+void stop_music()
+{
+    if (!s_music_on)
+        return;
+    remote::Command c;
+    c.kind = remote::Command::Stop;
+    remote::send(c);
+    for (int i = 0; i < 300 && s_music_on; i++)
+        usleep(10 * 1000);
+    if (s_music_on)
+        evo_bt("jelly5: music did not stop in 3 s");
+}
+
+void open_now_playing()
+{
+    if (s_now_page && !s_stack.empty() && s_stack.back().get() == s_now_page)
+        return;
+    s_stack.emplace_back(new ui::NowPlaying());
+    s_now_page = s_stack.back().get();
+    s_now_page->activate();
+}
+
+/* Music plays on the player's thread without a picture; the menus stay up. */
+void start_music(const jf::Item &item, bool shuffle, const std::vector<jf::Item> *queue, size_t start)
+{
+    stop_music();
+    jf::Client *c = s_client;
+    const std::vector<jf::Item> q = queue ? *queue : std::vector<jf::Item>();
+    s_music_on = true;
+    std::thread([c, item, shuffle, q, start] {
+        nuvio_player_set_headless(1);
+        std::string error;
+        const bool ok = q.size() > 1 ? jelly5_play_queue(*c, q, start, &error) : jelly5_play(*c, item, &error, shuffle);
+        nuvio_player_set_headless(0);
+        if (!ok)
+            notify((T("Jelly5: kunne ikke spille av\n") + error).c_str());
+        s_music_on = false;
+    }).detach();
+    open_now_playing();
+}
+
 /* Fresh screens for a new account (nothing of the last one's library survives). */
 void reset_screens()
 {
     s_stack.clear();
+    s_now_page = nullptr;
     s_home.reset(new ui::Home(*s_client));
     s_movies.reset(new ui::Library(*s_client, T("Filmer"), "Movie"));
     s_shows.reset(new ui::Library(*s_client, T("Serier"), "Series"));
@@ -581,6 +629,7 @@ void open_gate(const GateRequest &r)
 
 void switch_to(const accounts::Account &a)
 {
+    stop_music();
     const unsigned session = ++s_session;
     jf::Client *c = client_for(a);
     s_client = c;
@@ -645,6 +694,11 @@ void open_tab(int tab)
 /* Top-level input once signed in: the tab bar, or the active screen. */
 void shell_input(uint32_t p, jf::Item *play, bool *chose, bool *from_start, bool *shuffle)
 {
+    if ((p & NUVIO_BTN_OPTIONS) && s_music_on) {   /* the mini player's ☰: the now-playing page */
+        s_nav_focus = false;
+        open_now_playing();
+        return;
+    }
     if (s_nav_focus && s_stack.empty()) {
         const int before = s_nav_tab;
         std::vector<int> order = s_nav.tabs();
@@ -725,8 +779,11 @@ void shell_input(uint32_t p, jf::Item *play, bool *chose, bool *from_start, bool
         break;
     }
     case ui::Action::Back:
-        if (!s_stack.empty())
+        if (!s_stack.empty()) {
+            if (s_stack.back().get() == s_now_page)
+                s_now_page = nullptr;
             s_stack.pop_back();
+        }
         break;
     case ui::Action::Changed: {   /* written, then Min liste, Fortsett å se and the rest follow */
         jf::Client *c = s_client;
@@ -743,11 +800,13 @@ void shell_input(uint32_t p, jf::Item *play, bool *chose, bool *from_start, bool
         break;
     }
     case ui::Action::SwitchUser:
+        stop_music();
         s_session++;
         open_gate({Gate::Profiles});
         set_phase(Phase::Gate);
         break;
     case ui::Action::SignOut: {
+        stop_music();
         accounts::forget(s_client->server(), s_client->user_id());
         s_session++;
         s_client = new_client(s_client->server());   /* signed out; screens are remade on the next sign-in */
@@ -900,6 +959,15 @@ bool draw_frame(double t, float dt)
             animating = scr->animating();
             const float nav = !s_stack.empty() ? 0.f : s_nav_focus ? 1.f : scr->nav_alpha();
             s_nav.draw(nav, s_tab, s_nav_focus ? s_nav_tab : -1, dt, &animating);
+            /* The music page closes when the music ends; elsewhere the mini player shows it. */
+            if (s_now_page && !s_music_on && !s_stack.empty() && s_stack.back().get() == s_now_page) {
+                s_stack.pop_back();
+                s_now_page = nullptr;
+            }
+            if (s_music_on && (s_stack.empty() || s_stack.back().get() != s_now_page)) {
+                ui::draw_mini_player(t, 1.f);
+                animating = true;
+            }
         }
         /* The splash fades away over the first frames of the home screen. */
         s_splash.to(0.f);
@@ -964,6 +1032,12 @@ void play(jf::Item item, bool from_start, bool shuffle = false, const std::vecto
         notify(T("Jelly5: fant ingenting å spille av her"));
         return;
     }
+    if (item.type == "Audio") {   /* music: behind the menus */
+        start_music(item, shuffle, queue, start);
+        return;
+    }
+    stop_music();   /* a picture to show: the music ends first */
+    nuvio_player_set_headless(0);
     /* Hand over to the player without a seam: this frame is the player's own
      * loading screen (its colour, the title's backdrop at 92 %, its gradient),
      * and the art it is about to ask for is already being fetched. */
@@ -1148,7 +1222,7 @@ int main()
                 }).detach();
             }
         }
-        if (!chose && phase == Phase::Home && s_home_version == s_model_version) {
+        if (!chose && !s_music_on && phase == Phase::Home && s_home_version == s_model_version) {
             remote::Command rc;
             if (remote::take(&rc)) {
                 remote_idle(rc);

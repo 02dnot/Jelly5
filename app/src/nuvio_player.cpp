@@ -49,12 +49,14 @@
 #include <cstdio>
 #include <cstring>
 #include <ctime>
+#include <mutex>
 #include <new>
 #include <pthread.h>
 #include <string>
 #include <strings.h>
 #include <unistd.h>
 #include <vector>
+#include <mutex>
 
 extern "C" {
 #include <libavformat/avformat.h>
@@ -104,6 +106,15 @@ int s_user_id = -1;
 ui_canvas s_osd_canvas, s_sub_canvas;
 /* Jelly5: the GPU interface (src/ui/player_ui) in place of Nuvio's canvas one. */
 ui::PlayerUi s_osd;
+
+/* Jelly5: headless (music behind the menus) - nothing drawn, no controller; the
+ * status and request are published for the app to draw. */
+std::atomic<bool> s_headless{false};
+std::mutex s_now_lock;
+NuvioStatus s_now_status;
+NuvioRequest s_now_request;
+bool s_now_active = false;
+unsigned s_now_track = 0;
 
 /* The viewer's language preferences for the audio pick (set per playback). */
 std::vector<std::string> s_audio_langs;
@@ -647,6 +658,22 @@ void apply(Session &s, const OsdCommand &c)
 
 /* ---- public -------------------------------------------------------------------------- */
 
+extern "C" void nuvio_player_set_headless(int headless) { s_headless = headless != 0; }
+
+bool nuvio_player_now_playing(NuvioStatus *st, NuvioRequest *req, unsigned *track)
+{
+    std::lock_guard<std::mutex> g(s_now_lock);
+    if (!s_now_active)
+        return false;
+    if (st)
+        *st = s_now_status;
+    if (req)
+        *req = s_now_request;
+    if (track)
+        *track = s_now_track;
+    return true;
+}
+
 extern "C" void nuvio_player_init(int user_id)
 {
     s_user_id = user_id;
@@ -721,7 +748,9 @@ extern "C" void nuvio_player_run(const char *json)
     std::snprintf(nuvio_stream_headers, sizeof nuvio_stream_headers, "%s", s.req.headers.c_str());
     std::snprintf(nuvio_stream_user_agent, sizeof nuvio_stream_user_agent, "%s", s.req.user_agent.c_str());
 
-    nuvio_input_open(s_user_id);
+    const bool headless = s_headless;
+    if (!headless)
+        nuvio_input_open(s_user_id);
     nuvio_control_set_playing(1);
     nuvio_subs_close();
     nuvio_subs_set_style(&s.req.prefs.style);
@@ -737,10 +766,18 @@ extern "C" void nuvio_player_run(const char *json)
             delete f;
     }
 
-    screen = kScreenPlayer;
-    evo_agc_runtime_set_player_mode(1);
+    screen = kScreenPlayer;   /* the engine's threads run only "on the player screen" */
+    if (!headless)
+        evo_agc_runtime_set_player_mode(1);
     s.open_started = now_s();
     s_osd.begin(&s.req, s.open_started);
+    if (headless) {
+        std::lock_guard<std::mutex> g(s_now_lock);
+        s_now_request = s.req;
+        s_now_status = s.st;
+        s_now_active = true;
+        s_now_track++;
+    }
 
     s.job.kind = 0;
     s.job.src.url = s.req.url;
@@ -802,7 +839,10 @@ extern "C" void nuvio_player_run(const char *json)
 
         /* Input. */
         nuvio_input_state in;
-        nuvio_input_poll(&in);
+        if (headless)
+            std::memset(&in, 0, sizeof in);   /* the app has the controller */
+        else
+            nuvio_input_poll(&in);
         if (nuvio_control_take_stop() || nuvio_control_quit_requested()) {
             if (s.job.running && !s.opened) {
                 s.cancel = true;
@@ -923,13 +963,14 @@ extern "C" void nuvio_player_run(const char *json)
         }
 
         /* ---- draw ---- */
-        update_hdr(s.started && engine_ready && !s.failed);
+        if (!headless)
+            update_hdr(s.started && engine_ready && !s.failed);
         pp_video_frame f;
         std::memset(&f, 0, sizeof f);
         bool have = false, new_frame = false;
         int64_t pts = s.last_pts;
         if (engine_ready && !s.failed) {
-            have = pp_playback_get_video_frame(&g_pp_pb, &f) && f.ready;
+            have = !headless && pp_playback_get_video_frame(&g_pp_pb, &f) && f.ready;
             pts = g_pp_pb.display_pts_us;
             new_frame = have && (pts != s.last_pts || g_pp_pb.seek_discarding);
             if (have && !s.started) {
@@ -952,6 +993,19 @@ extern "C" void nuvio_player_run(const char *json)
                 if (s.started && now - s.last_pos_change < 0.3)
                     s.last_frame_at = now;
             }
+        }
+
+        if (headless) {   /* the app draws: publish, then pace the loop */
+            {
+                std::lock_guard<std::mutex> g(s_now_lock);
+                s_now_status = s.st;
+            }
+            usleep(10000);
+            if (now - last_report >= 1.0 && s.started) {
+                last_report = now;
+                nuvio_control_report(s.req.id.c_str(), s.st.position, s.st.duration);
+            }
+            continue;
         }
 
         bool sub_changed = false;
@@ -1023,14 +1077,21 @@ extern "C" void nuvio_player_run(const char *json)
     s_pb->stopPlayback();
     screen = kScreenNone;
     nuvio_subs_close();
-    ui_image_clear();
+    if (!headless)
+        ui_image_clear();   /* headless, the app's own artwork is in it */
     s_osd.end();
-    update_hdr(false);
-    /* Jelly5: no black frame on the way out - the last picture stays up until
-     * the app draws its own first frame, which follows at once. */
-    evo_agc_runtime_set_player_mode(0);
+    if (headless) {
+        std::lock_guard<std::mutex> g(s_now_lock);
+        s_now_active = false;
+    } else {
+        update_hdr(false);
+        /* Jelly5: no black frame on the way out - the last picture stays up until
+         * the app draws its own first frame, which follows at once. */
+        evo_agc_runtime_set_player_mode(0);
+    }
     nuvio_control_set_playing(0);
-    nuvio_input_close();
+    if (!headless)
+        nuvio_input_close();
     evo_boot_log_flush();
     nuvio_bridge_state_json(nuvio_result_json(s.req, s.res).c_str());
 }
