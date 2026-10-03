@@ -386,6 +386,20 @@ Action Detail::input(uint32_t p)
         a.kind = Action::Changed;
         a.item = e;
         apply_local(a.change, false);
+    } else if ((p & NUVIO_BTN_OPTIONS) && m_zone == Seasons && m_season < (int)m_view.seasons.size()) {
+        /* The whole season: Jellyfin marks every episode in it. */
+        jf::Item &season = m_view.seasons[m_season];
+        a.change.id = season.id;
+        a.change.played_set = true;
+        a.change.played = !season.played;
+        a.kind = Action::Changed;
+        a.item = season;
+        season.played = a.change.played;
+        for (jf::Item &e : m_eps) {
+            e.played = a.change.played;
+            if (a.change.played)
+                e.played_percent = 0, e.position_ticks = 0;
+        }
     } else if (p & NUVIO_BTN_CROSS) {
         switch (m_zone) {
         case Buttons: {
@@ -672,8 +686,12 @@ void Detail::draw_sections(float dt)
                 gfx::text(x + w / 2, y + 27 + 8, s.name, on ? gfx::TextStyle{gfx::Bold, 23} : st, on ? kText : kText2, 1);
                 x += w + 6;
             }
-            if (m_zone == Episodes && m_episode < (int)m_eps.size()) {   /* what Options does here */
-                const std::string what = m_eps[m_episode].played ? T("Merk som usett") : T("Merk som sett");
+            if ((m_zone == Episodes && m_episode < (int)m_eps.size()) ||
+                (m_zone == Seasons && m_season < (int)m_view.seasons.size())) {   /* what Options does here */
+                const std::string what = m_zone == Seasons
+                                             ? (m_view.seasons[m_season].played ? T("Merk sesongen som usett")
+                                                                                 : T("Merk sesongen som sett"))
+                                             : m_eps[m_episode].played ? T("Merk som usett") : T("Merk som sett");
                 draw_pad_hint(gfx::W - kPad - pad_hint_width(PadButton::Options, what, 26), y + 27,
                               PadButton::Options, what, 26);
             }

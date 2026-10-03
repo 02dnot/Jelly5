@@ -117,7 +117,14 @@ void ItemMenu::draw(float dt, bool *animating)
         switch (m_options[i]) {
         case Info: label = T("Mer info"); break;
         case List: label = m_item.favorite ? T("Fjern fra Min liste") : T("Legg til i Min liste"); break;
-        case Played: label = m_item.played ? T("Merk som usett") : T("Merk som sett"); break;
+        case Played:
+            if (m_item.type == "Series")
+                label = m_item.played ? T("Merk hele serien som usett") : T("Merk hele serien som sett");
+            else if (m_item.type == "Season")
+                label = m_item.played ? T("Merk sesongen som usett") : T("Merk sesongen som sett");
+            else
+                label = m_item.played ? T("Merk som usett") : T("Merk som sett");
+            break;
         case Resume: label = T("Fjern fra Fortsett \xC3\xA5 se"); break;
         }
         gfx::text(row.x + 26, row.y + 44, label, {focus ? gfx::Bold : gfx::SemiBold, 26}, alpha(focus ? kText : kText2, a));
