@@ -86,7 +86,7 @@ void Profiles::draw(double, float dt)
                           "", 440, 440, dd / 2, 1.f, 0);   /* over the initial until it loads */
         } else {
             name = T("Legg til");
-            gfx::fill(r, 0x14ffffffu, dd / 2);
+            glass_panel(r, dd / 2, 1.f, false);
             gfx::fill({r.x + dd / 2 - 3, r.y + dd / 2 - 36, 6, 72}, kText2, 3);
             gfx::fill({r.x + dd / 2 - 36, r.y + dd / 2 - 3, 72, 6}, kText2, 3);
         }

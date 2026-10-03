@@ -29,6 +29,7 @@
 #include "nuvio_osd.h"   /* NuvioStatus, OsdCommand */
 #include "app/remote.h"
 #include "ui/anim.h"
+#include "ui/screen.h"
 
 #include <string>
 #include <vector>
@@ -106,6 +107,7 @@ private:
     int m_button = 0;
     Anim a_controls, a_loading, a_overlay, a_skip, a_next, a_spinner, a_toast, a_error, a_flash, a_stats;
     bool m_stats = false;
+    Drop m_btn_drop, m_tracks_drop, m_season_drop, m_ep_drop;   /* the focus, as everywhere: a glass drop */
     void draw_stats(const NuvioStatus &st);
     std::string m_flash_icon;           /* "play" / "pause", flashed in the centre */
 

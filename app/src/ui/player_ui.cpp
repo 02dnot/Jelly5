@@ -746,11 +746,38 @@ void PlayerUi::draw_controls(const NuvioStatus &st)
 
     draw_bar(st, a);
 
-    /* The button row (Netflix TV): icon + label pills, the focused one white. */
+    /* The button row: icon + label, on one glass bar like the top bar, the focus
+     * drop on the focused one. */
     const std::vector<Button> bs = buttons();
     m_button = std::min(m_button, (int)bs.size() - 1);
-    float bx = kPad - 14;
     const float by = H - 128, bh = 60;
+    auto button_label = [&](Button b) -> std::string {
+        switch (b) {
+        case Button::PlayPause: return st.paused ? T("Spill av") : "Pause";
+        case Button::Episodes: return T("Episoder");
+        case Button::Tracks: return T("Lyd og undertekster");
+        case Button::Next: return T("Neste episode");
+        }
+        return "";
+    };
+    {
+        float bw_all = 12, x = kPad - 14;
+        for (size_t i = 0; i < bs.size(); i++) {
+            const float bw = 26 + 28 + 12 + gfx::text_width(button_label(bs[i]), {gfx::SemiBold, 23}) + 26;
+            if (m_zone == Zone::Buttons && (int)i == m_button)
+                m_btn_drop.to({x, by, bw, bh}, (int)bs[i], 0, by);
+            x += bw + 8;
+            bw_all += bw + 8;
+        }
+        glass_panel({kPad - 20, by - 6, bw_all - 2, bh + 12}, (bh + 12) / 2, a, false);
+        if (m_zone != Zone::Buttons)
+            m_btn_drop.hide();
+        bool moving = false;
+        m_btn_drop.draw(m_dt, a, &moving);
+        if (moving)
+            m_dirty = true;
+    }
+    float bx = kPad - 14;
     for (size_t i = 0; i < bs.size(); i++) {
         std::string label;
         switch (bs[i]) {
@@ -763,11 +790,7 @@ void PlayerUi::draw_controls(const NuvioStatus &st)
         const float bw = 26 + 28 + 12 + gfx::text_width(label, ls) + 26;
         const bool focus = m_zone == Zone::Buttons && (int)i == m_button;
         const gfx::Rect r{bx, by, bw, bh};
-        if (focus) {
-            gfx::shadow(r, bh / 2, 20, 0.45f * a, 8);
-            gfx::fill(r, alpha(0xfff5f5f7u, a), bh / 2);
-        }
-        const uint32_t fg = alpha(focus ? 0xff0b0b0fu : kText2, a);
+        const uint32_t fg = alpha(focus ? kText : kText2, a);
         const float ix = r.x + 26, cy = r.y + bh / 2;
         switch (bs[i]) {
         case Button::PlayPause:
@@ -783,8 +806,8 @@ void PlayerUi::draw_controls(const NuvioStatus &st)
         case Button::Tracks:     /* a speech bubble with lines */
             gfx::fill({ix, cy - 11, 30, 21}, fg, 5);
             gfx::fill({ix + 5, cy + 9, 7, 6}, fg, 1);
-            gfx::fill({ix + 6, cy - 5, 18, 2.5f}, alpha(focus ? 0xfff5f5f7u : 0xff141418u, a), 1);
-            gfx::fill({ix + 6, cy + 1, 12, 2.5f}, alpha(focus ? 0xfff5f5f7u : 0xff141418u, a), 1);
+            gfx::fill({ix + 6, cy - 5, 18, 2.5f}, alpha(0xff141418u, a), 1);
+            gfx::fill({ix + 6, cy + 1, 12, 2.5f}, alpha(0xff141418u, a), 1);
             break;
         case Button::Next:
             play_glyph(ix + 2, cy, 18, fg);
@@ -830,7 +853,9 @@ void PlayerUi::draw_skip_next(const NuvioStatus &st)
     const int k = current_skip(st);
     a_skip.to(k >= 0 ? 1.f : 0.f);
     if (a_skip.value > 0.01f) {
-        static std::string label = T("Hopp over intro");
+        static std::string label;   /* kept while it fades out (no T() in a static initializer) */
+        if (label.empty())
+            label = T("Hopp over intro");
         if (k >= 0)
             label = m_req->skips[k].type == "recap" ? T("Hopp over oppsummering")
                     : m_req->skips[k].type == "preview" ? T("Hopp over forhåndsvisning") : T("Hopp over intro");
@@ -839,9 +864,8 @@ void PlayerUi::draw_skip_next(const NuvioStatus &st)
         const float y = H - 350 - (1.f - a_skip.value) * 20 + (m_controls ? 0 : 200);
         const gfx::Rect r{W - kPad - w, y, w, 72};
         gfx::push_opacity(a_skip.value);
-        gfx::shadow(r, 14, 24, 0.5f, 10);
-        gfx::fill(r, 0xfff5f5f7u, 14);
-        gfx::text(r.x + r.w / 2, r.y + 46, label, st2, 0xff0b0b0fu, 1);
+        glass_panel(r, 14, 1.f, true, 1.f);   /* the one thing to press: the focus glass */
+        gfx::text(r.x + r.w / 2, r.y + 46, label, st2, kText, 1);
         gfx::pop_opacity();
     }
 
@@ -887,7 +911,7 @@ void PlayerUi::draw_tracks(const NuvioStatus &st, float a)
     const int visible = 10;
     const float cols[3] = {r.x + 56, r.x + 640, r.x + 1180};
     const float widths[3] = {520, 480, 380};
-    const char *heads[3] = {"Lyd", "Undertekster", m_find_open ? "S\xC3\xB8k" : "Tilpass"};
+    const std::string heads[3] = {T("Lyd"), T("Undertekster"), m_find_open ? T("S\xC3\xB8k") : T("Tilpass")};
     for (int c = 0; c < (m_style_open || m_find_open ? 3 : 2); c++)
         gfx::text(cols[c] + 18, top, heads[c], {gfx::SemiBold, 22}, alpha(kText3, a));
 
@@ -895,17 +919,21 @@ void PlayerUi::draw_tracks(const NuvioStatus &st, float a)
         int &sel_row = m_rows[c];
         sel_row = std::max(0, std::min(std::max(0, n - 1), sel_row));
         const int first = std::max(0, std::min(sel_row - visible / 2, n - visible));
+        if (c == m_col && n > 0) {   /* the focus drop, under this column's rows */
+            m_tracks_drop.to({cols[c], top + 30 + (sel_row - first) * (row_h + 4), widths[c], row_h}, c * 1000 + sel_row,
+                             r.x, r.y);
+            bool moving = false;
+            m_tracks_drop.draw(m_dt, a, &moving, 14);
+            if (moving)
+                m_dirty = true;
+        }
         for (int i = first; i < n && i < first + visible; i++) {
             std::string label, right;
             bool selected = false, dim = false;
             label_of(i, label, right, selected, dim);
             const float y = top + 30 + (i - first) * (row_h + 4);
             const bool focus = c == m_col && i == sel_row;
-            if (focus) {
-                gfx::shadow({cols[c], y, widths[c], row_h}, 14, 16, 0.4f * a, 6);
-                gfx::fill({cols[c], y, widths[c], row_h}, alpha(0xfff5f5f7u, a), 14);
-            }
-            const uint32_t fg = focus ? 0xff0b0b0fu : selected ? kText : dim ? kText3 : kText2;
+            const uint32_t fg = focus || selected ? kText : dim ? kText3 : kText2;
             float lx = cols[c] + 18;
             if (selected) {   /* a check, drawn: two bars */
                 gfx::fill({lx, y + row_h / 2 - 1, 8, 3}, alpha(fg, a), 1.5f);
@@ -916,7 +944,7 @@ void PlayerUi::draw_tracks(const NuvioStatus &st, float a)
                       alpha(fg, a));
             if (!right.empty())
                 gfx::text(cols[c] + widths[c] - 18, y + 39, right, {gfx::Medium, 20},
-                          alpha(focus ? 0x990b0b0fu : kText3, a), 2);
+                          alpha(focus ? kText2 : kText3, a), 2);
         }
     };
 
@@ -1034,6 +1062,11 @@ void PlayerUi::draw_episodes(float a, float dt)
 
     const std::vector<int> ss = seasons();
     const float top = r.y + 140;
+    bool moving = false;
+    for (size_t i = 0; i < ss.size() && i < 12; i++)   /* the drop on the season, brighter while focused */
+        if (ss[i] == m_ep_season)
+            m_season_drop.to({r.x + 40, top + i * 66, 280, 58}, (int)i, r.x, r.y);
+    m_season_drop.draw(dt, a * (m_ep_col == 0 ? 1.f : 0.5f), &moving, 14);
     for (size_t i = 0; i < ss.size() && i < 12; i++) {
         char label[32];
         if (ss[i] == 0)
@@ -1042,12 +1075,8 @@ void PlayerUi::draw_episodes(float a, float dt)
             std::snprintf(label, sizeof label, T("Sesong %d"), ss[i]);
         const float y = top + i * 66;
         const bool active = ss[i] == m_ep_season, focus = active && m_ep_col == 0;
-        if (focus)
-            gfx::fill({r.x + 40, y, 280, 58}, alpha(0xfff5f5f7u, a), 14);
-        else if (active)
-            gfx::fill({r.x + 40, y, 280, 58}, alpha(0x24ffffffu, a), 14);
-        gfx::text(r.x + 64, y + 38, label, {active ? gfx::Bold : gfx::Medium, 25},
-                  alpha(focus ? 0xff0b0b0fu : active ? kText : kText2, a));
+        (void)focus;
+        gfx::text(r.x + 64, y + 38, label, {active ? gfx::Bold : gfx::Medium, 25}, alpha(active ? kText : kText2, a));
     }
 
     const std::vector<int> eps = episodes_in(m_ep_season);
@@ -1057,6 +1086,14 @@ void PlayerUi::draw_episodes(float a, float dt)
     m_ep_scroll.to(std::max(0.f, std::min(std::max(0.f, eps.size() * row_h - view_h), (m_ep_index - 1) * row_h)));
     m_ep_scroll.step(dt, 12.f);
     gfx::push_scissor({lx - 20, top - 10, lw + 40, view_h + 10});
+    if (m_ep_col == 1 && m_ep_index < (int)eps.size())
+        m_ep_drop.to({lx, top + m_ep_index * row_h - m_ep_scroll.value, lw, row_h - 14}, m_ep_index, r.x,
+                     r.y - m_ep_scroll.value);
+    else
+        m_ep_drop.hide();
+    m_ep_drop.draw(dt, a, &moving, 18);
+    if (moving)
+        m_dirty = true;
     for (size_t i = 0; i < eps.size(); i++) {
         const float y = top + i * row_h - m_ep_scroll.value;
         if (y > top + view_h || y + row_h < top - 10)
@@ -1065,11 +1102,7 @@ void PlayerUi::draw_episodes(float a, float dt)
         const bool focus = m_ep_col == 1 && (int)i == m_ep_index;
         const bool here = e.season == m_req->season && e.episode == m_req->episode;
         const gfx::Rect row{lx, y, lw, row_h - 14};
-        if (focus) {
-            gfx::shadow(row, 18, 20, 0.45f * a, 8);
-            gfx::fill(row, alpha(0x2effffffu, a), 18);
-            gfx::fill({row.x, row.y, 4, row.h}, alpha(0xfff5f5f7u, a), 2);
-        }
+        (void)row;
         const gfx::Rect th{lx + 18, y + 12, 250, 140};
         gfx::push_opacity(a);
         art::draw(th, e.thumbnail, e.blurhash, 480, 270, 10);
@@ -1109,8 +1142,8 @@ void PlayerUi::draw_error(const NuvioStatus &st)
     gfx::text(W / 2, 470, T("Kunne ikke spille av"), {gfx::Bold, 52}, kText, 1);
     gfx::text(W / 2, 530, st.error, {gfx::Medium, 26, 1300, 2, 36}, kText2, 1);
     const gfx::Rect b{W / 2 - 130, 620, 260, 76};
-    gfx::fill(b, 0xfff5f5f7u, 16);
-    gfx::text(W / 2, 668, T("Tilbake"), {gfx::Bold, 26}, 0xff0b0b0fu, 1);
+    glass_panel(b, 16, 1.f, false, 1.f);
+    gfx::text(W / 2, 668, T("Tilbake"), {gfx::Bold, 26}, kText, 1);
     gfx::pop_opacity();
 }
 
@@ -1333,11 +1366,11 @@ void PlayerUi::draw_music(const NuvioStatus &st)
     };
     const bool has_prev = !r.episodes.empty() && r.episodes.front().episode != r.episode;
     skip(mid - 150, ty, 30, false, has_prev ? kText : kText3);
-    gfx::fill({mid - 44, ty - 44, 88, 88}, 0xfff5f5f7u, 44);
+    glass_panel({mid - 44, ty - 44, 88, 88}, 44, 1.f, false, 1.f);   /* the play button: a drop of glass */
     if (st.paused || !st.started)
-        play_glyph(mid - 12, ty, 34, 0xff0b0b0fu);
+        play_glyph(mid - 12, ty, 34, kText);
     else
-        pause_glyph(mid, ty, 32, 0xff0b0b0fu);
+        pause_glyph(mid, ty, 32, kText);
     skip(mid + 120, ty, 30, true, r.has_next ? kText : kText3);
     gfx::text(mid - 135, ty + 70, "L1", {gfx::SemiBold, 18}, kText3, 1);
     gfx::text(mid + 135, ty + 70, "R1", {gfx::SemiBold, 18}, kText3, 1);
