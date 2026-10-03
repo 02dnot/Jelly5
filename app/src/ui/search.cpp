@@ -233,16 +233,8 @@ void Search::draw(double now, float dt)
         gfx::fill({qx + 6, qy - 44, 3, 52}, 0xff00a4dcu);
     gfx::fill({kKbX, qy + 22, 7 * (kKeyW + kKeyGap) - kKeyGap, 2}, 0x33ffffffu);
 
-    /* Keyboard: one glass pane behind the keys, faint key shapes on it, the focus
-     * drop on the key, then the labels. */
-    float kb_right = kKbX, kb_bottom = kKbY;
-    for (int k = 0; k < kNumKeys; k++) {
-        int r, c, s;
-        key_cell(k, &r, &c, &s);
-        kb_right = std::max(kb_right, kKbX + c * (kKeyW + kKeyGap) + s * kKeyW + (s - 1) * kKeyGap);
-        kb_bottom = std::max(kb_bottom, kKbY + r * (kKeyH + kKeyGap) + kKeyH);
-    }
-    glass_panel({kKbX - 16, kKbY - 16, kb_right - kKbX + 32, kb_bottom - kKbY + 32}, 26, 1.f, false);
+    /* Keyboard (tvOS): the letters on the page itself, no panel and no key boxes;
+     * the focus drop on the key, then the labels. */
     for (int pass = 0; pass < 2; pass++)
         for (int k = 0; k < kNumKeys; k++) {
             int r, c, s;
@@ -251,7 +243,6 @@ void Search::draw(double now, float dt)
             const float w = s * kKeyW + (s - 1) * kKeyGap;
             const gfx::Rect rr{kKbX + c * (kKeyW + kKeyGap), kKbY + r * (kKeyH + kKeyGap), w, kKeyH};
             if (pass == 0) {
-                gfx::fill(rr, 0x0dffffffu, 12);
                 if (focus)
                     m_drop.to(rr, k);
                 if (k + 1 == kNumKeys) {
