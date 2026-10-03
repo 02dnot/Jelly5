@@ -11,6 +11,7 @@
  */
 #include "jelly5_playback.h"
 #include "app/accounts.h"
+#include "app/i18n.h"
 #include "app/remote.h"
 #include "app/settings.h"
 #include "platform/ime.h"
@@ -282,7 +283,7 @@ void load_home(jf::Client &c, unsigned session, bool keep_hero = false)
             return;
         if (s_state.phase != Phase::Home) {
             s_state.phase = Phase::Loading;
-            s_state.message = "Henter biblioteket \xE2\x80\xA6";
+            s_state.message = T("Henter biblioteket \xE2\x80\xA6");
         }
     }
     std::vector<jf::Item> hero, resume, next, views, mylist;
@@ -313,7 +314,7 @@ void load_home(jf::Client &c, unsigned session, bool keep_hero = false)
     std::vector<std::pair<std::string, std::vector<jf::Item>>> latest;
     for (const jf::Item &v : views)
         if (has_latest(v))
-            latest.push_back({"Nylig lagt til i " + v.name, {}});
+            latest.push_back({T("Nylig lagt til i ") + v.name, {}});
     jobs.clear();
     size_t k = 0;
     for (const jf::Item &v : views)
@@ -331,9 +332,9 @@ void load_home(jf::Client &c, unsigned session, bool keep_hero = false)
         m.hero = keep_hero ? s_state.model.hero : std::move(hero);
     }
     using Row = ui::HomeRow;
-    if (!resume.empty()) m.rows.push_back({"Fortsett å se", std::move(resume), true, Row::Resume});
-    if (!next.empty()) m.rows.push_back({"Neste episode", std::move(next), true, Row::NextUp});
-    if (!mylist.empty()) m.rows.push_back({"Min liste", std::move(mylist), false, Row::MyList});
+    if (!resume.empty()) m.rows.push_back({T("Fortsett å se"), std::move(resume), true, Row::Resume});
+    if (!next.empty()) m.rows.push_back({T("Neste episode"), std::move(next), true, Row::NextUp});
+    if (!mylist.empty()) m.rows.push_back({T("Min liste"), std::move(mylist), false, Row::MyList});
     for (auto &l : latest)
         if (!l.second.empty())
             m.rows.push_back({l.first, std::move(l.second), false, Row::Latest});
@@ -353,7 +354,7 @@ void load_home(jf::Client &c, unsigned session, bool keep_hero = false)
                 m.rows.push_back(r);
     }
     if ((int)libs.size() > std::min(movies, 1) + std::min(shows, 1))
-        m.rows.push_back({"Biblioteker", std::move(libs), false, Row::Libraries});
+        m.rows.push_back({T("Biblioteker"), std::move(libs), false, Row::Libraries});
     std::lock_guard<std::mutex> g(s_state.lock);
     if (session != s_session)
         return;   /* the account changed while this loaded */
@@ -370,6 +371,8 @@ void load_home(jf::Client &c, unsigned session, bool keep_hero = false)
 /* TMDB's genre names (what Jellyfin's metadata carries) in Norwegian. */
 std::string genre_title(const std::string &g)
 {
+    if (i18n::english())
+        return g;   /* the metadata's own (English) names */
     static const std::map<std::string, std::string> no = {
         {"Action", "Action"}, {"Adventure", "Eventyr"}, {"Action & Adventure", "Action og eventyr"},
         {"Animation", "Animasjon"}, {"Comedy", "Komedie"}, {"Crime", "Krim"}, {"Documentary", "Dokumentar"},
@@ -399,8 +402,10 @@ void load_extras(jf::Client &c, unsigned session)
             if (r.kind == Row::Genre)
                 genre_rows.push_back(r);
     }
-    if (s_genres_for != session) {
+    static unsigned s_genres_lang = ~0u;
+    if (s_genres_for != session || s_genres_lang != i18n::generation()) {   /* new session, or new language */
         s_genres_for = session;
+        s_genres_lang = i18n::generation();
         s_genres = c.genres();
         std::srand((unsigned)time(nullptr));
         for (size_t i = s_genres.size(); i > 1; i--)
@@ -425,10 +430,10 @@ void load_extras(jf::Client &c, unsigned session)
         if (r.items.size() < 4 || r.baseline.empty())
             continue;
         std::string title;
-        if (r.type == "SimilarToRecentlyPlayed") title = "Fordi du så " + r.baseline;
-        else if (r.type == "SimilarToLikedItem") title = "Fordi du likte " + r.baseline;
-        else if (r.type.find("Director") != std::string::npos) title = "Regissert av " + r.baseline;
-        else if (r.type.find("Actor") != std::string::npos) title = "Med " + r.baseline;
+        if (r.type == "SimilarToRecentlyPlayed") title = T("Fordi du så ") + r.baseline;
+        else if (r.type == "SimilarToLikedItem") title = T("Fordi du likte ") + r.baseline;
+        else if (r.type.find("Director") != std::string::npos) title = T("Regissert av ") + r.baseline;
+        else if (r.type.find("Actor") != std::string::npos) title = T("Med ") + r.baseline;
         else continue;
         rows.push_back({title, std::move(r.items), false, Row::Recommended});
     }
@@ -460,7 +465,7 @@ void load_extras(jf::Client &c, unsigned session)
  * password again; an unreachable server is retried until the account changes. */
 void use_account(jf::Client &c, unsigned session, accounts::Account a)
 {
-    set_phase(Phase::Connecting, "Kobler til " + (a.server_name.empty() ? a.server : a.server_name) + " \xE2\x80\xA6");
+    set_phase(Phase::Connecting, T("Kobler til ") + (a.server_name.empty() ? a.server : a.server_name) + " \xE2\x80\xA6");
     while (session == s_session) {
         if (c.validate()) {
             if (session != s_session)
@@ -491,8 +496,8 @@ void use_account(jf::Client &c, unsigned session, accounts::Account a)
             request_gate(Gate::Login, a.server, a.user_name, true);
             return;
         }
-        set_phase(Phase::Failed, "Får ikke kontakt med " + (a.server_name.empty() ? a.server : a.server_name) +
-                                     " \xE2\x80\x93 prøver igjen \xE2\x80\xA6");
+        set_phase(Phase::Failed, T("Får ikke kontakt med ") + (a.server_name.empty() ? a.server : a.server_name) +
+                                     T(" \xE2\x80\x93 prøver igjen \xE2\x80\xA6"));
         for (int i = 0; i < 50 && session == s_session; i++)
             usleep(100 * 1000);
     }
@@ -535,8 +540,8 @@ void reset_screens()
 {
     s_stack.clear();
     s_home.reset(new ui::Home(*s_client));
-    s_movies.reset(new ui::Library(*s_client, "Filmer", "Movie"));
-    s_shows.reset(new ui::Library(*s_client, "Serier", "Series"));
+    s_movies.reset(new ui::Library(*s_client, T("Filmer"), "Movie"));
+    s_shows.reset(new ui::Library(*s_client, T("Serier"), "Series"));
     s_search.reset(new ui::Search(*s_client));
     s_settings.reset(new ui::SettingsScreen(*s_client));
     s_tab = s_nav_tab = ui::Nav::Home;
@@ -567,7 +572,7 @@ void switch_to(const accounts::Account &a)
     s_client = c;
     reset_screens();
     s_gate = Gate::None;
-    set_phase(Phase::Connecting, "Kobler til \xE2\x80\xA6");
+    set_phase(Phase::Connecting, T("Kobler til \xE2\x80\xA6"));
     std::thread([c, session, a] { use_account(*c, session, a); }).detach();
 }
 
@@ -660,7 +665,7 @@ void shell_input(uint32_t p, jf::Item *play, bool *chose, bool *from_start, bool
     case ui::Action::PlayMix: {   /* Jellyfin's Instant Mix from an album (or song, artist) */
         std::vector<jf::Item> mix = s_client->instant_mix(a.item.id, 60);
         if (mix.empty()) {
-            notify("Jelly5: Jellyfin fant ingen miks her");
+            notify(T("Jelly5: Jellyfin fant ingen miks her"));
             break;
         }
         *play = mix.front();
@@ -805,7 +810,7 @@ bool draw_frame(double t, float dt)
         draw_splash(t, 1.f);
         break;
     case Phase::Failed:
-        draw_status(message, "", t, "\xE2\x97\x8B bytt bruker eller server");
+        draw_status(message, "", t, T("\xE2\x97\x8B bytt bruker eller server"));
         break;
     case Phase::Gate:
         s_splash.snap(0.f);
@@ -818,7 +823,7 @@ bool draw_frame(double t, float dt)
         break;
     case Phase::Home:
         if (s_tab == ui::Nav::Home && s_stack.empty() && s_home->empty()) {
-            draw_status("Ingenting å vise ennå", "Legg til filmer eller serier i Jellyfin.", t);
+            draw_status(T("Ingenting å vise ennå"), T("Legg til filmer eller serier i Jellyfin."), t);
         } else {
             ui::Screen *scr = screen_for(s_tab);
             const float enter = scr->enter();
@@ -899,7 +904,7 @@ void play(jf::Item item, bool from_start, bool shuffle = false, const std::vecto
     if (from_start)
         item.position_ticks = 0;
     if (!resolve_playable(&item)) {
-        notify("Jelly5: fant ingenting å spille av her");
+        notify(T("Jelly5: fant ingenting å spille av her"));
         return;
     }
     /* Hand over to the player without a seam: this frame is the player's own
@@ -936,7 +941,7 @@ void play(jf::Item item, bool from_start, bool shuffle = false, const std::vecto
     const bool ok = queue && queue->size() > 1 ? jelly5_play_queue(*s_client, *queue, start, &error)
                                                : jelly5_play(*s_client, item, &error, shuffle);
     if (!ok)
-        notify(("Jelly5: kunne ikke spille av\n" + error).c_str());
+        notify((T("Jelly5: kunne ikke spille av\n") + error).c_str());
     nuvio_input_open(s_user);
     /* Back at once; positions and "next up" refresh behind the screen. */
     if (!s_stack.empty())
@@ -970,7 +975,7 @@ void remote_idle(const remote::Command &rc)
         }
     }
     if (q.empty()) {
-        notify("Jelly5: fant ikke det som ble sendt");
+        notify(T("Jelly5: fant ikke det som ble sendt"));
         return;
     }
     size_t start = std::min((size_t)std::max(0, rc.start_index), q.size() - 1);
@@ -1003,7 +1008,7 @@ int main()
             evo_bt("jelly5: import %s is NULL on this console", name);
 
     if (init_hardware() != 0) {
-        notify("Jelly5: skjermen kunne ikke startes");
+        notify(T("Jelly5: skjermen kunne ikke startes"));
         for (;;)
             usleep(1000 * 1000);
     }
@@ -1015,6 +1020,7 @@ int main()
     std::snprintf(device, sizeof device, "jelly5-ps5-%d", s_user);
     s_device = device;
     settings::load_local();
+    i18n::set_choice(settings::get().local.language);
     s_boot_has_account = accounts::last(&s_boot_account);
     s_client = s_boot_client = s_boot_has_account ? client_for(s_boot_account) : new_client(JELLY5_SERVER);
     reset_screens();
@@ -1032,6 +1038,7 @@ int main()
     unsigned last_model = ~0u;
     int idle_frames = 0;
     unsigned frames = 0;
+    unsigned lang_gen = i18n::generation();
     for (;;) {
         nuvio_input_state in;
         nuvio_input_poll(&in);
@@ -1066,6 +1073,19 @@ int main()
         }
         if (phase == Phase::Gate)
             gate_poll();
+        if (lang_gen != i18n::generation()) {   /* Innstillinger -> Språk: rebuild the text that was built */
+            lang_gen = i18n::generation();
+            s_movies->set_title(T("Filmer"));
+            s_shows->set_title(T("Serier"));
+            if (phase == Phase::Home) {
+                jf::Client *c = s_client;
+                const unsigned session = s_session;
+                std::thread([c, session] {
+                    load_home(*c, session, true);
+                    load_extras(*c, session);
+                }).detach();
+            }
+        }
         if (!chose && phase == Phase::Home && s_home_version == s_model_version) {
             remote::Command rc;
             if (remote::take(&rc)) {

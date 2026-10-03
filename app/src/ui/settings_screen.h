@@ -36,7 +36,7 @@ private:
     enum Row {
         SwitchUser, SignOut,
         Quality, AudioLang, SubMode, SubLang, Autoplay, AutoSkip,
-        ServerInfo, About, RowCount
+        AppLanguage, ServerInfo, About, RowCount
     };
     void change(Row r, int dir);
     std::string value(Row r) const;

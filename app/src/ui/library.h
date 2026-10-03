@@ -28,6 +28,7 @@ public:
             bool pushed = false, std::string filter = std::string());
     /* What a library of this collection type lists, e.g. "movies" -> "Movie". */
     static std::string types_for(const std::string &collection_type);
+    void set_title(std::string title) { m_title = std::move(title); }   /* the language changed */
 
     void activate() override;
     Action input(uint32_t pressed) override;

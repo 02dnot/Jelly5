@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "ui/person.h"
+#include "app/i18n.h"
 
 #include "gfx/art.h"
 #include "nuvio_input.h"
@@ -25,8 +26,13 @@ std::string born_label(const std::string &iso)
     int y = 0, m = 0, d = 0;
     if (std::sscanf(iso.c_str(), "%d-%d-%d", &y, &m, &d) != 3 || m < 1 || m > 12)
         return std::string();
+    static const char *const en[] = {"January", "February", "March",     "April",   "May",      "June",
+                                     "July",    "August",   "September", "October", "November", "December"};
     char b[48];
-    std::snprintf(b, sizeof b, "%d. %s %d", d, months[m - 1], y);
+    if (i18n::english())
+        std::snprintf(b, sizeof b, "%s %d, %d", en[m - 1], d, y);   /* March 12, 1971 */
+    else
+        std::snprintf(b, sizeof b, "%d. %s %d", d, months[m - 1], y);
     return b;
 }
 
@@ -159,14 +165,14 @@ void Person::draw(double now, float dt)
     std::string meta;
     const std::string born = born_label(p.premiere_date);
     if (!born.empty())
-        meta = "Født " + born;
+        meta = T("Født ") + born;
     if (!p.locations.empty())
         meta += (meta.empty() ? "" : "  \xC2\xB7  ") + p.locations[0];
     const size_t total = m_view.movies.size() + m_view.series.size();
     if (m_view.loaded)
-        meta += (meta.empty() ? "" : "  \xC2\xB7  ") + std::to_string(total) + (total == 1 ? " tittel her" : " titler her");
+        meta += (meta.empty() ? "" : "  \xC2\xB7  ") + std::to_string(total) + (total == 1 ? T(" tittel her") : T(" titler her"));
     gfx::text(tx, 290 - off, meta, {gfx::Medium, 26, gfx::W - tx - kPad}, kText2);
-    gfx::text(tx, 350 - off, p.overview.empty() ? (m_view.loaded ? "Ingen biografi." : "") : p.overview,
+    gfx::text(tx, 350 - off, p.overview.empty() ? (m_view.loaded ? T("Ingen biografi.") : "") : p.overview,
               {gfx::Regular, 25, gfx::W - tx - kPad, 6, 36}, kText2);
 
     /* Rows of posters. */
@@ -198,7 +204,7 @@ void Person::draw(double now, float dt)
         y += kRowH;
     }
     if (m_view.loaded && total == 0)
-        gfx::text(kPad, kRowsTop + 40 - off, "Ingen titler med " + p.name + " i biblioteket.", {gfx::Medium, 26}, kText3);
+        gfx::text(kPad, kRowsTop + 40 - off, T("Ingen titler med ") + p.name + T(" i biblioteket."), {gfx::Medium, 26}, kText3);
     gfx::pop_opacity();
     if (art::animating())
         m_animating = true;

@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "ui/library.h"
+#include "app/i18n.h"
 
 #include "gfx/art.h"
 #include "nuvio_input.h"
@@ -227,19 +228,19 @@ void Library::draw(double now, float dt)
         const float tw = gfx::text(kPad, hy, m_title, {gfx::Bold, 64}, alpha(kText, ha));
         if (total >= 0) {
             char cnt[32];
-            std::snprintf(cnt, sizeof cnt, "%d titler", total);
+            std::snprintf(cnt, sizeof cnt, T("%d titler"), total);
             gfx::text(kPad + tw + 20, hy, cnt, {gfx::Medium, 24}, alpha(kText3, ha));
         }
         float x = gfx::W - kPad;
         for (int i = kNumSorts - 1; i >= 0; i--) {
             const gfx::TextStyle st{gfx::SemiBold, 23};
-            const float w = gfx::text_width(kSorts[i].label, st) + 56;
+            const float w = gfx::text_width(T(kSorts[i].label), st) + 56;
             x -= w;
             const bool focus = m_in_pills && m_pill == i, active = m_sort == i;
             const float k = focus ? 1.08f : 1.f;
             const gfx::Rect r{x - w * (k - 1) / 2, hy - 38 - 54 * (k - 1) / 2, w * k, 54 * k};
             gfx::fill(r, alpha(focus ? 0xfff5f5f7u : active ? 0x33ffffffu : 0x14ffffffu, ha), r.h / 2);
-            gfx::text(r.x + r.w / 2, r.y + r.h / 2 + 8, kSorts[i].label, st,
+            gfx::text(r.x + r.w / 2, r.y + r.h / 2 + 8, T(kSorts[i].label), st,
                       alpha(focus ? 0xff0b0b0fu : active ? kText : kText2, ha), 1);
             x -= 12;
         }
@@ -274,7 +275,7 @@ void Library::draw(double now, float dt)
     (void)focus_i;
 
     if (items.empty())
-        gfx::text(gfx::W / 2, 560, loading || total < 0 ? "Henter \xE2\x80\xA6" : "Ingenting her ennå",
+        gfx::text(gfx::W / 2, 560, loading || total < 0 ? T("Henter \xE2\x80\xA6") : T("Ingenting her ennå"),
                   {gfx::Medium, 30}, kText2, 1);
     m_menu.draw(dt, &m_animating);
     if (art::animating())

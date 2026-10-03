@@ -5,6 +5,7 @@
 #include "ui/settings_screen.h"
 
 #include "app/settings.h"
+#include "app/i18n.h"
 #include "nuvio_input.h"
 
 #include <algorithm>
@@ -38,22 +39,23 @@ const Mode kModes[] = {{"Default", "Standard"},
                        {"None", "Av"}};
 constexpr int kNumModes = 5;
 
-const char *kHeaders[] = {"Konto", "Avspilling", "Server"};
+const char *kHeaders[] = {"Konto", "Avspilling", "Generelt"};
 
 int section_of(int row) { return row <= 1 ? 0 : row <= 7 ? 1 : 2; }
 
 const char *label_of(int row)
 {
-    static const char *const labels[] = {"Bytt bruker",
-                                         "Logg ut",
-                                         "Maks kvalitet",
-                                         "Foretrukket lydspråk",
-                                         "Undertekster",
-                                         "Undertekstspråk",
-                                         "Spill neste episode automatisk",
-                                         "Hopp over intro automatisk",
+    const char *const labels[] = {T("Bytt bruker"),
+                                         T("Logg ut"),
+                                         T("Maks kvalitet"),
+                                         T("Foretrukket lydspråk"),
+                                         T("Undertekster"),
+                                         T("Undertekstspråk"),
+                                         T("Spill neste episode automatisk"),
+                                         T("Hopp over intro automatisk"),
+                                         T("Språk"),
                                          "Server",
-                                         "Om Jelly5"};
+                                         T("Om Jelly5")};
     return labels[row];
 }
 
@@ -79,14 +81,19 @@ std::string SettingsScreen::value(Row r) const
     switch (r) {
     case SwitchUser: return m_client.user_name();
     case Quality:
-        return s.local.max_mbps == 0 ? "Automatisk (maks)" : std::to_string(s.local.max_mbps) + " Mbit/s";
-    case AudioLang: return kLangs[index_of(kLangs, s.server.audio_language)].name;
-    case SubMode: return kModes[index_of(kModes, s.server.subtitle_mode)].name;
-    case SubLang: return kLangs[index_of(kLangs, s.server.subtitle_language)].name;
-    case Autoplay: return s.server.autoplay_next ? "På" : "Av";
-    case AutoSkip: return s.local.auto_skip_intro ? "På" : "Av";
+        return s.local.max_mbps == 0 ? T("Automatisk (maks)") : std::to_string(s.local.max_mbps) + " Mbit/s";
+    case AudioLang: return T(kLangs[index_of(kLangs, s.server.audio_language)].name);
+    case SubMode: return T(kModes[index_of(kModes, s.server.subtitle_mode)].name);
+    case SubLang: return T(kLangs[index_of(kLangs, s.server.subtitle_language)].name);
+    case AppLanguage: {   /* each language in its own name */
+        if (s.local.language == i18n::Norwegian) return "Norsk";
+        if (s.local.language == i18n::English) return "English";
+        return std::string(T("Automatisk")) + " (" + (i18n::english() ? "English" : "Norsk") + ")";
+    }
+    case Autoplay: return s.server.autoplay_next ? T("På") : T("Av");
+    case AutoSkip: return s.local.auto_skip_intro ? T("På") : T("Av");
     case ServerInfo: return m_server_name.empty() ? m_client.server() : m_server_name + "  \xC2\xB7  " + m_server_version;
-    case About: return std::string("Versjon ") + JELLY5_VERSION;
+    case About: return std::string(T("Versjon ")) + JELLY5_VERSION;
     default: return std::string();
     }
 }
@@ -108,6 +115,11 @@ void SettingsScreen::change(Row r, int dir)
     case AutoSkip:
         s.local.auto_skip_intro = !s.local.auto_skip_intro;
         settings::set_local(s.local);
+        break;
+    case AppLanguage:
+        s.local.language = cycle(s.local.language, 3);   /* Automatisk, Norsk, English */
+        settings::set_local(s.local);
+        i18n::set_choice(s.local.language);
         break;
     case AudioLang:
         s.server.audio_language = kLangs[cycle(index_of(kLangs, s.server.audio_language), kNumLangs)].code;
@@ -181,14 +193,14 @@ void SettingsScreen::draw(double, float dt)
         m_animating = true;
     const float off = m_scroll.value;
 
-    gfx::text(left, 200 - off, "Innstillinger", {gfx::Bold, 64}, kText);
+    gfx::text(left, 200 - off, T("Innstillinger"), {gfx::Bold, 64}, kText);
     last_section = -1;
     for (int r = 0; r < RowCount; r++) {
         const int sec = r == About ? 3 : section_of(r);
         if (sec != last_section) {
             last_section = sec;
             if (sec < 3)
-                gfx::text(left + 8, ys[r] - 22 - off, kHeaders[sec], {gfx::Bold, 22}, kText3);
+                gfx::text(left + 8, ys[r] - 22 - off, T(kHeaders[sec]), {gfx::Bold, 22}, kText3);
         }
         const bool focus = r == m_row;
         const float lift = m_lifts.step(std::to_string(r), focus, dt, &m_animating);
@@ -202,7 +214,7 @@ void SettingsScreen::draw(double, float dt)
         const float cy = rr.y + rr.h / 2 + 9;
         gfx::text(rr.x + 32, cy, label_of(r), {gfx::SemiBold, 26}, r == SignOut && !focus ? 0xffff7a7au : fg);
         const std::string v = value((Row)r);
-        const bool adjustable = r >= Quality && r <= AutoSkip;
+        const bool adjustable = r >= Quality && r <= AppLanguage;
         const float vx = rr.x + rr.w - 32 - (adjustable && focus ? 30 : 0);
         gfx::text(vx, cy, v, {gfx::Medium, 24, 700}, fg2, 2);
         if (adjustable && focus) {
@@ -211,9 +223,10 @@ void SettingsScreen::draw(double, float dt)
         }
     }
     gfx::text(left, y + 40 - off,
-              "Lyd, undertekster og autoavspilling lagres på Jellyfin-kontoen din og gjelder i alle Jellyfin-apper.",
+              T("Lyd, undertekster og autoavspilling lagres på Jellyfin-kontoen din og gjelder i alle Jellyfin-apper."),
               {gfx::Regular, 20, width}, kText3);
-    gfx::text(left, y + 72 - off, "Jelly5 er fri programvare (GPL-3.0) og bygger på EVO Player og Nuvio PS5.",
+    gfx::text(left, y + 72 - off, T("Språk følger PS5-en, eller velg her."), {gfx::Regular, 20, width}, kText3);
+    gfx::text(left, y + 104 - off, T("Jelly5 er fri programvare (GPL-3.0) og bygger på EVO Player og Nuvio PS5."),
               {gfx::Regular, 20, width}, kText3);
 }
 

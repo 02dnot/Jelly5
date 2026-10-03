@@ -7,6 +7,7 @@
 #include "ui/player_ui.h"
 
 #include "app/remote.h"
+#include "app/i18n.h"
 #include "jelly5_playback.h"
 #include "gfx/art.h"
 #include "gfx/gfx.h"
@@ -46,9 +47,14 @@ std::string clock_at(double seconds_from_now)
     return b;
 }
 
-/* Language names in Norwegian; the player's own names otherwise. */
+/* Language names in the interface's language: Norwegian from the list below,
+ * English (and anything not listed) from the player's own names. */
 std::string language_name(const std::string &code)
 {
+    if (i18n::english()) {
+        const std::string n = nuvio_language_name(code);
+        return n.empty() ? T("Ukjent språk") : n;
+    }
     struct L {
         const char *codes, *name;
     };
@@ -59,7 +65,7 @@ std::string language_name(const std::string &code)
                               {"chi zho zh", "Kinesisk"},  {"por pt", "Portugisisk"}, {"rus ru", "Russisk"},
                               {"dut nld nl", "Nederlandsk"}, {"pol pl", "Polsk"},   {"ice isl is", "Islandsk"}};
     if (code.empty() || code == "und")
-        return "Ukjent språk";
+        return T("Ukjent språk");
     std::string lc = code;
     for (char &c : lc)
         c = (char)std::tolower((unsigned char)c);
@@ -240,9 +246,9 @@ void PlayerUi::tick(const NuvioStatus &st, std::vector<OsdCommand> &out)
     switch (jelly5_subs::download_state(&track)) {
     case jelly5_subs::Done:
         out.push_back({OsdCmd::SelectSubtitle, 0, track});
-        toast("Undertekst lagt til", st.now);
+        toast(T("Undertekst lagt til"), st.now);
         break;
-    case jelly5_subs::Failed: toast("Kunne ikke hente underteksten", st.now); break;
+    case jelly5_subs::Failed: toast(T("Kunne ikke hente underteksten"), st.now); break;
     default: break;
     }
     if (st.started && !m_shown_once) {
@@ -388,7 +394,7 @@ void PlayerUi::find_input(uint32_t p)
         jelly5_subs::search(m_find_langs[m_find_lang]);
     } else if ((p & NUVIO_BTN_CROSS) && r >= 1 && r <= (int)found.size()) {
         jelly5_subs::download(found[r - 1]);
-        toast("Henter undertekst \xE2\x80\xA6", m_now);
+        toast(T("Henter undertekst \xE2\x80\xA6"), m_now);
     }
 }
 
@@ -671,7 +677,7 @@ void PlayerUi::draw_controls(const NuvioStatus &st)
     if (!sub.empty())
         gfx::text(x + 18, ty, sub, {gfx::Medium, 26, W - x - 500}, alpha(kText2, a));
     if (st.duration > 0)
-        gfx::text(W - kPad, ty, "Slutter kl. " + clock_at(st.duration - st.position), {gfx::Medium, 22},
+        gfx::text(W - kPad, ty, T("Slutter kl. ") + clock_at(st.duration - st.position), {gfx::Medium, 22},
                   alpha(kText3, a), 2);
 
     draw_bar(st, a);
@@ -684,10 +690,10 @@ void PlayerUi::draw_controls(const NuvioStatus &st)
     for (size_t i = 0; i < bs.size(); i++) {
         std::string label;
         switch (bs[i]) {
-        case Button::PlayPause: label = st.paused ? "Spill av" : "Pause"; break;
-        case Button::Episodes: label = "Episoder"; break;
-        case Button::Tracks: label = "Lyd og undertekster"; break;
-        case Button::Next: label = "Neste episode"; break;
+        case Button::PlayPause: label = st.paused ? T("Spill av") : "Pause"; break;
+        case Button::Episodes: label = T("Episoder"); break;
+        case Button::Tracks: label = T("Lyd og undertekster"); break;
+        case Button::Next: label = T("Neste episode"); break;
         }
         const gfx::TextStyle ls{gfx::SemiBold, 23};
         const float bw = 26 + 28 + 12 + gfx::text_width(label, ls) + 26;
@@ -771,10 +777,10 @@ void PlayerUi::draw_skip_next(const NuvioStatus &st)
     const int k = current_skip(st);
     a_skip.to(k >= 0 ? 1.f : 0.f);
     if (a_skip.value > 0.01f) {
-        static std::string label = "Hopp over intro";
+        static std::string label = T("Hopp over intro");
         if (k >= 0)
-            label = m_req->skips[k].type == "recap" ? "Hopp over oppsummering"
-                    : m_req->skips[k].type == "preview" ? "Hopp over forhåndsvisning" : "Hopp over intro";
+            label = m_req->skips[k].type == "recap" ? T("Hopp over oppsummering")
+                    : m_req->skips[k].type == "preview" ? T("Hopp over forhåndsvisning") : T("Hopp over intro");
         const gfx::TextStyle st2{gfx::Bold, 26};
         const float w = gfx::text_width(label, st2) + 72;
         const float y = H - 350 - (1.f - a_skip.value) * 20 + (m_controls ? 0 : 200);
@@ -796,19 +802,19 @@ void PlayerUi::draw_skip_next(const NuvioStatus &st)
         glass(r, 1.f);
         art::draw({r.x + 18, r.y + 18, 213, 120}, n.thumbnail, n.blurhash, 480, 270, 10);
         const float tx = r.x + 250;
-        gfx::text(tx, r.y + 44, "NESTE EPISODE", {gfx::Bold, 17}, kText3);
+        gfx::text(tx, r.y + 44, T("NESTE EPISODE"), {gfx::Bold, 17}, kText3);
         char title[256];
         std::snprintf(title, sizeof title, "S%d:E%d \xC2\xB7 %s", n.season, n.episode, n.title.c_str());
         gfx::text(tx, r.y + 80, title, {gfx::Bold, 24, r.w - 270}, kText);
         if (m_req->prefs.autoplay_next && m_card_since >= 0) {
             const double left = std::max(0.0, 10.0 - (st.now - m_card_since));
             char c[48];
-            std::snprintf(c, sizeof c, "Spilles om %d s  \xC2\xB7  \xE2\x9C\x95 n\xC3\xA5", (int)std::ceil(left));
+            std::snprintf(c, sizeof c, T("Spilles om %d s  \xC2\xB7  \xE2\x9C\x95 n\xC3\xA5"), (int)std::ceil(left));
             gfx::text(tx, r.y + 116, c, {gfx::Medium, 20}, kText2);
             gfx::fill({tx, r.y + 132, r.w - 270, 4}, 0x33ffffffu, 2);
             gfx::fill({tx, r.y + 132, (r.w - 270) * (float)(1.0 - left / 10.0), 4}, kAccent, 2);
         } else {
-            gfx::text(tx, r.y + 116, "\xE2\x9C\x95 spill av  \xC2\xB7  \xE2\x97\x8B se rulletekst", {gfx::Medium, 20}, kText2);
+            gfx::text(tx, r.y + 116, T("\xE2\x9C\x95 spill av  \xC2\xB7  \xE2\x97\x8B se rulletekst"), {gfx::Medium, 20}, kText2);
         }
         gfx::pop_opacity();
     }
@@ -820,7 +826,7 @@ void PlayerUi::draw_tracks(const NuvioStatus &st, float a)
 {
     const gfx::Rect r{160, 120, W - 320, H - 240};
     glass(r, a);
-    gfx::text(r.x + 56, r.y + 86, "Lyd og undertekster", {gfx::Bold, 40}, alpha(kText, a));
+    gfx::text(r.x + 56, r.y + 86, T("Lyd og undertekster"), {gfx::Bold, 40}, alpha(kText, a));
 
     const float top = r.y + 150, row_h = 62;
     const int visible = 10;
@@ -862,7 +868,7 @@ void PlayerUi::draw_tracks(const NuvioStatus &st, float a)
     /* Audio. */
     const int na = (int)st.audio.size();
     if (na == 0)
-        gfx::text(cols[0] + 18, top + 72, "Ingen andre lydspor", {gfx::Medium, 24}, alpha(kText3, a));
+        gfx::text(cols[0] + 18, top + 72, T("Ingen andre lydspor"), {gfx::Medium, 24}, alpha(kText3, a));
     column(0, na, [&](int i, std::string &label, std::string &right, bool &sel, bool &) {
         const NuvioAudioTrack &t = st.audio[i];
         label = language_name(t.lang);
@@ -877,16 +883,16 @@ void PlayerUi::draw_tracks(const NuvioStatus &st, float a)
     const bool find = jelly5_subs::available();
     column(1, ns + 2 + (find ? 1 : 0), [&](int i, std::string &label, std::string &right, bool &sel, bool &dim) {
         if (i == 0) {
-            label = "Av";
+            label = T("Av");
             sel = cur < 0;
             return;
         }
         if (i == ns + 1) {
-            label = "Tilpass undertekster \xE2\x80\xBA";
+            label = T("Tilpass undertekster \xE2\x80\xBA");
             return;
         }
         if (i == ns + 2) {
-            label = "S\xC3\xB8k etter undertekster \xE2\x80\xBA";
+            label = T("S\xC3\xB8k etter undertekster \xE2\x80\xBA");
             return;
         }
         nuvio_sub_track t;
@@ -895,10 +901,10 @@ void PlayerUi::draw_tracks(const NuvioStatus &st, float a)
         label = language_name(t.lang);
         if (t.title[0] && std::string(t.title) != label)
             label += " \xC2\xB7 " + std::string(t.title);
-        if (t.forced) right += "Tvungen ";
+        if (t.forced) right += T("Tvungen ");
         if (t.hearing_impaired) right += "SDH ";
-        if (t.bitmap) right += "Bilde ";
-        if (t.external) right += "Ekstern";
+        if (t.bitmap) right += T("Bilde ");
+        if (t.external) right += T("Ekstern");
         sel = i - 1 == cur;
         dim = t.state < 0;
     });
@@ -910,17 +916,17 @@ void PlayerUi::draw_tracks(const NuvioStatus &st, float a)
         column(2, 5, [&](int i, std::string &label, std::string &right, bool &, bool &) {
             char v[48];
             switch (i) {
-            case 0: label = "Forsinkelse"; std::snprintf(v, sizeof v, "\xE2\x80\xB9 %+.1f s \xE2\x80\xBA", nuvio_subs_delay_ms() / 1000.0); break;
-            case 1: label = "Størrelse"; std::snprintf(v, sizeof v, "\xE2\x80\xB9 %d %% \xE2\x80\xBA", s.size_pct); break;
-            case 2: label = "Posisjon"; std::snprintf(v, sizeof v, "\xE2\x80\xB9 %.0f %% \xE2\x80\xBA", s.offset_pct); break;
+            case 0: label = T("Forsinkelse"); std::snprintf(v, sizeof v, "\xE2\x80\xB9 %+.1f s \xE2\x80\xBA", nuvio_subs_delay_ms() / 1000.0); break;
+            case 1: label = T("Størrelse"); std::snprintf(v, sizeof v, "\xE2\x80\xB9 %d %% \xE2\x80\xBA", s.size_pct); break;
+            case 2: label = T("Posisjon"); std::snprintf(v, sizeof v, "\xE2\x80\xB9 %.0f %% \xE2\x80\xBA", s.offset_pct); break;
             case 3:
-                label = "Bakgrunn";
+                label = T("Bakgrunn");
                 if (s.background < 0.05f)
-                    std::snprintf(v, sizeof v, "\xE2\x80\xB9 Av \xE2\x80\xBA");
+                    std::snprintf(v, sizeof v, "%s", T("\xE2\x80\xB9 Av \xE2\x80\xBA"));
                 else
                     std::snprintf(v, sizeof v, "\xE2\x80\xB9 %d %% \xE2\x80\xBA", (int)(s.background * 100));
                 break;
-            default: label = "Kontur"; std::snprintf(v, sizeof v, "%s", s.outline ? "På" : "Av"); break;
+            default: label = T("Kontur"); std::snprintf(v, sizeof v, "%s", s.outline ? T("På") : T("Av")); break;
             }
             right = v;
         });
@@ -932,25 +938,25 @@ void PlayerUi::draw_tracks(const NuvioStatus &st, float a)
         const jelly5_subs::State state = jelly5_subs::results(&found, &lang);
         column(2, 1 + (int)found.size(), [&](int i, std::string &label, std::string &right, bool &, bool &) {
             if (i == 0) {
-                label = "Spr\xC3\xA5k";
+                label = T("Spr\xC3\xA5k");
                 right = (m_find_langs.size() > 1 ? "\xE2\x80\xB9 " : "") + language_name(lang) +
                         (m_find_langs.size() > 1 ? " \xE2\x80\xBA" : "");
                 return;
             }
             const jf::RemoteSubtitle &x = found[i - 1];
             label = x.name.empty() ? x.provider : x.name;
-            if (x.hash_match) right += "Passer ";
+            if (x.hash_match) right += T("Passer ");
             if (x.hearing_impaired) right += "SDH ";
-            if (x.forced) right += "Tvungen ";
-            if (right.empty() && x.downloads > 0) right = std::to_string(x.downloads) + " nedl.";
+            if (x.forced) right += T("Tvungen ");
+            if (right.empty() && x.downloads > 0) right = std::to_string(x.downloads) + T(" nedl.");
         });
         const float sy = top + 30 + (row_h + 4) + 40;   /* where the first result goes */
         if (state == jelly5_subs::Busy)
-            gfx::text(cols[2] + 18, sy, "S\xC3\xB8ker \xE2\x80\xA6", {gfx::Medium, 22}, alpha(kText3, a));
+            gfx::text(cols[2] + 18, sy, T("S\xC3\xB8ker \xE2\x80\xA6"), {gfx::Medium, 22}, alpha(kText3, a));
         else if (state == jelly5_subs::Done && found.empty())
-            gfx::text(cols[2] + 18, sy, "Fant ingen", {gfx::Medium, 22}, alpha(kText3, a));
+            gfx::text(cols[2] + 18, sy, T("Fant ingen"), {gfx::Medium, 22}, alpha(kText3, a));
     }
-    gfx::text(r.x + 56, r.y + r.h - 40, "\xE2\x97\x8B lukk", {gfx::Medium, 20}, alpha(kText3, a));
+    gfx::text(r.x + 56, r.y + r.h - 40, T("\xE2\x97\x8B lukk"), {gfx::Medium, 20}, alpha(kText3, a));
 }
 
 /* Episoder: seasons on the left, the season's episodes as a list of stills
@@ -959,8 +965,8 @@ void PlayerUi::draw_episodes(float a, float dt)
 {
     const gfx::Rect r{160, 120, W - 320, H - 240};
     glass(r, a);
-    gfx::text(r.x + 56, r.y + 86, "Episoder", {gfx::Bold, 40}, alpha(kText, a));
-    gfx::text(r.x + 56 + gfx::text_width("Episoder", {gfx::Bold, 40}) + 22, r.y + 86, m_req->header_title(),
+    gfx::text(r.x + 56, r.y + 86, T("Episoder"), {gfx::Bold, 40}, alpha(kText, a));
+    gfx::text(r.x + 56 + gfx::text_width(T("Episoder"), {gfx::Bold, 40}) + 22, r.y + 86, m_req->header_title(),
               {gfx::Medium, 26, 900}, alpha(kText3, a));
 
     const std::vector<int> ss = seasons();
@@ -968,9 +974,9 @@ void PlayerUi::draw_episodes(float a, float dt)
     for (size_t i = 0; i < ss.size() && i < 12; i++) {
         char label[32];
         if (ss[i] == 0)
-            std::snprintf(label, sizeof label, "Spesialer");
+            std::snprintf(label, sizeof label, "%s", T("Spesialer"));
         else
-            std::snprintf(label, sizeof label, "Sesong %d", ss[i]);
+            std::snprintf(label, sizeof label, T("Sesong %d"), ss[i]);
         const float y = top + i * 66;
         const bool active = ss[i] == m_ep_season, focus = active && m_ep_col == 0;
         if (focus)
@@ -1015,19 +1021,19 @@ void PlayerUi::draw_episodes(float a, float dt)
         float hx = tx + gfx::text(tx, y + 48, title, {gfx::Bold, 26, lw - 520}, alpha(focus ? kText : kText2, a));
         if (here) {
             gfx::fill({hx + 14, y + 24, 128, 30}, alpha(0xe600a4dcu, a), 15);
-            gfx::text(hx + 78, y + 46, "SPILLER NÅ", {gfx::Bold, 16}, alpha(kText, a), 1);
+            gfx::text(hx + 78, y + 46, T("SPILLER NÅ"), {gfx::Bold, 16}, alpha(kText, a), 1);
         } else if (e.watched) {
             gfx::fill({hx + 14, y + 24, 62, 30}, alpha(0x33ffffffu, a), 15);
-            gfx::text(hx + 45, y + 46, "Sett", {gfx::SemiBold, 17}, alpha(kText, a), 1);
+            gfx::text(hx + 45, y + 46, T("Sett"), {gfx::SemiBold, 17}, alpha(kText, a), 1);
         }
         gfx::text(lx + lw - 24, y + 48, e.runtime, {gfx::Medium, 20}, alpha(kText3, a), 2);
-        gfx::text(tx, y + 88, e.overview.empty() ? "Ingen beskrivelse." : e.overview,
+        gfx::text(tx, y + 88, e.overview.empty() ? T("Ingen beskrivelse.") : e.overview,
                   {gfx::Regular, 21, lw - 320, 2, 30}, alpha(kText3, a));
     }
     gfx::pop_scissor();
     if (eps.empty())
-        gfx::text(lx, top + 50, "Ingen episoder i denne sesongen.", {gfx::Medium, 24}, alpha(kText3, a));
-    gfx::text(r.x + 56, r.y + r.h - 40, "\xE2\x9C\x95 spill av   \xC2\xB7   \xE2\x97\x8B lukk", {gfx::Medium, 20},
+        gfx::text(lx, top + 50, T("Ingen episoder i denne sesongen."), {gfx::Medium, 24}, alpha(kText3, a));
+    gfx::text(r.x + 56, r.y + r.h - 40, T("\xE2\x9C\x95 spill av   \xC2\xB7   \xE2\x97\x8B lukk"), {gfx::Medium, 20},
               alpha(kText3, a));
 }
 
@@ -1038,11 +1044,11 @@ void PlayerUi::draw_error(const NuvioStatus &st)
         return;
     gfx::push_opacity(a_error.value);
     gfx::fill({0, 0, W, H}, 0xe6080b10u);
-    gfx::text(W / 2, 470, "Kunne ikke spille av", {gfx::Bold, 52}, kText, 1);
+    gfx::text(W / 2, 470, T("Kunne ikke spille av"), {gfx::Bold, 52}, kText, 1);
     gfx::text(W / 2, 530, st.error, {gfx::Medium, 26, 1300, 2, 36}, kText2, 1);
     const gfx::Rect b{W / 2 - 130, 620, 260, 76};
     gfx::fill(b, 0xfff5f5f7u, 16);
-    gfx::text(W / 2, 668, "Tilbake", {gfx::Bold, 26}, 0xff0b0b0fu, 1);
+    gfx::text(W / 2, 668, T("Tilbake"), {gfx::Bold, 26}, 0xff0b0b0fu, 1);
     gfx::pop_opacity();
 }
 
@@ -1155,7 +1161,7 @@ void PlayerUi::draw_music(const NuvioStatus &st)
         draw_lyrics(st, x, w, cy - 40, cy + cs - 250);
     } else {
     float y = cy + 70;
-    gfx::text(x, y, st.paused ? "Satt på pause" : "Spilles nå", {gfx::SemiBold, 22}, kText3);
+    gfx::text(x, y, st.paused ? T("Satt på pause") : T("Spilles nå"), {gfx::SemiBold, 22}, kText3);
     y += 78;
     const std::string title = r.title;
     gfx::text(x, y, title, {gfx::Bold, 58, w, 2, 66}, kText);
@@ -1210,7 +1216,7 @@ void PlayerUi::draw_music(const NuvioStatus &st)
     gfx::text(mid + 135, ty + 70, "R1", {gfx::SemiBold, 18}, kText3, 1);
 
     if (r.has_next && !r.next.title.empty())
-        gfx::text(x, H - 90, "Neste: " + r.next.title, {gfx::Medium, 24, w}, kText3);
+        gfx::text(x, H - 90, T("Neste: ") + r.next.title, {gfx::Medium, 24, w}, kText3);
 }
 
 /* Lyrics in a column between top and bottom: timed lines follow the song with the

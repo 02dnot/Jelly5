@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "ui/album.h"
+#include "app/i18n.h"
 
 #include "gfx/art.h"
 #include "nuvio_input.h"
@@ -184,7 +185,7 @@ void Album::draw(double now, float dt)
     /* Title, artist, year · tracks · minutes. */
     const float x = kListX, w = gfx::W - kPad - x;
     gfx::text(x, kTop + 70, m_album.name, {gfx::Bold, 60, w}, kText);
-    const std::string by = m_playlist ? std::string("Spilleliste") : m_album.album_artist;
+    const std::string by = m_playlist ? std::string(T("Spilleliste")) : m_album.album_artist;
     if (!by.empty())
         gfx::text(x, kTop + 124, by, {gfx::Medium, 32, w}, kText2);
     std::string meta;
@@ -196,7 +197,7 @@ void Album::draw(double now, float dt)
             total += t.runtime_ticks;
         const int min = (int)(total / jf::kTicksPerSecond / 60);
         char b[64];
-        std::snprintf(b, sizeof b, "%zu %s \xC2\xB7 %d min", m_tracks.size(), m_playlist ? "titler" : "spor", min);
+        std::snprintf(b, sizeof b, "%zu %s \xC2\xB7 %d min", m_tracks.size(), m_playlist ? T("titler") : T("spor"), min);
         meta += (meta.empty() ? "" : " \xC2\xB7 ") + std::string(b);
     }
     gfx::text(x, kTop + 168, meta, {gfx::Medium, 24}, alpha(kText3, m_content.value));
@@ -208,9 +209,9 @@ void Album::draw(double now, float dt)
         const bool focus = !m_in_tracks && m_button == i;
         const float lift = m_lifts.step("btn" + std::to_string((int)bs[i]), focus, dt, &m_animating);
         const gfx::TextStyle st{gfx::Bold, 26};
-        const std::string label = bs[i] == PlayAll   ? "Spill av"
-                                  : bs[i] == Shuffle ? "Bland"
-                                  : bs[i] == Mix     ? "Miks"
+        const std::string label = bs[i] == PlayAll   ? T("Spill av")
+                                  : bs[i] == Shuffle ? T("Bland")
+                                  : bs[i] == Mix     ? T("Miks")
                                                      : m_album.album_artist + " \xE2\x80\xBA";
         const float bw = std::min(520.f, gfx::text_width(label, st)) + 80, k = 1.f + 0.08f * lift;
         const gfx::Rect r{bx - bw * (k - 1) / 2, kTop + 230 - 76 * (k - 1) / 2, bw * k, 76 * k};

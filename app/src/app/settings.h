@@ -15,6 +15,7 @@ namespace settings {
 struct Local {
     int max_mbps = 0;            /* 0 = no cap (direct play whatever the network allows) */
     bool auto_skip_intro = false;
+    int language = 0;            /* i18n::Choice: 0 follow the PS5, 1 Norsk, 2 English */
 };
 
 struct All {

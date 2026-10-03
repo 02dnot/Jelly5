@@ -6,6 +6,7 @@
  * .card.ep, .card.cast).
  */
 #include "ui/detail.h"
+#include "app/i18n.h"
 
 #include "gfx/art.h"
 #include "nuvio_input.h"
@@ -36,7 +37,7 @@ std::string runtime_label(int64_t ticks)
         return std::string();
     char b[32];
     if (min >= 60)
-        std::snprintf(b, sizeof b, "%d t %d min", min / 60, min % 60);
+        std::snprintf(b, sizeof b, T("%d t %d min"), min / 60, min % 60);
     else
         std::snprintf(b, sizeof b, "%d min", min);
     return b;
@@ -494,7 +495,7 @@ void Detail::draw_top(float y0, float dt)
     if (series && !m_view.seasons.empty()) {
         sep();
         const size_t n = m_view.seasons.size();
-        x += gfx::text(x, my, std::to_string(n) + (n == 1 ? " sesong" : " sesonger"), meta, kText2);
+        x += gfx::text(x, my, std::to_string(n) + (n == 1 ? T(" sesong") : T(" sesonger")), meta, kText2);
     } else if (!series && it.runtime_ticks > 0) {
         sep();
         x += gfx::text(x, my, runtime_label(it.runtime_ticks), meta, kText2);
@@ -543,20 +544,20 @@ void Detail::draw_top(float y0, float dt)
         if (bs[i] == PlayButton) {
             const jf::Item &t = m_view.target;
             const bool resume = m_view.have_target && t.position_ticks > 0 && t.runtime_ticks > 0;
-            label = resume ? "Fortsett" : "Spill av";
+            label = resume ? T("Fortsett") : T("Spill av");
             if (m_view.have_target && t.type == "Episode")
                 label += "  " + ep_code(t);
             if (resume) {
                 pct = (float)t.position_ticks / (float)t.runtime_ticks;
                 const int left = (int)((t.runtime_ticks - t.position_ticks) / jf::kTicksPerSecond / 60);
-                sub = std::to_string(std::max(1, left)) + " min igjen";
+                sub = std::to_string(std::max(1, left)) + T(" min igjen");
             }
         }
         float w = 76;
         if (bs[i] == WatchedButton)
-            w = gfx::text_width(m_view.item.played ? "Sett" : "Merk som sett", st) + 64 + 34;
+            w = gfx::text_width(m_view.item.played ? T("Sett") : T("Merk som sett"), st) + 64 + 34;
         if (bs[i] == RestartButton)
-            w = gfx::text_width("Fra start", st) + 64;
+            w = gfx::text_width(T("Fra start"), st) + 64;
         if (bs[i] == TrailerButton)
             w = gfx::text_width("Trailer", st) + 64;
         if (bs[i] == PlayButton)
@@ -580,7 +581,7 @@ void Detail::draw_top(float y0, float dt)
                 gfx::text(tx + 104, cy + 8, sub, {gfx::Medium, 24}, alpha(fg, 0.75f));
             }
         } else if (bs[i] == RestartButton) {
-            gfx::text(r.x + r.w / 2, cy + 9, "Fra start", st, fg, 1);
+            gfx::text(r.x + r.w / 2, cy + 9, T("Fra start"), st, fg, 1);
         } else if (bs[i] == TrailerButton) {
             gfx::text(r.x + r.w / 2, cy + 9, "Trailer", st, fg, 1);
         } else if (bs[i] == WatchedButton) {
@@ -592,7 +593,7 @@ void Detail::draw_top(float y0, float dt)
                 gfx::fill({gx + s * 1.6f, gy - 4 + s * 1.6f, 3.2f, 3.2f}, cc, 1.f);
             for (int s = 0; s < 11; s++)
                 gfx::fill({gx + 8 + s * 1.6f, gy + 4 - s * 1.8f, 3.2f, 3.2f}, cc, 1.f);
-            gfx::text(r.x + 30 * k + 34, cy + 9, seen ? "Sett" : "Merk som sett", st, fg);
+            gfx::text(r.x + 30 * k + 34, cy + 9, seen ? T("Sett") : T("Merk som sett"), st, fg);
         } else {
             /* A heart from two discs and a stack of shrinking bars (no glyph needed). */
             const bool fav = m_view.item.favorite;
@@ -624,10 +625,10 @@ void Detail::draw_top(float y0, float dt)
         gfx::text(kPad + hw + 8, cy, v, cs, kText3);
         cy += 32;
     };
-    credit("Med:", with);
-    credit("Regi:", dir);
+    credit(T("Med:"), with);
+    credit(T("Regi:"), dir);
     if (!m_view.detail.studios.empty())
-        credit(series ? "Kanal:" : "Studio:", m_view.detail.studios[0]);
+        credit(series ? T("Kanal:") : "Studio:", m_view.detail.studios[0]);
 }
 
 void Detail::draw_sections(float dt)
@@ -685,7 +686,7 @@ void Detail::draw_sections(float dt)
                     }
                     if (e.played) {
                         gfx::fill({r.x + r.w - 76, r.y + 14, 62, 30}, 0xa6000000u, 15);
-                        gfx::text(r.x + r.w - 45, r.y + 36, "Sett", {gfx::SemiBold, 18}, kText, 1);
+                        gfx::text(r.x + r.w - 45, r.y + 36, T("Sett"), {gfx::SemiBold, 18}, kText, 1);
                     }
                     const float ty = y + kEpH + 44;
                     char title[300];
@@ -704,7 +705,7 @@ void Detail::draw_sections(float dt)
         if (m_scroll[Extras].step(dt, 12.f))
             m_animating = true;
         if (vis(y, kExtrasH)) {
-            gfx::text(kPad, y + 30, "Ekstramateriale", {gfx::Bold, 30}, 0xebffffffu);
+            gfx::text(kPad, y + 30, T("Ekstramateriale"), {gfx::Bold, 30}, 0xebffffffu);
             for (int pass = 0; pass < 2; pass++)
                 for (size_t i = 0; i < m_view.extras.size(); i++) {
                     const jf::Item &e = m_view.extras[i];
@@ -740,7 +741,7 @@ void Detail::draw_sections(float dt)
         if (m_scroll[Cast].step(dt, 12.f))
             m_animating = true;
         if (vis(y, kCastH)) {
-            gfx::text(kPad, y + 30, "Skuespillere og crew", {gfx::Bold, 30}, 0xebffffffu);
+            gfx::text(kPad, y + 30, T("Skuespillere og crew"), {gfx::Bold, 30}, 0xebffffffu);
             for (size_t i = 0; i < cast.size(); i++) {
                 const jf::Person &p = cast[i];
                 const float x = kPad + i * (kCastD + kCastGap) - m_scroll[Cast].value;
@@ -776,7 +777,7 @@ void Detail::draw_sections(float dt)
         if (m_scroll[Similar].step(dt, 12.f))
             m_animating = true;
         if (vis(y, kSimilarH)) {
-            gfx::text(kPad, y + 30, m_view.item.type == "BoxSet" ? "I denne samlingen" : "Mer som dette",
+            gfx::text(kPad, y + 30, m_view.item.type == "BoxSet" ? T("I denne samlingen") : T("Mer som dette"),
                       {gfx::Bold, 30}, 0xebffffffu);
             for (int pass = 0; pass < 2; pass++)
                 for (size_t i = 0; i < m_view.similar.size(); i++) {

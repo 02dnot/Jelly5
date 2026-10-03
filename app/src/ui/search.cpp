@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "ui/search.h"
+#include "app/i18n.h"
 
 #include "nuvio_input.h"
 
@@ -224,7 +225,7 @@ void Search::draw(double now, float dt)
     const float qy = 236;
     float qx = kKbX;
     if (m_query.empty())
-        gfx::text(kKbX, qy, "Filmer, serier, personer, musikk", {gfx::Medium, 36, 640}, kText3);
+        gfx::text(kKbX, qy, T("Filmer, serier, personer, musikk"), {gfx::Medium, 36, 640}, kText3);
     else
         qx += gfx::text(kKbX, qy, m_query, {gfx::Bold, 52, 600}, kText);
     if (std::fmod(now, 1.0) < 0.55)
@@ -242,14 +243,14 @@ void Search::draw(double now, float dt)
         const gfx::Rect base{kKbX + c * (kKeyW + kKeyGap), kKbY + r * (kKeyH + kKeyGap), w, kKeyH};
         const gfx::Rect rr{base.x - w * (kk - 1) / 2, base.y - kKeyH * (kk - 1) / 2, w * kk, kKeyH * kk};
         gfx::fill(rr, focus ? 0xfff5f5f7u : 0x0fffffffu, 12);
-        const char *label = k == kSpace ? "mellomrom" : k == kDelete ? "\xE2\x8C\xAB slett" : kKeys[k];
+        const char *label = k == kSpace ? T("mellomrom") : k == kDelete ? T("\xE2\x8C\xAB slett") : kKeys[k];
         gfx::text(rr.x + rr.w / 2, rr.y + rr.h / 2 + 9, label, {gfx::SemiBold, s > 1 ? 22.f : 26.f},
                   focus ? 0xff0b0b0fu : kText2, 1);
     }
-    gfx::text(kKbX, kKbY + 7 * (kKeyH + kKeyGap) + 30, "\xE2\x96\xA2 sletter", {gfx::Medium, 20}, kText3);
+    gfx::text(kKbX, kKbY + 7 * (kKeyH + kKeyGap) + 30, T("\xE2\x96\xA2 sletter"), {gfx::Medium, 20}, kText3);
 
     /* Results. */
-    const std::string heading = for_query.empty() ? "Forslag" : "Treff for \xC2\xAB" + for_query + "\xC2\xBB";
+    const std::string heading = for_query.empty() ? T("Forslag") : T("Treff for \xC2\xAB") + for_query + "\xC2\xBB";
     gfx::text(kResX, 236, heading, {gfx::Bold, 26, 1000}, kText2);
     const int row = m_in_results ? m_result / kResCols : 0;
     m_scroll.to(std::max(0.f, (float)(row - 1) * kResPitch));
@@ -270,7 +271,7 @@ void Search::draw(double now, float dt)
         }
     gfx::pop_scissor();
     if (items.empty() && !for_query.empty())
-        gfx::text(kResX, 320, "Ingen treff", {gfx::Medium, 26}, kText3);
+        gfx::text(kResX, 320, T("Ingen treff"), {gfx::Medium, 26}, kText3);
     (void)anim;
 }
 

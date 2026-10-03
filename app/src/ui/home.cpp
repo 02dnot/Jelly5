@@ -5,6 +5,7 @@
  * Sizes, colours and timings follow concept/style.css.
  */
 #include "ui/home.h"
+#include "app/i18n.h"
 
 #include "gfx/art.h"
 #include "gfx/gfx.h"
@@ -31,7 +32,7 @@ std::string runtime_label(int64_t ticks)
         return std::string();
     char b[32];
     if (min >= 60)
-        std::snprintf(b, sizeof b, "%d t %d min", min / 60, min % 60);
+        std::snprintf(b, sizeof b, T("%d t %d min"), min / 60, min % 60);
     else
         std::snprintf(b, sizeof b, "%d min", min);
     return b;
@@ -361,7 +362,7 @@ void Home::draw_info(const jf::Item &it, float bottom, bool hero, float a)
         const gfx::TextStyle bt{gfx::Bold, 26};
         float bx = kPad;
         for (int b = 0; b < 2; b++) {
-            const std::string label = b == 0 ? (resume ? "Fortsett" : "Spill av") : "Mer info";
+            const std::string label = b == 0 ? (resume ? T("Fortsett") : T("Spill av")) : T("Mer info");
             const float bw = gfx::text_width(label, bt) + 80 + 34;
             const bool focused = m_row < 0 && m_hero_button == b;
             const float k = focused ? 1.08f : 1.f;

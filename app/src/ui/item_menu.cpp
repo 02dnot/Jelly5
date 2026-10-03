@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "ui/item_menu.h"
+#include "app/i18n.h"
 
 #include "nuvio_input.h"
 
@@ -118,10 +119,10 @@ void ItemMenu::draw(float dt, bool *animating)
         }
         const char *label = "";
         switch (m_options[i]) {
-        case Info: label = "Mer info"; break;
-        case List: label = m_item.favorite ? "Fjern fra Min liste" : "Legg til i Min liste"; break;
-        case Played: label = m_item.played ? "Merk som usett" : "Merk som sett"; break;
-        case Resume: label = "Fjern fra Fortsett \xC3\xA5 se"; break;
+        case Info: label = T("Mer info"); break;
+        case List: label = m_item.favorite ? T("Fjern fra Min liste") : T("Legg til i Min liste"); break;
+        case Played: label = m_item.played ? T("Merk som usett") : T("Merk som sett"); break;
+        case Resume: label = T("Fjern fra Fortsett \xC3\xA5 se"); break;
         }
         gfx::text(row.x + 26, row.y + 44, label, {gfx::SemiBold, 26}, alpha(focus ? 0xff0b0b0fu : kText2, a));
         y += row_h + 6;

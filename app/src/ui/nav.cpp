@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "ui/nav.h"
+#include "app/i18n.h"
 
 #include "gfx/art.h"
 #include "gfx/gfx.h"
@@ -15,7 +16,7 @@ namespace ui {
 
 const char *tab_label(int tab)
 {
-    static const char *const kLabels[] = {"Hjem", "Filmer", "Serier", "S\xC3\xB8k", "Innstillinger"};
+    const char *const kLabels[] = {T("Hjem"), T("Filmer"), T("Serier"), T("S\xC3\xB8k"), T("Innstillinger")};
     return tab >= 0 && tab < Nav::Count ? kLabels[tab] : "";
 }
 

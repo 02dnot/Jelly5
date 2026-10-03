@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "ui/profiles.h"
+#include "app/i18n.h"
 
 #include "gfx/art.h"
 #include "nuvio_input.h"
@@ -57,7 +58,7 @@ void Profiles::draw(double, float dt)
     m_animating = false;
     gfx::fill({0, 0, gfx::W, gfx::H}, kBg);
     gfx::fill_vgradient({0, 0, gfx::W, gfx::H}, 0x40302048u, 0x00000000u);
-    gfx::text(gfx::W / 2, 330, "Hvem ser p\xC3\xA5?", {gfx::Bold, 64}, kText, 1);
+    gfx::text(gfx::W / 2, 330, T("Hvem ser p\xC3\xA5?"), {gfx::Bold, 64}, kText, 1);
 
     const int n = (int)m_list.size() + 1;
     const float d = 220, gap = 64;
@@ -82,7 +83,7 @@ void Profiles::draw(double, float dt)
                 art::draw(r, a.server + "/Users/" + a.user_id + "/Images/Primary?tag=" + a.image_tag + "&fillWidth=440",
                           "", 440, 440, dd / 2, 1.f, 0);   /* over the initial until it loads */
         } else {
-            name = "Legg til";
+            name = T("Legg til");
             gfx::fill(r, 0x14ffffffu, dd / 2);
             gfx::fill({r.x + dd / 2 - 3, r.y + dd / 2 - 36, 6, 72}, kText2, 3);
             gfx::fill({r.x + dd / 2 - 36, r.y + dd / 2 - 3, 72, 6}, kText2, 3);
@@ -93,8 +94,8 @@ void Profiles::draw(double, float dt)
     }
     const bool armed = m_armed >= 0 && m_armed == m_focus;
     gfx::text(gfx::W / 2, 1000,
-              armed ? "Trykk \xE2\x96\xB3 igjen for \xC3\xA5 fjerne kontoen fra denne PS5-en"
-                    : "\xE2\x9C\x95 velg   \xC2\xB7   \xE2\x96\xB3 fjern konto",
+              armed ? T("Trykk \xE2\x96\xB3 igjen for \xC3\xA5 fjerne kontoen fra denne PS5-en")
+                    : T("\xE2\x9C\x95 velg   \xC2\xB7   \xE2\x96\xB3 fjern konto"),
               {gfx::Medium, 22}, armed ? 0xffff6b6bu : kText3, 1);
     if (art::animating())
         m_animating = true;

@@ -7,6 +7,7 @@
 #include "nuvio_player.h"
 #include "nuvio_subs.h"
 #include "app/settings.h"
+#include "app/i18n.h"
 
 #include "evo_boot_trace.h"
 
@@ -87,7 +88,7 @@ std::string runtime_label(int64_t runtime_ticks)
     const int min = (int)(runtime_ticks / jf::kTicksPerSecond / 60);
     char b[32];
     if (min >= 60)
-        std::snprintf(b, sizeof b, "%d t %d min", min / 60, min % 60);
+        std::snprintf(b, sizeof b, T("%d t %d min"), min / 60, min % 60);
     else
         std::snprintf(b, sizeof b, "%d min", min);
     return min > 0 ? b : "";
@@ -107,8 +108,8 @@ std::string method_label(const jf::Playback &pb)
             video = b;
             break;
         }
-    const char *how = pb.play_method == "DirectPlay" ? "Direktespilling"
-                      : pb.play_method == "DirectStream" ? "Direktestrøm" : "Transkodet av serveren";
+    const char *how = pb.play_method == "DirectPlay" ? T("Direktespilling")
+                      : pb.play_method == "DirectStream" ? T("Direktestrøm") : T("Transkodet av serveren");
     return video.empty() ? how : std::string(how) + " \xC2\xB7 " + video;
 }
 
@@ -325,23 +326,23 @@ std::string request_json(jf::Client &c, const jf::Item &it, const jf::Playback &
     cJSON_AddItemToObject(prefs, "clock24h", cJSON_CreateBool(1));
     cJSON_AddItemToObject(o, "prefs", prefs);
 
-    /* The player's interface text, in Norwegian. */
-    static const char *const kStrings[][2] = {
-        {"advanced", "Avansert"}, {"advanced_style", "Stil og timing"},
-        {"advanced_hint", "Forsinkelse, størrelse, posisjon \xE2\x80\xA6"},
-        {"audio", "Lyd"}, {"background", "Bakgrunn"}, {"bold", "Fet skrift"}, {"built_in", "Innebygd"},
-        {"default", "Standard"}, {"delay", "Forsinkelse"}, {"ends_at", "Slutter kl. %1$s"},
-        {"episode", "Episode"}, {"forced", "Tvungen"}, {"go_back", "Tilbake"}, {"language", "Språk"},
-        {"loading", "Laster \xE2\x80\xA6"}, {"next_episode", "Neste episode"}, {"next_in", "Spilles om %1$s"},
-        {"no_audio_tracks", "Ingen andre lydspor"}, {"no_subtitles", "Ingen undertekster for denne strømmen"},
-        {"off", "Av"}, {"on", "På"}, {"outline", "Kontur"}, {"play", "Spill av"},
-        {"playback_error", "Avspillingsfeil"}, {"playing", "Spiller"}, {"position", "Posisjon"},
-        {"press_to_play_next", "Trykk \xE2\x9C\x95 for å spille"}, {"season", "Sesong"}, {"size", "Størrelse"},
-        {"skip_intro", "Hopp over intro"}, {"skip_preview", "Hopp over forhåndsvisning"},
-        {"skip_recap", "Hopp over oppsummering"}, {"sources", "Kilder"}, {"specials", "Spesialer"},
-        {"subtitles_off", "Undertekster er av"}, {"subtitles", "Undertekster"}, {"track", "Spor"},
-        {"unavailable", "Utilgjengelig"}, {"unknown_language", "Ukjent"}, {"upcoming", "Kommer"},
-        {"youre_watching", "Du ser på"}, {"addon", "Kilde"},
+    /* The player's interface text, in the interface's language (built per playback). */
+    const char *const kStrings[][2] = {
+        {"advanced", T("Avansert")}, {"advanced_style", T("Stil og timing")},
+        {"advanced_hint", T("Forsinkelse, størrelse, posisjon \xE2\x80\xA6")},
+        {"audio", T("Lyd")}, {"background", T("Bakgrunn")}, {"bold", T("Fet skrift")}, {"built_in", T("Innebygd")},
+        {"default", T("Standard")}, {"delay", T("Forsinkelse")}, {"ends_at", T("Slutter kl. %1$s")},
+        {"episode", "Episode"}, {"forced", T("Tvungen")}, {"go_back", T("Tilbake")}, {"language", T("Språk")},
+        {"loading", T("Laster \xE2\x80\xA6")}, {"next_episode", T("Neste episode")}, {"next_in", T("Spilles om %1$s")},
+        {"no_audio_tracks", T("Ingen andre lydspor")}, {"no_subtitles", T("Ingen undertekster for denne strømmen")},
+        {"off", T("Av")}, {"on", T("På")}, {"outline", T("Kontur")}, {"play", T("Spill av")},
+        {"playback_error", T("Avspillingsfeil")}, {"playing", T("Spiller")}, {"position", T("Posisjon")},
+        {"press_to_play_next", T("Trykk \xE2\x9C\x95 for å spille")}, {"season", T("Sesong")}, {"size", T("Størrelse")},
+        {"skip_intro", T("Hopp over intro")}, {"skip_preview", T("Hopp over forhåndsvisning")},
+        {"skip_recap", T("Hopp over oppsummering")}, {"sources", T("Kilder")}, {"specials", T("Spesialer")},
+        {"subtitles_off", T("Undertekster er av")}, {"subtitles", T("Undertekster")}, {"track", T("Spor")},
+        {"unavailable", T("Utilgjengelig")}, {"unknown_language", T("Ukjent")}, {"upcoming", T("Kommer")},
+        {"youre_watching", T("Du ser på")}, {"addon", T("Kilde")},
     };
     cJSON *strings = cJSON_CreateObject();
     for (const auto &kv : kStrings)

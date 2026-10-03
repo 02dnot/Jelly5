@@ -49,6 +49,9 @@ void load_local()
     if (s_all.local.max_mbps < 0)
         s_all.local.max_mbps = 0;
     s_all.local.auto_skip_intro = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(j, "autoSkipIntro"));
+    s_all.local.language = (int)cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(j, "language"));
+    if (s_all.local.language < 0 || s_all.local.language > 2)
+        s_all.local.language = 0;
     cJSON_Delete(j);
 }
 
@@ -62,6 +65,7 @@ void set_local(const Local &l)
     cJSON *j = cJSON_CreateObject();
     cJSON_AddNumberToObject(j, "maxMbps", l.max_mbps);
     cJSON_AddBoolToObject(j, "autoSkipIntro", l.auto_skip_intro);
+    cJSON_AddNumberToObject(j, "language", l.language);
     char *text = cJSON_PrintUnformatted(j);
     cJSON_Delete(j);
     if (FILE *f = std::fopen(kFile, "wb")) {

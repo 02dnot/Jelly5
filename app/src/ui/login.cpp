@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "ui/login.h"
+#include "app/i18n.h"
 
 #include "gfx/art.h"
 #include "nuvio_input.h"
@@ -85,7 +86,7 @@ void Login::check_server()
         std::lock_guard<std::mutex> g(sh->lock);
         sh->busy = false;
         if (!ok) {
-            sh->error = "Fant ingen Jellyfin-server på " + c->server();
+            sh->error = T("Fant ingen Jellyfin-server på ") + c->server();
             return;
         }
         sh->server_name = name;
@@ -111,8 +112,8 @@ void Login::sign_in()
         std::lock_guard<std::mutex> g(sh->lock);
         sh->busy = false;
         if (!ok) {
-            sh->error = c->last_error().find("401") != std::string::npos ? "Feil brukernavn eller passord"
-                                                                        : "Innloggingen mislyktes";
+            sh->error = c->last_error().find("401") != std::string::npos ? T("Feil brukernavn eller passord")
+                                                                        : T("Innloggingen mislyktes");
             return;
         }
         sh->result = {c->server(), sh->server_name, c->user_id(), c->user_name(), c->user_image_tag(), c->token()};
@@ -139,7 +140,7 @@ void Login::start_quick_connect()
         if (!c->quick_connect_start(&qc)) {
             std::lock_guard<std::mutex> g(sh->lock);
             sh->busy = false;
-            sh->error = "Quick Connect er ikke slått på på denne serveren";
+            sh->error = T("Quick Connect er ikke slått på på denne serveren");
             return;
         }
         {
@@ -200,7 +201,7 @@ Action Login::input(uint32_t p)
             a.kind = Action::Back;
         else if (p & NUVIO_BTN_CROSS) {
             if (m_focus == 0)
-                ime::request(ime::Kind::Url, "Serveradresse", m_server, [this](const std::string &t) {
+                ime::request(ime::Kind::Url, T("Serveradresse"), m_server, [this](const std::string &t) {
                     m_server = t;
                     m_focus = 1;
                 });
@@ -232,9 +233,9 @@ Action Login::input(uint32_t p)
             if (!users[std::min(m_user_col, nu - 1)].has_password)
                 sign_in();
         } else if (f == 0) {
-            ime::request(ime::Kind::Text, "Brukernavn", m_user, [this](const std::string &t) { m_user = t; });
+            ime::request(ime::Kind::Text, T("Brukernavn"), m_user, [this](const std::string &t) { m_user = t; });
         } else if (f == 1) {
-            ime::request(ime::Kind::Password, "Passord", "", [this, base](const std::string &t) {
+            ime::request(ime::Kind::Password, T("Passord"), "", [this, base](const std::string &t) {
                 m_password = t;
                 m_focus = base + 2;
             });
@@ -280,13 +281,13 @@ void Login::draw(double now, float dt)
 
     auto lift = [&](const std::string &k, bool f) { return m_lifts.step(k, f, dt, &anim); };
     if (m_step == ServerStep) {
-        gfx::text(kX, 340, "Koble til Jellyfin", {gfx::Bold, 64}, kText);
-        gfx::text(kX, 400, "Skriv inn adressen til Jellyfin-serveren din, for eksempel 192.168.0.10:8096.",
+        gfx::text(kX, 340, T("Koble til Jellyfin"), {gfx::Bold, 64}, kText);
+        gfx::text(kX, 400, T("Skriv inn adressen til Jellyfin-serveren din, for eksempel 192.168.0.10:8096."),
                   {gfx::Medium, 28, 1200}, kText2);
         field({kX, 500, kW, 84}, "SERVER", m_server, "http://", m_focus == 0, lift("srv", m_focus == 0));
-        button({kX, 640, 260, 76}, busy ? "Kobler til \xE2\x80\xA6" : "Fortsett", m_focus == 1, lift("go", m_focus == 1));
+        button({kX, 640, 260, 76}, busy ? T("Kobler til \xE2\x80\xA6") : T("Fortsett"), m_focus == 1, lift("go", m_focus == 1));
     } else if (m_step == UserStep) {
-        gfx::text(kX, 340, "Logg inn", {gfx::Bold, 64}, kText);
+        gfx::text(kX, 340, T("Logg inn"), {gfx::Bold, 64}, kText);
         gfx::text(kX, 396, server_name + "  \xC2\xB7  Jellyfin " + version + "  \xC2\xB7  " + m_server,
                   {gfx::Medium, 24, 1500}, kText3);
         float y = 470;
@@ -318,18 +319,17 @@ void Login::draw(double now, float dt)
             y += 220;
         }
         const int f = m_focus - base;
-        field({kX, y + 30, kW, 84}, "BRUKERNAVN", m_user, "Brukernavn", f == 0, lift("user", f == 0));
-        field({kX, y + 160, kW, 84}, "PASSORD", std::string(m_password.size(), '*'), "Passord", f == 1,
+        field({kX, y + 30, kW, 84}, T("BRUKERNAVN"), m_user, T("Brukernavn"), f == 0, lift("user", f == 0));
+        field({kX, y + 160, kW, 84}, T("PASSORD"), std::string(m_password.size(), '*'), T("Passord"), f == 1,
               lift("pass", f == 1));
         const float by = y + 290;
-        button({kX, by, 240, 76}, busy ? "Logger inn \xE2\x80\xA6" : "Logg inn", f == 2, lift("in", f == 2));
-        button({kX + 260, by, 330, 76}, "Bruk Quick Connect", f == 3, lift("qc", f == 3));
-        button({kX + 610, by, 250, 76}, "Annen server", f == 4, lift("other", f == 4));
+        button({kX, by, 240, 76}, busy ? T("Logger inn \xE2\x80\xA6") : T("Logg inn"), f == 2, lift("in", f == 2));
+        button({kX + 260, by, 330, 76}, T("Bruk Quick Connect"), f == 3, lift("qc", f == 3));
+        button({kX + 610, by, 250, 76}, T("Annen server"), f == 4, lift("other", f == 4));
     } else {
         gfx::text(kX, 340, "Quick Connect", {gfx::Bold, 64}, kText);
         gfx::text(kX, 410,
-                  "Åpne Jellyfin på telefonen eller PC-en, gå til Innstillinger \xE2\x86\x92 Quick Connect og skriv "
-                  "inn koden:",
+                  T("Åpne Jellyfin på telefonen eller PC-en, gå til Innstillinger → Quick Connect og skriv inn koden:"),
                   {gfx::Medium, 30, 1100, 2, 44}, kText2);
         const gfx::Rect box{kX, 540, 760, 220};
         gfx::fill(box, 0x24ffffffu, 32);
@@ -340,7 +340,7 @@ void Login::draw(double now, float dt)
             gfx::text(box.x + box.w / 2, box.y + 130, "\xE2\x80\xA6", {gfx::Bold, 80}, kText3, 1);
         else
             gfx::text(box.x + box.w / 2, box.y + 158, spaced, {gfx::Bold, 120}, kText, 1);
-        gfx::text(kX, 830, "\xE2\x97\x8B avbryter", {gfx::Medium, 22}, kText3);
+        gfx::text(kX, 830, T("\xE2\x97\x8B avbryter"), {gfx::Medium, 22}, kText3);
     }
     if (!error.empty())
         gfx::text(kX, 1000, error, {gfx::SemiBold, 24, 1600}, 0xffff6b6bu);
