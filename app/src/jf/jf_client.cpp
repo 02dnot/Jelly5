@@ -6,6 +6,7 @@
 
 #include "jf_http.h"
 
+#include <algorithm>
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
@@ -983,39 +984,78 @@ bool Client::playback_info(const std::string &item_id, int64_t start_ticks, int 
     if (!post_json("/Items/" + item_id + "/PlaybackInfo?userId=" + user_id_, req, &body))
         return false;
     cJSON *j = cJSON_Parse(body.c_str());
-    const cJSON *ms = cJSON_GetArrayItem(cJSON_GetObjectItemCaseSensitive(j, "MediaSources"), 0);
-    if (!ms) {
-        set_error("PlaybackInfo: no media source (" + str_of(j, "ErrorCode") + ")");
+    const std::string session = str_of(j, "PlaySessionId");
+    /* Every version (media source) and how it would play. The best goes first: played
+     * directly over streamed over transcoded, then the most pixels, then the most bits
+     * (within the quality cap the profile carries). */
+    struct Candidate {
+        const cJSON *ms;
+        Version v;
+        int rank;
+    };
+    std::vector<Candidate> found;
+    const cJSON *ms;
+    cJSON_ArrayForEach(ms, cJSON_GetObjectItemCaseSensitive(j, "MediaSources")) {
+        Candidate c{ms, Version(), 0};
+        c.v.id = str_of(ms, "Id");
+        c.v.name = str_of(ms, "Name");
+        c.v.bitrate = (int64_t)num_of(ms, "Bitrate", 0);
+        std::string codec, range;
+        const cJSON *s;
+        cJSON_ArrayForEach(s, cJSON_GetObjectItemCaseSensitive(ms, "MediaStreams"))
+            if (str_of(s, "Type") == "Video" && c.v.height == 0) {
+                c.v.height = (int)num_of(s, "Height", 0);
+                codec = str_of(s, "Codec");
+                range = str_of(s, "VideoRange");
+            }
+        const std::string transcoding = str_of(ms, "TranscodingUrl");
+        if (bool_of(ms, "SupportsDirectPlay")) {
+            c.v.play_method = "DirectPlay";
+            c.v.url = server_ + "/Videos/" + item_id + "/stream?static=true&mediaSourceId=" + c.v.id +
+                      "&playSessionId=" + session + "&api_key=" + token_;
+            c.rank = 3;
+        } else if (!transcoding.empty()) {
+            c.v.play_method = transcoding.find("/stream") != std::string::npos ? "DirectStream" : "Transcode";
+            c.v.url = server_ + transcoding;
+            c.rank = c.v.play_method == "DirectStream" ? 2 : 1;
+        } else {
+            continue;
+        }
+        for (char &ch : codec)
+            ch = (char)std::toupper((unsigned char)ch);
+        c.v.label = (c.v.height ? std::to_string(c.v.height) + "p" : std::string()) +
+                    (codec.empty() ? "" : " \xC2\xB7 " + codec) + (range == "HDR" ? " \xC2\xB7 HDR" : "");
+        found.push_back(std::move(c));
+    }
+    if (found.empty()) {
+        set_error("PlaybackInfo: the server offers no way to play this (" + str_of(j, "ErrorCode") + ")");
         cJSON_Delete(j);
         return false;
     }
+    std::stable_sort(found.begin(), found.end(), [](const Candidate &a, const Candidate &b) {
+        if (a.rank != b.rank) return a.rank > b.rank;
+        if (a.v.height != b.v.height) return a.v.height > b.v.height;
+        return a.v.bitrate > b.v.bitrate;
+    });
+    ms = found.front().ms;
     Playback pb;
     pb.item_id = item_id;
     pb.media_source_id = str_of(ms, "Id");
-    pb.play_session_id = str_of(j, "PlaySessionId");
+    pb.play_session_id = session;
     pb.container = str_of(ms, "Container");
     pb.default_audio = (int)num_of(ms, "DefaultAudioStreamIndex", -1);
     pb.default_subtitle = (int)num_of(ms, "DefaultSubtitleStreamIndex", -1);
     const cJSON *s;
     cJSON_ArrayForEach(s, cJSON_GetObjectItemCaseSensitive(ms, "MediaStreams"))
         pb.streams.push_back(stream_of(s, server_));
-
+    pb.play_method = found.front().v.play_method;
+    pb.url = found.front().v.url;
     const std::string transcoding = str_of(ms, "TranscodingUrl");
-    if (bool_of(ms, "SupportsDirectPlay")) {
-        pb.play_method = "DirectPlay";
-        pb.url = server_ + "/Videos/" + item_id + "/stream?static=true&mediaSourceId=" + pb.media_source_id +
-                 "&playSessionId=" + pb.play_session_id + "&api_key=" + token_;
-    } else if (!transcoding.empty()) {
-        pb.play_method = transcoding.find("/stream") != std::string::npos ? "DirectStream" : "Transcode";
-        pb.url = server_ + transcoding;
-        const size_t r = transcoding.find("TranscodeReasons=");
-        if (r != std::string::npos)
-            pb.transcode_reasons = transcoding.substr(r + 17, transcoding.find('&', r) - r - 17);
-    } else {
-        set_error("PlaybackInfo: the server offers no way to play this");
-        cJSON_Delete(j);
-        return false;
-    }
+    const size_t r = transcoding.find("TranscodeReasons=");
+    if (pb.play_method != "DirectPlay" && r != std::string::npos)
+        pb.transcode_reasons = transcoding.substr(r + 17, transcoding.find('&', r) - r - 17);
+    for (Candidate &c : found)
+        pb.versions.push_back(std::move(c.v));
     cJSON_Delete(j);
     *out = std::move(pb);
     return true;

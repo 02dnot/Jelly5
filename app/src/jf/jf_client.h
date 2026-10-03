@@ -78,6 +78,15 @@ struct Trickplay {
 };
 
 /* What PlaybackInfo decided for one item. */
+/* One version of a title (Jellyfin: a media source), as it would play. */
+struct Version {
+    std::string id, name;                     /* name: "4K", "1080p" ... (Jellyfin's) */
+    std::string play_method, url;
+    int height = 0;
+    int64_t bitrate = 0;
+    std::string label;                        /* "2160p · HEVC · HDR" */
+};
+
 struct Playback {
     std::string item_id, media_source_id, play_session_id;
     std::string play_method;                  /* DirectPlay, DirectStream, Transcode */
@@ -85,6 +94,8 @@ struct Playback {
     std::string container, transcode_reasons;
     int default_audio = -1, default_subtitle = -1;
     std::vector<MediaStream> streams;
+    /* Every version, the chosen one (the best the PS5 plays, see playback_info) first. */
+    std::vector<Version> versions;
 };
 
 struct Person {

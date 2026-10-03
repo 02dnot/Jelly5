@@ -220,13 +220,23 @@ std::string request_json(jf::Client &c, const jf::Item &it, const jf::Playback &
     cJSON_AddStringToObject(stream, "addon", "Jellyfin");
     cJSON_AddItemToObject(o, "stream", stream);
 
+    /* Every version of the title, the chosen (best) one first: the player can switch
+     * between them (Lyd og undertekster -> Versjon) at the same moment. */
     cJSON *sources = cJSON_CreateArray();
-    cJSON *src = cJSON_CreateObject();
-    cJSON_AddStringToObject(src, "id", pb.media_source_id.c_str());
-    cJSON_AddStringToObject(src, "title", method_label(pb).c_str());
-    cJSON_AddStringToObject(src, "addon", "Jellyfin");
-    cJSON_AddStringToObject(src, "url", pb.url.c_str());
-    cJSON_AddItemToArray(sources, src);
+    for (const jf::Version &v : pb.versions) {
+        cJSON *src = cJSON_CreateObject();
+        cJSON_AddStringToObject(src, "id", v.id.c_str());
+        std::string title = v.label.empty() ? v.name : v.label;
+        if (!v.name.empty() && v.name != it.name && title != v.name)
+            title = v.name + " \xC2\xB7 " + title;   /* Jellyfin's own name for the version */
+        cJSON_AddStringToObject(src, "title", title.c_str());
+        cJSON_AddStringToObject(src, "description",
+                                T(v.play_method == "DirectPlay" ? "Direktespilling"
+                                  : v.play_method == "DirectStream" ? "Direktestr\xC3\xB8m" : "Transkodet av serveren"));
+        cJSON_AddStringToObject(src, "addon", "Jellyfin");
+        cJSON_AddStringToObject(src, "url", v.url.c_str());
+        cJSON_AddItemToArray(sources, src);
+    }
     cJSON_AddItemToObject(o, "sources", sources);
 
     /* Embedded tracks come out of the container; external text subtitles are fetched. */

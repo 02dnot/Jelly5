@@ -293,8 +293,9 @@ void PlayerUi::tick(const NuvioStatus &st, std::vector<OsdCommand> &out, bool po
 void PlayerUi::tracks_input(uint32_t p, const NuvioStatus &st, std::vector<OsdCommand> &out)
 {
     const int na = (int)st.audio.size(), ns = nuvio_subs_count();
+    const int nv = m_req->sources.size() > 1 ? (int)m_req->sources.size() : 0;   /* versions, under the audio */
     const bool find = jelly5_subs::available();
-    const int rows[3] = {na, ns + 2 + (find ? 1 : 0), 5};   /* subtitles: Av, tracks, Tilpass, Søk */
+    const int rows[3] = {na + nv, ns + 2 + (find ? 1 : 0), 5};   /* subtitles: Av, tracks, Tilpass, Søk */
     int &r = m_rows[m_col];
     if (m_col == 2 && m_find_open && !(p & (NUVIO_BTN_CIRCLE | NUVIO_BTN_LEFT)) ) {
         find_input(p);
@@ -358,6 +359,11 @@ void PlayerUi::tracks_input(uint32_t p, const NuvioStatus &st, std::vector<OsdCo
     } else if (p & NUVIO_BTN_CROSS) {
         if (m_col == 0 && r < na) {
             out.push_back({OsdCmd::SelectAudio, 0, r});
+        } else if (m_col == 0 && r >= na && r - na < nv) {
+            if (r - na != m_req->source_index) {   /* another version, from this moment */
+                out.push_back({OsdCmd::SwitchSource, 0, r - na});
+                m_overlay = Overlay::None;
+            }
         } else if (m_col == 1) {
             if (r == ns + 1) {
                 m_style_open = true;   /* "Tilpass undertekster" */
@@ -907,11 +913,19 @@ void PlayerUi::draw_tracks(const NuvioStatus &st, float a)
         }
     };
 
-    /* Audio. */
+    /* Audio, then the title's versions when there are several. */
     const int na = (int)st.audio.size();
+    const int nv = m_req->sources.size() > 1 ? (int)m_req->sources.size() : 0;
     if (na == 0)
         gfx::text(cols[0] + 18, top + 72, T("Ingen andre lydspor"), {gfx::Medium, 24}, alpha(kText3, a));
-    column(0, na, [&](int i, std::string &label, std::string &right, bool &sel, bool &) {
+    column(0, na + nv, [&](int i, std::string &label, std::string &right, bool &sel, bool &) {
+        if (i >= na) {
+            const NuvioSource &v = m_req->sources[i - na];
+            label = T("Versjon") + std::string(": ") + v.title;
+            right = v.description;
+            sel = i - na == m_req->source_index;
+            return;
+        }
         const NuvioAudioTrack &t = st.audio[i];
         label = language_name(t.lang);
         if (!t.title.empty() && t.title != t.codec)

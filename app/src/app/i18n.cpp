@@ -113,7 +113,7 @@ const std::unordered_map<std::string, const char *> &english_table()
         {"✕ velg   ·   △ fjern konto", "✕ choose   ·   △ remove account"},
         /* settings */
         {"Ingen preferanse", "No preference"}, {"Alltid", "Always"}, {"Bare tvungne", "Forced only"},
-        {"Åpne", "Open"}, {"Avbryt", "Cancel"}, {"Velg", "Choose"}, {"Fjern konto", "Remove account"},
+        {"Åpne", "Open"}, {"Versjon", "Version"}, {"Avbryt", "Cancel"}, {"Velg", "Choose"}, {"Fjern konto", "Remove account"},
         {"Nå", "Now"}, {"Se rulletekst", "Watch credits"}, {"Lukk", "Close"}, {"Slett", "Delete"},
         {"Bytt bruker eller server", "Change user or server"}, {"Spilles om %d s", "Plays in %d s"}, {"Bildefrekvens", "Refresh rate"},
         {"60 Hz (TV-en har ikke 120 Hz)", "60 Hz (the TV has no 120 Hz)"}, {"Se sammen", "Watch Together"}, {"Forlat gruppe", "Leave group"}, {"Lag ny gruppe", "Create group"},
