@@ -579,6 +579,21 @@ void PlayerUi::input_local(const nuvio_input_state &in, const NuvioStatus &st, s
         seek_step((p & NUVIO_BTN_R2) ? 1 : -1, st, now);
         return;
     }
+    if ((p & NUVIO_BTN_TRIANGLE) && !m_music) {   /* △: the episodes (a film: its chapters) */
+        if (m_req->episodes.size() > 1) {
+            open_overlay(Overlay::Episodes);
+            return;
+        }
+        if (m_req->chapters.size() > 1) {
+            m_chap = 0;
+            for (size_t i = 0; i < m_req->chapters.size(); i++)
+                if (m_req->chapters[i].start <= st.position + 0.5)
+                    m_chap = (int)i;
+            m_chap_scroll.snap((float)std::max(0, m_chap - 1) * 404.f);
+            open_overlay(Overlay::Chapters);
+            return;
+        }
+    }
     if (p & NUVIO_BTN_SQUARE) {
         open_overlay(Overlay::Tracks);
         return;
