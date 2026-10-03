@@ -47,6 +47,7 @@ private:
     int m_key = 0, m_result = 0;
     Anim m_scroll;
     Lifts m_lifts;
+    Drop m_drop;                        /* the focus on the keyboard */
     Ambient m_ambient;
 };
 

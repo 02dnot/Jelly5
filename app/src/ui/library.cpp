@@ -285,37 +285,57 @@ void Library::draw(double now, float dt)
         float tw = 0;
         if (ns == 0) {
             tw = gfx::text(kPad, hy, m_title, {gfx::Bold, 64}, alpha(kText, ha));
-        } else {   /* the sources as large pills where the title would be */
+        } else {   /* the sources as a glass bar where the title would be, the drop on the picked one */
             const gfx::TextStyle ss{gfx::Bold, 30};
+            float bw = 12;
+            for (int i = 0; i < ns; i++)
+                bw += gfx::text_width(m_sources[i].label, ss) + 64 + 6;
+            glass_panel({kPad - 6, hy - 50, bw, 76}, 38, ha, false);
+            const bool here = m_in_pills && m_pill < ns;
             for (int i = 0; i < ns; i++) {
                 const float w = gfx::text_width(m_sources[i].label, ss) + 64;
-                const bool focus = m_in_pills && m_pill == i, active = m_source == i;
-                const float k = focus ? 1.08f : 1.f;
-                const gfx::Rect r{kPad + tw - w * (k - 1) / 2, hy - 44 - 64 * (k - 1) / 2, w * k, 64 * k};
-                gfx::fill(r, alpha(focus ? 0xfff5f5f7u : active ? 0x33ffffffu : 0x14ffffffu, ha), r.h / 2);
-                gfx::text(r.x + r.w / 2, r.y + r.h / 2 + 10, m_sources[i].label, ss,
-                          alpha(focus ? 0xff0b0b0fu : active ? kText : kText2, ha), 1);
-                tw += w + 12;
+                if (i == (here ? m_pill : m_source))
+                    m_src_drop.to({kPad + tw, hy - 44, w, 64}, i, 0, hy);
+                tw += w + 6;
             }
-            tw -= 12;
+            m_src_drop.draw(dt, ha * (here ? 1.f : 0.55f), &m_animating);
+            tw = 0;
+            for (int i = 0; i < ns; i++) {
+                const float w = gfx::text_width(m_sources[i].label, ss) + 64;
+                const bool on = i == (here ? m_pill : m_source);
+                gfx::text(kPad + tw + w / 2, hy - 44 + 32 + 10, m_sources[i].label, ss, alpha(on ? kText : kText2, ha), 1);
+                tw += w + 6;
+            }
+            tw -= 6;
         }
         if (total >= 0) {
             char cnt[32];
             std::snprintf(cnt, sizeof cnt, T("%d titler"), total);
             gfx::text(kPad + tw + 20, hy, cnt, {gfx::Medium, 24}, alpha(kText3, ha));
         }
-        float x = gfx::W - kPad;
-        for (int i = kNumSorts - 1; i >= 0; i--) {
-            const gfx::TextStyle st{gfx::SemiBold, 23};
-            const float w = gfx::text_width(T(kSorts[i].label), st) + 56;
-            x -= w;
-            const bool focus = m_in_pills && m_pill == ns + i, active = m_sort == i;
-            const float k = focus ? 1.08f : 1.f;
-            const gfx::Rect r{x - w * (k - 1) / 2, hy - 38 - 54 * (k - 1) / 2, w * k, 54 * k};
-            gfx::fill(r, alpha(focus ? 0xfff5f5f7u : active ? 0x33ffffffu : 0x14ffffffu, ha), r.h / 2);
-            gfx::text(r.x + r.w / 2, r.y + r.h / 2 + 8, T(kSorts[i].label), st,
-                      alpha(focus ? 0xff0b0b0fu : active ? kText : kText2, ha), 1);
-            x -= 12;
+        /* The sorts: a glass bar on the right, the drop on the focused or picked one. */
+        const gfx::TextStyle st{gfx::SemiBold, 23};
+        float sw[kNumSorts], bw = 12;
+        for (int i = 0; i < kNumSorts; i++) {
+            sw[i] = gfx::text_width(T(kSorts[i].label), st) + 56;
+            bw += sw[i] + 6;
+        }
+        const float sx0 = gfx::W - kPad - bw + 6;
+        glass_panel({sx0 - 6, hy - 44, bw, 66}, 33, ha, false);
+        const bool here = m_in_pills && m_pill >= ns;
+        const int on = here ? m_pill - ns : m_sort;
+        float x = sx0;
+        for (int i = 0; i < kNumSorts; i++) {
+            if (i == on)
+                m_sort_drop.to({x, hy - 38, sw[i], 54}, i, 0, hy);
+            x += sw[i] + 6;
+        }
+        m_sort_drop.draw(dt, ha * (here ? 1.f : 0.55f), &m_animating);
+        x = sx0;
+        for (int i = 0; i < kNumSorts; i++) {
+            gfx::text(x + sw[i] / 2, hy - 38 + 27 + 8, T(kSorts[i].label), i == on ? gfx::TextStyle{gfx::Bold, 23} : st,
+                      alpha(i == on ? kText : kText2, ha), 1);
+            x += sw[i] + 6;
         }
     }
 

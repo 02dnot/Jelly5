@@ -233,21 +233,38 @@ void Search::draw(double now, float dt)
         gfx::fill({qx + 6, qy - 44, 3, 52}, 0xff00a4dcu);
     gfx::fill({kKbX, qy + 22, 7 * (kKeyW + kKeyGap) - kKeyGap, 2}, 0x33ffffffu);
 
-    /* Keyboard. */
+    /* Keyboard: one glass pane behind the keys, faint key shapes on it, the focus
+     * drop on the key, then the labels. */
+    float kb_right = kKbX, kb_bottom = kKbY;
     for (int k = 0; k < kNumKeys; k++) {
         int r, c, s;
         key_cell(k, &r, &c, &s);
-        const bool focus = !m_in_results && k == m_key;
-        const float w = s * kKeyW + (s - 1) * kKeyGap;
-        const float lift = m_lifts.step("key" + std::to_string(k), focus, dt, &anim);
-        const float kk = 1.f + 0.1f * lift;
-        const gfx::Rect base{kKbX + c * (kKeyW + kKeyGap), kKbY + r * (kKeyH + kKeyGap), w, kKeyH};
-        const gfx::Rect rr{base.x - w * (kk - 1) / 2, base.y - kKeyH * (kk - 1) / 2, w * kk, kKeyH * kk};
-        gfx::fill(rr, focus ? 0xfff5f5f7u : 0x0fffffffu, 12);
-        const char *label = k == kSpace ? T("mellomrom") : k == kDelete ? T("\xE2\x8C\xAB slett") : kKeys[k];
-        gfx::text(rr.x + rr.w / 2, rr.y + rr.h / 2 + 9, label, {gfx::SemiBold, s > 1 ? 22.f : 26.f},
-                  focus ? 0xff0b0b0fu : kText2, 1);
+        kb_right = std::max(kb_right, kKbX + c * (kKeyW + kKeyGap) + s * kKeyW + (s - 1) * kKeyGap);
+        kb_bottom = std::max(kb_bottom, kKbY + r * (kKeyH + kKeyGap) + kKeyH);
     }
+    glass_panel({kKbX - 16, kKbY - 16, kb_right - kKbX + 32, kb_bottom - kKbY + 32}, 26, 1.f, false);
+    for (int pass = 0; pass < 2; pass++)
+        for (int k = 0; k < kNumKeys; k++) {
+            int r, c, s;
+            key_cell(k, &r, &c, &s);
+            const bool focus = !m_in_results && k == m_key;
+            const float w = s * kKeyW + (s - 1) * kKeyGap;
+            const gfx::Rect rr{kKbX + c * (kKeyW + kKeyGap), kKbY + r * (kKeyH + kKeyGap), w, kKeyH};
+            if (pass == 0) {
+                gfx::fill(rr, 0x0dffffffu, 12);
+                if (focus)
+                    m_drop.to(rr, k);
+                if (k + 1 == kNumKeys) {
+                    if (m_in_results)
+                        m_drop.hide();
+                    m_drop.draw(dt, 1.f, &anim, 12);
+                }
+                continue;
+            }
+            const char *label = k == kSpace ? T("mellomrom") : k == kDelete ? T("\xE2\x8C\xAB slett") : kKeys[k];
+            gfx::text(rr.x + rr.w / 2, rr.y + rr.h / 2 + 9, label,
+                      {focus ? gfx::Bold : gfx::SemiBold, s > 1 ? 22.f : 26.f}, focus ? kText : kText2, 1);
+        }
     draw_pad_hints(kKbX, kKbY + 7 * (kKeyH + kKeyGap) + 22, {{PadButton::Square, T("Slett")}}, 0, 26);
 
     /* Results. */

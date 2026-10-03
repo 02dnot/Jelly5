@@ -84,6 +84,7 @@ private:
     int m_index = 0;
     Anim m_scroll, m_nav;
     Lifts m_lifts;
+    Drop m_src_drop, m_sort_drop;       /* the focus on the sources and the sorts */
     Ambient m_ambient;
     bool m_animating = false;
 };
