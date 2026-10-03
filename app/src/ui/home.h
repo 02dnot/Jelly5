@@ -67,10 +67,14 @@ private:
     std::map<std::string, Anim> m_lift; /* per-card focus lift 0..1 */
     Anim m_hero_mode;                   /* 1 = hero, 0 = rows */
 
-    /* Ambient backdrop: the one shown and the one fading in over it. */
-    std::string m_bd_cur, m_bd_next;
-    std::string m_bd_cur_hash, m_bd_next_hash;
-    Anim m_bd_mix;
+    /* Ambient backdrop: a stack, bottom fully shown, each one above fading in
+     * over what is on screen. A new title is pushed on top, so a change of mind
+     * mid-fade never jumps back to an older picture. */
+    struct BackdropLayer {
+        std::string url, hash;
+        Anim mix;
+    };
+    std::vector<BackdropLayer> m_bd;
 
     /* Info panel: fades out, swaps, fades in when focus settles on a new title. */
     std::string m_info_id;

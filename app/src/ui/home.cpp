@@ -82,6 +82,7 @@ void Home::activate()
     if (!m_model.hero.empty()) {
         m_row = -1;
         m_focus_changed = m_now;
+        m_hero_since = m_now;
     }
 }
 
@@ -129,6 +130,9 @@ Action Home::input(uint32_t p)
     }
     if (m_row != before_row || (m_row >= 0 && m_cols[m_row] != before_col))
         m_focus_changed = m_now;
+    /* Back on the hero: it shows the title it was left on for a full 10 s before rotating. */
+    if (m_row < 0 && before_row >= 0)
+        m_hero_since = m_now;
     return action;
 }
 
@@ -150,37 +154,46 @@ std::string Home::backdrop_url(const jf::Item &it) const
 
 void Home::draw_backdrop(float dt)
 {
-    /* Crossfade (900 ms) to the focused title's backdrop once it has loaded. */
+    /* Crossfade (900 ms) to the focused title's backdrop once it has loaded. Rows wait
+     * 250 ms so fast browsing does not flicker; back on the hero it follows at once,
+     * and quicker (its picture is already loaded). */
+    const bool hero = m_row < 0;
     const jf::Item *f = focused_item();
     const std::string want = f ? backdrop_url(*f) : std::string();
-    const std::string want_hash = f ? f->backdrop_blurhash : std::string();
-    if (want != m_bd_cur && want != m_bd_next && (m_now - m_focus_changed) > 0.25) {
-        m_bd_next = want;
-        m_bd_next_hash = want_hash;
-        m_bd_mix.snap(0.f);
+    if (!want.empty() && (m_bd.empty() || m_bd.back().url != want) && (hero || (m_now - m_focus_changed) > 0.25)) {
+        /* A layer that has not started to show is replaced rather than stacked. */
+        if (!m_bd.empty() && m_bd.size() > 1 && m_bd.back().mix.value < 0.02f)
+            m_bd.pop_back();
+        if (m_bd.empty() || m_bd.back().url != want) {
+            m_bd.push_back({want, f->backdrop_blurhash, Anim()});
+            m_bd.back().mix.snap(m_bd.size() == 1 ? 1.f : 0.f);
+        }
+        if (m_bd.size() > 4)   /* rare: a long chain of interrupted fades */
+            m_bd.erase(m_bd.begin() + 1);
     }
-    if (!m_bd_next.empty() && art::get(m_bd_next, 1920, 1080)) {
-        m_bd_mix.to(1.f);
-        if (!m_bd_mix.step(dt, 4.5f) || m_bd_cur.empty()) {
-            m_bd_cur = m_bd_next;
-            m_bd_cur_hash = m_bd_next_hash;
-            m_bd_next.clear();
-            m_bd_mix.snap(0.f);
-        } else {
-            m_animating = true;
+    if (m_bd.size() > 1) {
+        BackdropLayer &top = m_bd.back();
+        if (art::get(top.url, 1920, 1080)) {
+            top.mix.to(1.f);
+            if (top.mix.step(dt, hero ? 8.f : 4.5f))
+                m_animating = true;
+            else   /* fully shown: everything under it is hidden */
+                m_bd.erase(m_bd.begin(), m_bd.end() - 1);
         }
     }
+
     const gfx::Rect full{0, 0, gfx::W, gfx::H};
     gfx::fill(full, kBg);
-    if (!m_bd_cur.empty()) {
-        if (const gfx::Texture *t = art::get(m_bd_cur, 1920, 1080))
-            gfx::image(full, t, 1.f, 0, true);
-        else if (const gfx::Texture *ph = art::blurhash(m_bd_cur_hash))
-            gfx::image(full, ph, 1.f, 0, true);
+    for (size_t i = 0; i < m_bd.size(); i++) {
+        const float a = i == 0 ? 1.f : smoothstep(m_bd[i].mix.value);
+        if (a <= 0.f)
+            continue;
+        if (const gfx::Texture *t = art::get(m_bd[i].url, 1920, 1080))
+            gfx::image(full, t, a, 0, true);
+        else if (i == 0)
+            if (const gfx::Texture *ph = art::blurhash(m_bd[i].hash))
+                gfx::image(full, ph, 1.f, 0, true);
     }
-    if (!m_bd_next.empty() && m_bd_mix.value > 0)
-        if (const gfx::Texture *t = art::get(m_bd_next, 1920, 1080))
-            gfx::image(full, t, smoothstep(m_bd_mix.value), 0, true);
 
     /* Scrims (concept: .scrim-left, .scrim-bottom, .scrim-top). */
     gfx::fill_hgradient({0, 0, 576, gfx::H}, alpha(kBg, 0.92f), alpha(kBg, 0.72f));
