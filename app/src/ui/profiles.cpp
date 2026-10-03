@@ -64,7 +64,7 @@ void Profiles::draw(double, float dt)
     const float d = 220, gap = 64;
     float x = (gfx::W - (n * d + (n - 1) * gap)) / 2;
     /* The focus: the liquid glass drop as a ring round the picture, sliding between them. */
-    const float fx = x + m_focus * (d + gap), ring = d * 1.12f + 20;
+    const float fx = x + m_focus * (d + gap), ring = d * 1.12f + 28;
     m_drop.to({fx + d / 2 - ring / 2, 440 + d / 2 - ring / 2, ring, ring}, m_focus);
     m_drop.draw(dt, 1.f, &m_animating);
     for (int i = 0; i < n; i++, x += d + gap) {
@@ -72,9 +72,7 @@ void Profiles::draw(double, float dt)
         const float lift = m_lifts.step(std::to_string(i), focus, dt, &m_animating);
         const float k = 1.f + 0.12f * lift, dd = d * k;
         const gfx::Rect r{x + d / 2 - dd / 2, 440 + d / 2 - dd / 2, dd, dd};
-        if (lift > 0.01f)
-            gfx::shadow(r, dd / 2, 30, 0.7f * lift, 18 * lift);
-        std::string name, sub;
+        std::string name, sub;   /* (no shadow: on the dark page it read as a black halo over the ring) */
         if (i < (int)m_list.size()) {
             const accounts::Account &a = m_list[i];
             name = a.user_name;

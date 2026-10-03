@@ -294,7 +294,12 @@ std::vector<Detail::Zone> Detail::zones() const
 std::vector<Detail::Button> Detail::buttons() const
 {
     std::vector<Button> b;
-    if (m_view.have_target)
+    /* Play from the start for what can be played, so the row does not shift when
+     * the page has loaded and knows what Play plays (it does nothing until then). */
+    const std::string &t = m_view.item.type;
+    const bool playable = t == "Movie" || t == "Series" || t == "Season" || t == "Episode" || t == "Video" ||
+                          t == "MusicVideo";
+    if (m_view.have_target || (!m_view.have_detail && playable))
         b.push_back(PlayButton);
     if (m_view.have_target && m_view.target.position_ticks > 0)
         b.push_back(RestartButton);

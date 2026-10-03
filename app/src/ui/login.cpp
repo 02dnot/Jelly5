@@ -398,8 +398,6 @@ void Login::draw(double now, float dt)
                 const float l = lift("u" + users[i].id, f);
                 const float d = 120 * (1.f + 0.1f * l);
                 const gfx::Rect r{x + 60 - d / 2, y + 60 - d / 2, d, d};
-                if (l > 0.01f)
-                    gfx::shadow(r, d / 2, 20, 0.6f * l, 10 * l);
                 if (f)   /* a ring of the focus glass round the picture */
                     glass_panel({r.x - 8, r.y - 8, d + 16, d + 16}, d / 2 + 8, 1.f, false, 1.f);
                 const std::string url = users[i].image_tag.empty()
