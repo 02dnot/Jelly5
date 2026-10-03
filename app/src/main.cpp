@@ -758,7 +758,12 @@ void shell_input(uint32_t p, jf::Item *play, bool *chose, bool *from_start, bool
             open_tab(s_nav_tab);         /* tvOS-style: focusing a tab opens it */
         return;
     }
-    const ui::Action a = screen_for(s_tab)->input(p);
+    ui::Screen *in_screen = screen_for(s_tab);
+    const ui::Action a = in_screen->input(p);
+    if (in_screen->take_bump())
+        nuvio_input_pulse(70, 45);   /* a soft bump at the edge */
+    if (a.kind == ui::Action::Play || a.kind == ui::Action::PlayFromStart || a.kind == ui::Action::PlayShuffled)
+        nuvio_input_pulse(150, 70);  /* a firmer one to start */
     switch (a.kind) {
     case ui::Action::ToNav:
         if (s_stack.empty()) {

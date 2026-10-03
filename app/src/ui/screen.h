@@ -74,6 +74,18 @@ public:
         float radius = 14;
     };
     virtual bool focused_card(Card *) const { return false; }
+    /* The last press ran into an edge (a row's end): a soft bump on the controller. */
+    bool take_bump()
+    {
+        const bool b = m_bump;
+        m_bump = false;
+        return b;
+    }
+
+protected:
+    bool m_bump = false;
+
+public:
     /* 0..1: how much of the top navigation shows over this screen. */
     virtual float nav_alpha() const = 0;
 };

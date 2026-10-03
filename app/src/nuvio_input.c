@@ -27,6 +27,11 @@ typedef struct {
 int scePadReadState(int handle, pad_data *data);
 int scePadOpen(int user_id, int type, int index, void *param);
 int scePadClose(int handle);
+int scePadSetVibrationMode(int handle, int mode);
+int scePadSetVibration(int handle, const void *param);
+typedef struct ScePadVibration {
+    uint8_t large, small;   /* motors, 0..255 */
+} ScePadVibration;
 
 /* Held D-pad: first repeat after 400 ms, then every 90 ms. */
 #define REPEAT_DELAY 0.40
@@ -58,8 +63,11 @@ void nuvio_input_open(int user_id)
 {
     pad_data pad;
 
-    if (s_pad < 0)
+    if (s_pad < 0) {
         s_pad = scePadOpen(user_id, 0, 0, NULL);
+        if (s_pad >= 0)
+            evo_bt("input: vibration mode 2 rc=%#x", (unsigned)scePadSetVibrationMode(s_pad, 2));
+    }
     evo_bt("input: pad open -> %d", s_pad);
     memset(&pad, 0, sizeof pad);
     s_ignore = (s_pad >= 0 && scePadReadState(s_pad, &pad) == 0) ? pad.buttons : 0;
@@ -68,10 +76,49 @@ void nuvio_input_open(int user_id)
     s_dir_since = s_next_repeat = 0.0;
 }
 
-void nuvio_input_close(void)
+typedef struct ScePadColor {
+    uint8_t r, g, b, a;
+} ScePadColor;
+int scePadSetLightBar(int handle, const ScePadColor *param);
+int scePadResetLightBar(int handle);
+
+void nuvio_input_set_lightbar(uint32_t rgb)
+{
+    if (s_pad < 0)
+        return;
+    ScePadColor c = {(uint8_t)(rgb >> 16), (uint8_t)(rgb >> 8), (uint8_t)rgb, 255};
+    scePadSetLightBar(s_pad, &c);
+}
+
+static double s_rumble_until;
+
+void nuvio_input_pulse(int strength, int ms)
+{
+    if (s_pad < 0)
+        return;
+    const uint8_t v = (uint8_t)(strength < 0 ? 0 : strength > 255 ? 255 : strength);
+    ScePadVibration p = {v, v};
+    const int rc = scePadSetVibration(s_pad, &p);
+    static int logged;
+    if (!logged++)
+        evo_bt("input: first vibration rc=%#x", (unsigned)rc);
+    s_rumble_until = now_s() + ms / 1000.0;
+}
+
+void nuvio_input_reset_lightbar(void)
 {
     if (s_pad >= 0)
+        scePadResetLightBar(s_pad);
+}
+
+void nuvio_input_close(void)
+{
+    if (s_pad >= 0) {
+        static const ScePadVibration off = {0, 0};
+        scePadSetVibration(s_pad, &off);   /* never leave a motor running */
+        s_rumble_until = 0;
         scePadClose(s_pad);
+    }
     s_pad = -1;
     s_last = s_ignore = s_stick = 0;
 }
@@ -133,6 +180,11 @@ void nuvio_input_poll(nuvio_input_state *out)
     const double t = now_s();
 
     memset(out, 0, sizeof *out);
+    if (s_rumble_until > 0 && t >= s_rumble_until && s_pad >= 0) {   /* the pulse ends */
+        static const ScePadVibration off = {0, 0};
+        scePadSetVibration(s_pad, &off);
+        s_rumble_until = 0;
+    }
     memset(&pad, 0, sizeof pad);
     if (s_pad >= 0 && scePadReadState(s_pad, &pad) == 0) {
         now_buttons = pad.buttons;

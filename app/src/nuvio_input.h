@@ -52,6 +52,13 @@ typedef struct nuvio_input_state {
  * are released, so the button that started playback does not act twice. */
 void nuvio_input_open(int user_id);
 void nuvio_input_close(void);
+/* Jelly5: the DualSense light bar (0xRRGGBB); reset gives back the PS5 user's colour. */
+void nuvio_input_set_lightbar(uint32_t rgb);
+void nuvio_input_reset_lightbar(void);
+/* Jelly5: a short rumble (strength 0..255 on both motors), stopped by the poll after
+ * ms. EVO found vibration silent from the PS Now slot it ran in; an app of its own
+ * (as SDL2's port) sets vibration mode 2 first - the open logs what the pad says. */
+void nuvio_input_pulse(int strength, int ms);
 
 /* A press from the command channel, held for hold_ms (0 = one tap). */
 void nuvio_input_inject(uint32_t button, int hold_ms);

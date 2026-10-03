@@ -772,6 +772,8 @@ extern "C" void nuvio_player_run(const char *json)
         evo_agc_runtime_set_player_mode(1);
     s.open_started = now_s();
     s_osd.begin(&s.req, s.open_started);
+    if (s.req.light_color)
+        nuvio_input_set_lightbar(s.req.light_color);   /* the controller glows in the title's colour */
     if (headless) {
         std::lock_guard<std::mutex> g(s_now_lock);
         s_now_request = s.req;
@@ -1098,6 +1100,7 @@ extern "C" void nuvio_player_run(const char *json)
         evo_agc_runtime_set_player_mode(0);
     }
     nuvio_control_set_playing(0);
+    nuvio_input_reset_lightbar();   /* back to the PS5 user's colour */
     if (!headless)
         nuvio_input_close();
     evo_boot_log_flush();

@@ -84,6 +84,7 @@ struct NuvioRequest {
     std::string title, episode_title, year, description, genres, runtime, rating, item_type;
     std::string logo, poster, backdrop, thumbnail;
     std::string artist, album, cover, cover_blurhash;   /* Jelly5: music */
+    uint32_t light_color = 0;                           /* Jelly5: the DualSense light bar, 0 = leave it */
     int season = 0, episode = 0;
     double start_position = 0;
     std::string stream_title, stream_description, stream_addon;

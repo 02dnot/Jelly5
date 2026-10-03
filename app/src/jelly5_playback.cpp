@@ -17,6 +17,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <mutex>
 #include <pthread.h>
 #include <string>
@@ -129,6 +130,29 @@ cJSON *episode_json(jf::Client &c, const jf::Item &e)
     return o;
 }
 
+/* The DualSense light bar's colour for a title: a BlurHash starts with the
+ * picture's average colour (characters 2-5, base 83, sRGB). Lifted so a dark
+ * picture still glows; 0 when there is nothing to go on. */
+uint32_t light_of(const std::string &hash)
+{
+    static const char *digits = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz#$%*+,-.:;=?@[]^_{|}~";
+    if (hash.size() < 6)
+        return 0;
+    uint32_t v = 0;
+    for (size_t i = 2; i < 6; i++) {
+        const char *p = std::strchr(digits, hash[i]);
+        if (!p)
+            return 0;
+        v = v * 83 + (uint32_t)(p - digits);
+    }
+    float r = (float)((v >> 16) & 255), g = (float)((v >> 8) & 255), b = (float)(v & 255);
+    const float m = std::max(r, std::max(g, b));
+    if (m < 24.f)
+        return 0x00a4dc;   /* near black: the brand's blue */
+    const float k = 230.f / m;
+    return ((uint32_t)(r * k) << 16) | ((uint32_t)(g * k) << 8) | (uint32_t)(b * k);
+}
+
 /* The request the Nuvio Player plays (see nuvio_request_parse). */
 struct Extras {
     std::vector<jf::Segment> segments;
@@ -177,6 +201,11 @@ std::string request_json(jf::Client &c, const jf::Item &it, const jf::Playback &
         cJSON_AddStringToObject(o, "rating", r);
     }
     cJSON_AddStringToObject(o, "itemType", episode ? "series" : audio ? "audio" : "movie");
+    {   /* the controller's light: the picture's colour */
+        const std::string &hash = audio ? (!it.album_blurhash.empty() ? it.album_blurhash : it.primary_blurhash)
+                                        : it.backdrop_blurhash;
+        cJSON_AddNumberToObject(o, "lightColor", (double)light_of(hash));
+    }
     cJSON_AddStringToObject(o, "logo", c.image_url(it.logo_owner, "Logo", it.logo_tag, 800).c_str());
     cJSON_AddStringToObject(o, "poster", c.image_url(episode ? it.series_id : it.id, "Primary",
                                                       episode ? std::string() : it.primary_tag, 400).c_str());

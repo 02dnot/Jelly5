@@ -178,11 +178,15 @@ Action Home::input(uint32_t p)
             m_hero_button = 1;
         else if (m_cols[m_row] + 1 < (int)m_model.rows[m_row].items.size())
             m_cols[m_row]++;
+        else
+            m_bump = true;   /* the row's end */
     } else if (p & NUVIO_BTN_LEFT) {
         if (m_row < 0)
             m_hero_button = 0;
         else if (m_cols[m_row] > 0)
             m_cols[m_row]--;
+        else
+            m_bump = true;
     } else if (p & NUVIO_BTN_CIRCLE) {
         /* Back, as on Netflix: to the start of the row, then to the hero. */
         if (m_row >= 0 && m_cols[m_row] > 0)

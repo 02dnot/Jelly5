@@ -201,14 +201,20 @@ Action Library::input(uint32_t p)
     if (p & NUVIO_BTN_RIGHT) {
         if (col + 1 < kCols && m_index + 1 < count)
             m_index++;
+        else
+            m_bump = true;
     } else if (p & NUVIO_BTN_LEFT) {
         if (col > 0)
             m_index--;
+        else
+            m_bump = true;
     } else if (p & NUVIO_BTN_DOWN) {
         if (m_index + kCols < count)
             m_index += kCols;
         else if (row + 1 <= (count - 1) / kCols)
             m_index = count - 1;   /* last, partial row */
+        else
+            m_bump = true;
     } else if (p & NUVIO_BTN_UP) {
         if (row > 0)
             m_index -= kCols;
