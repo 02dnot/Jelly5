@@ -33,9 +33,9 @@ int scePadSetVibrationMode(int handle, int mode);
 /* scePadSetTriggerEffect's parameter (Sony's layout, as Steamworks'
  * isteamdualsense.h carries it: 120 bytes). */
 typedef struct {
-    uint32_t mode;                 /* 0 off, 5 slope feedback */
+    uint32_t mode;                 /* 0 off, 1 feedback, 2 weapon, 3 vibration (all the PS5 takes) */
     uint8_t  padding[4];
-    uint8_t  data[48];             /* slope: start position, end position, start strength, end strength */
+    uint8_t  data[48];             /* feedback: position, strength */
 } pad_trigger_command;
 typedef struct {
     uint8_t  trigger_mask;         /* 1 L2, 2 R2 */
@@ -115,19 +115,27 @@ void nuvio_input_trigger_resistance(int on)
 {
     if (s_pad < 0)
         return;
+    /* Feedback (mode 1): the arm resists from `position` (0..9) at `strength`
+     * (0..8). The PS5's libScePad takes modes 0-3 (off, feedback, weapon,
+     * vibration); the slope mode in Steam's DualSense header (5) is refused
+     * with 0x80920001, invalid argument. */
     pad_trigger_param p;
     memset(&p, 0, sizeof p);
     p.trigger_mask = 0x03;
     for (int i = 0; i < 2; i++) {
-        p.command[i].mode = on ? 5u : 0u;   /* slope feedback: light at first, stiffer further in */
+        p.command[i].mode = on ? 1u : 0u;
         if (on) {
-            p.command[i].data[0] = 0;   /* from the very start */
-            p.command[i].data[1] = 9;   /* to the end */
-            p.command[i].data[2] = 3;   /* strength 3 */
-            p.command[i].data[3] = 8;   /* up to 8, the most */
+            p.command[i].data[0] = 1;   /* from early in the pull */
+            p.command[i].data[1] = 7;   /* firm (of 8) */
         }
     }
-    const int rc = scePadSetTriggerEffect(s_pad, &p);
+    int rc = scePadSetTriggerEffect(s_pad, &p);
+    if (rc < 0 && on) {   /* refused for both at once: the right trigger alone, to learn more */
+        p.trigger_mask = 0x02;
+        const int rc2 = scePadSetTriggerEffect(s_pad, &p);
+        evo_bt("input: trigger effect both rc=%#x, R2 alone rc=%#x", (unsigned)rc, (unsigned)rc2);
+        rc = rc2;
+    }
     static int logged;
     if (!logged++)
         evo_bt("input: trigger effect %s rc=%#x", on ? "on" : "off", (unsigned)rc);
