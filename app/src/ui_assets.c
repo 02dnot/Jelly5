@@ -95,3 +95,11 @@ ui_asset ui_asset_img_wordmark(void)
     ui_asset a = {nuvio_blob_img_wordmark, (size_t)(nuvio_blob_img_wordmark_end - nuvio_blob_img_wordmark) - 1};
     return a;
 }
+
+__asm__(".section .rodata\n.balign 16\n.global nuvio_blob_img_splash\nnuvio_blob_img_splash:\n.incbin \"assets/brand/splash.jpg\"\n.byte 0\n.global nuvio_blob_img_splash_end\nnuvio_blob_img_splash_end:\n.previous\n");
+extern const uint8_t nuvio_blob_img_splash[], nuvio_blob_img_splash_end[];
+ui_asset ui_asset_img_splash(void)
+{
+    ui_asset a = {nuvio_blob_img_splash, (size_t)(nuvio_blob_img_splash_end - nuvio_blob_img_splash) - 1};
+    return a;
+}

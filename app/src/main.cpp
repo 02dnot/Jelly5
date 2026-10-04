@@ -38,6 +38,7 @@
 #include "ui/settings_screen.h"
 #include "ui/syncplay_screen.h"
 #include "ui_image.h"
+#include "ui_assets.h"
 #include "ui_text.h"
 
 #include "evo_adec.h"
@@ -1087,17 +1088,36 @@ void draw_status(const std::string &title, const std::string &line, double t, co
         ui::draw_pad_hints(gfx::W / 2, 992, {{ui::PadButton::Circle, hint}}, 1);
 }
 
-/* The start-up splash: the mark on a deep field in the app's colours,
- * breathing gently. No text: the app is simply getting ready. */
+/* The start-up splash: the same picture the PS5 shows while it launches the app
+ * (sce_sys/pic1.dds, from the same source), so the hand-over from the system to
+ * the app does not jump; the mark fades in over it and breathes gently. */
 void draw_splash(double t, float a)
 {
     if (a <= 0.f)
         return;
+    static const gfx::Texture *bg = [] {
+        const gfx::Texture *tex = nullptr;
+        const ui_asset as = ui_asset_img_splash();
+        ui_image img;
+        if (as.data && ui_image_decode(as.data, as.size, 1920, 1080, &img) == 0) {
+            tex = gfx::texture_from_image(&img);
+            ui_image_free(&img);
+        }
+        return tex;
+    }();
+    static double first = -1;
+    if (first < 0)
+        first = t;
     gfx::push_opacity(a);
-    gfx::fill({0, 0, gfx::W, gfx::H}, 0xff07070au);
-    gfx::fill_vgradient({0, 0, gfx::W, gfx::H}, 0x26402a5cu, 0x14003c55u);
+    if (bg) {
+        gfx::image({0, 0, gfx::W, gfx::H}, bg, 1.f, 0, true);
+    } else {
+        gfx::fill({0, 0, gfx::W, gfx::H}, 0xff07070au);
+        gfx::fill_vgradient({0, 0, gfx::W, gfx::H}, 0x26402a5cu, 0x14003c55u);
+    }
+    const float in = std::min(1.f, (float)(t - first) / 0.6f);   /* the mark fades in */
     const float pulse = 0.5f + 0.5f * std::sin((float)t * 2.2f);
-    gfx::push_opacity(0.85f + 0.15f * pulse);
+    gfx::push_opacity(ui::smoothstep(in) * (0.85f + 0.15f * pulse));
     ui::draw_brand(gfx::W / 2 - ui::brand_width(110) / 2, 578, 110, 1.f, true);
     gfx::pop_opacity();
     gfx::pop_opacity();

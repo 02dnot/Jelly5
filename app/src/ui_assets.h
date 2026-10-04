@@ -29,6 +29,7 @@ ui_asset ui_asset_font_naskh_bold(void);
 ui_asset ui_asset_font_noto_emoji(void);
 ui_asset ui_asset_font_noto_symbols(void);
 ui_asset ui_asset_img_wordmark(void);
+ui_asset ui_asset_img_splash(void);
 
 #ifdef __cplusplus
 }
