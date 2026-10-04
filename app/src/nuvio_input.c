@@ -124,23 +124,62 @@ static int set_triggers(uint32_t mode, const uint8_t *data, int n)
     return scePadSetTriggerEffect(s_pad, &p);
 }
 
+/* Plain feedback (the only mode some consoles take) is one resistance from a
+ * position on. Following the trigger and asking for more the deeper it is gives
+ * the throttle feel anyway: zone 0..9 of the travel, its strength 1..8. */
+static const uint8_t kZoneStrength[10] = {1, 1, 2, 2, 3, 3, 4, 5, 6, 7};
+static int s_follow;             /* the effect is on and follows the triggers */
+static int s_zone[2] = {-1, -1}; /* the zone each trigger's resistance was set for */
+
+static void follow_triggers(const uint8_t analog[2])
+{
+    pad_trigger_param p;
+    memset(&p, 0, sizeof p);
+    for (int i = 0; i < 2; i++) {
+        /* A zone is left only a little past its edge, so a finger held against
+         * the resistance on a boundary does not make it flicker. */
+        const int v = analog[i] * 10;
+        int z = s_zone[i];
+        if (z < 0 || v >= (z + 1) * 256 + 96 || v < z * 256 - 96)
+            z = v / 256 > 9 ? 9 : v / 256;
+        if (z == s_zone[i])
+            continue;
+        s_zone[i] = z;
+        p.trigger_mask |= (uint8_t)(1 << i);
+        p.command[i].mode = 1;
+        p.command[i].data[0] = (uint8_t)z;
+        p.command[i].data[1] = kZoneStrength[z];
+    }
+    if (p.trigger_mask) {
+        const int rc = scePadSetTriggerEffect(s_pad, &p);
+        static int logged;
+        if (logged < 12) {   /* does the console take the updates, and how often */
+            logged++;
+            evo_bt("input: trigger follow L2 z%d R2 z%d rc=%#x", s_zone[0], s_zone[1], (unsigned)rc);
+        }
+    }
+}
+
 void nuvio_input_trigger_resistance(int on)
 {
     if (s_pad < 0)
         return;
     static int mode_ok = -1;   /* the first that the console took, for the next time */
+    s_follow = 0;
+    s_zone[0] = s_zone[1] = -1;
     if (!on) {
         const uint8_t none[1] = {0};
         set_triggers(0, none, 1);
         return;
     }
-    /* Stiffer the further it goes, if the console takes it: multiple-position
-     * feedback (mode 4, a strength 0..8 for each of positions 0..9), else slope
-     * feedback (mode 5: start, end, start strength, end strength), else plain
-     * feedback (mode 1: position, strength). Each answer is logged once. */
-    static const uint8_t multi[10] = {2, 2, 3, 3, 4, 5, 6, 7, 8, 8};
-    static const uint8_t slope[4] = {1, 8, 2, 8};
-    static const uint8_t plain[2] = {1, 7};
+    /* Stiffer the further it goes: multiple-position feedback (mode 4, a strength
+     * 0..8 for each of positions 0..9) or slope feedback (mode 5: start, end, start
+     * strength, end strength) if the console takes them, else plain feedback
+     * (mode 1: position, strength) that follow_triggers moves along. Each answer
+     * is logged once. */
+    static const uint8_t multi[10] = {1, 1, 2, 2, 3, 3, 4, 5, 6, 7};
+    static const uint8_t slope[4] = {0, 9, 1, 7};
+    static const uint8_t plain[2] = {0, 1};
     struct { uint32_t mode; const uint8_t *data; int n; } tries[] = {{4, multi, 10}, {5, slope, 4}, {1, plain, 2}};
     static int logged;
     for (int i = 0; i < 3; i++) {
@@ -153,6 +192,7 @@ void nuvio_input_trigger_resistance(int on)
         }
         if (rc >= 0) {
             mode_ok = (int)tries[i].mode;
+            s_follow = mode_ok == 1;
             return;
         }
     }
@@ -186,6 +226,7 @@ void nuvio_input_close(void)
         scePadClose(s_pad);
     }
     s_pad = -1;
+    s_follow = 0;
     s_last = s_ignore = s_stick = 0;
 }
 
@@ -256,6 +297,8 @@ void nuvio_input_poll(nuvio_input_state *out)
         out->l2 = pad.analog[0] / 255.f;
         out->r2 = pad.analog[1] / 255.f;
         now_buttons = pad.buttons;
+        if (s_follow)
+            follow_triggers(pad.analog);
         if (!(now_buttons & NUVIO_BTN_DPAD))
             now_buttons |= stick_dirs(&pad);
     }
