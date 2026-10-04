@@ -33,9 +33,9 @@ int scePadSetVibrationMode(int handle, int mode);
 /* scePadSetTriggerEffect's parameter (Sony's layout, as Steamworks'
  * isteamdualsense.h carries it: 120 bytes). */
 typedef struct {
-    uint32_t mode;                 /* 0 off, 1 feedback, 2 weapon, 3 vibration (all the PS5 takes) */
+    uint32_t mode;                 /* 0 off, 1 feedback, 2 weapon, 3 vibration, 4 multi-position, 5 slope */
     uint8_t  padding[4];
-    uint8_t  data[48];             /* feedback: position, strength */
+    uint8_t  data[48];             /* per mode, see nuvio_input_trigger_resistance */
 } pad_trigger_command;
 typedef struct {
     uint8_t  trigger_mask;         /* 1 L2, 2 R2 */
@@ -111,34 +111,51 @@ void nuvio_input_set_lightbar(uint32_t rgb)
 
 static double s_rumble_until;
 
-void nuvio_input_trigger_resistance(int on)
+/* One attempt: both triggers set to `mode` with `data`; the PS5's answer. */
+static int set_triggers(uint32_t mode, const uint8_t *data, int n)
 {
-    if (s_pad < 0)
-        return;
-    /* Feedback (mode 1): the arm resists from `position` (0..9) at `strength`
-     * (0..8). The PS5's libScePad takes modes 0-3 (off, feedback, weapon,
-     * vibration); the slope mode in Steam's DualSense header (5) is refused
-     * with 0x80920001, invalid argument. */
     pad_trigger_param p;
     memset(&p, 0, sizeof p);
     p.trigger_mask = 0x03;
     for (int i = 0; i < 2; i++) {
-        p.command[i].mode = on ? 1u : 0u;
-        if (on) {
-            p.command[i].data[0] = 1;   /* from early in the pull */
-            p.command[i].data[1] = 7;   /* firm (of 8) */
+        p.command[i].mode = mode;
+        memcpy(p.command[i].data, data, (size_t)n);
+    }
+    return scePadSetTriggerEffect(s_pad, &p);
+}
+
+void nuvio_input_trigger_resistance(int on)
+{
+    if (s_pad < 0)
+        return;
+    static int mode_ok = -1;   /* the first that the console took, for the next time */
+    if (!on) {
+        const uint8_t none[1] = {0};
+        set_triggers(0, none, 1);
+        return;
+    }
+    /* Stiffer the further it goes, if the console takes it: multiple-position
+     * feedback (mode 4, a strength 0..8 for each of positions 0..9), else slope
+     * feedback (mode 5: start, end, start strength, end strength), else plain
+     * feedback (mode 1: position, strength). Each answer is logged once. */
+    static const uint8_t multi[10] = {2, 2, 3, 3, 4, 5, 6, 7, 8, 8};
+    static const uint8_t slope[4] = {1, 8, 2, 8};
+    static const uint8_t plain[2] = {1, 7};
+    struct { uint32_t mode; const uint8_t *data; int n; } tries[] = {{4, multi, 10}, {5, slope, 4}, {1, plain, 2}};
+    static int logged;
+    for (int i = 0; i < 3; i++) {
+        if (mode_ok >= 0 && (int)tries[i].mode != mode_ok)
+            continue;
+        const int rc = set_triggers(tries[i].mode, tries[i].data, tries[i].n);
+        if (logged < 3) {
+            logged++;
+            evo_bt("input: trigger effect mode %u rc=%#x", tries[i].mode, (unsigned)rc);
+        }
+        if (rc >= 0) {
+            mode_ok = (int)tries[i].mode;
+            return;
         }
     }
-    int rc = scePadSetTriggerEffect(s_pad, &p);
-    if (rc < 0 && on) {   /* refused for both at once: the right trigger alone, to learn more */
-        p.trigger_mask = 0x02;
-        const int rc2 = scePadSetTriggerEffect(s_pad, &p);
-        evo_bt("input: trigger effect both rc=%#x, R2 alone rc=%#x", (unsigned)rc, (unsigned)rc2);
-        rc = rc2;
-    }
-    static int logged;
-    if (!logged++)
-        evo_bt("input: trigger effect %s rc=%#x", on ? "on" : "off", (unsigned)rc);
 }
 
 void nuvio_input_pulse(int strength, int ms)
