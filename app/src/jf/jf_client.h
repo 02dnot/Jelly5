@@ -236,6 +236,8 @@ public:
     std::vector<Item> genre_items(const std::string &genre, int limit);
     /* A title's extras: behind the scenes, deleted scenes, featurettes. */
     std::vector<Item> special_features(const std::string &id);
+    /* A title's theme songs (an episode's or season's come from its series). */
+    std::vector<Item> theme_songs(const std::string &id);
     bool item(const std::string &id, Item *out, Detail *detail = nullptr);
     std::vector<Item> seasons(const std::string &series_id);
     std::vector<Item> similar(const std::string &id, int limit);

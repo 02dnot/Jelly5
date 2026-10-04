@@ -11,6 +11,10 @@ namespace i18n {
 const std::unordered_map<std::string, const char *> &portuguese_table()
 {
     static const std::unordered_map<std::string, const char *> t = {
+        {"Nattmodus", "Modo noturno"},
+        {"Temamusikk", "Música tema"},
+        {"Se etter oppdateringer", "Procurar atualizações"},
+        {"Jelly5 %s er tilgjengelig – se GitHub", "Jelly5 %s está disponível – veja o GitHub"},
         {"Hjem", "Início"},
         {"Musikk", "Música"},
         {"Album", "Álbuns"},

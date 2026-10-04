@@ -306,6 +306,75 @@ static int16_t audio_float_to_s16(float v) {
     return (int16_t)(v * 30000.0f);
 }
 
+/* ---- Jelly5: output gain and night mode -------------------------------------
+ *
+ * Applied to every block of PCM on its way out (48 kHz float, interleaved, the
+ * channel order FFmpeg gives: FL FR FC LFE BL BR SL SR).
+ *  - gain: the theme music on a detail page plays quietly; ramps, never steps.
+ *  - night mode: a gentle compressor on the loudness of the whole mix (RMS,
+ *    -24 dBFS, 3:1, fast attack, slow release), with make-up gain, the centre
+ *    (dialogue) lifted and the LFE lowered, and a soft limiter at the end. Loud
+ *    scenes come down, quiet speech comes up.
+ */
+static volatile float s_gain_target = 1.0f;
+static float s_gain = 1.0f;
+static volatile int s_night = 0;
+static float s_env = 0.0f;   /* the mix's mean square, smoothed */
+
+void evo_audio_set_gain(float g) { s_gain_target = g < 0.f ? 0.f : g > 1.f ? 1.f : g; }
+void evo_audio_set_night(int on) { s_night = on; }
+
+static float soft_limit(float x)
+{
+    const float a = fabsf(x);
+    if (a <= 0.8f)
+        return x;
+    const float y = 0.8f + 0.2f * tanhf((a - 0.8f) / 0.2f);   /* eases into 1.0 */
+    return x < 0.f ? -y : y;
+}
+
+static void jelly5_dsp(float *s, int frames, int ch)
+{
+    const int night = s_night;
+    const float target = s_gain_target;
+    if (!night && s_gain == target && target == 1.0f)
+        return;
+    const float rate = (float)PROSPERO_AUDIO_OUTPUT_RATE;
+    const float attack = 1.f - expf(-1.f / (0.010f * rate)), release = 1.f - expf(-1.f / (0.300f * rate));
+    const float ramp = 1.f / (0.25f * rate);   /* gain moves over a quarter second */
+    const float thresh = 0.004f;               /* -24 dBFS, as mean square */
+    const float makeup = 2.0f;                 /* +6 dB */
+    for (int i = 0; i < frames; i++) {
+        float *f = s + (size_t)i * ch;
+        if (s_gain < target)
+            s_gain = fminf(target, s_gain + ramp);
+        else if (s_gain > target)
+            s_gain = fmaxf(target, s_gain - ramp);
+        float g = s_gain;
+        if (night) {
+            float ms = 0.f;
+            for (int c = 0; c < ch; c++)
+                ms += f[c] * f[c];
+            ms /= (float)ch;
+            s_env += (ms > s_env ? attack : release) * (ms - s_env);
+            float comp = 1.f;
+            if (s_env > thresh)   /* 3:1 above the threshold: gain = (env/thr)^(-(1-1/3)/2) on amplitude */
+                comp = powf(s_env / thresh, -1.f / 3.f);
+            g *= comp * makeup;
+        }
+        for (int c = 0; c < ch; c++) {
+            float v = f[c] * g;
+            if (night && ch >= 6) {
+                if (c == 2)
+                    v *= 1.4f;   /* centre: dialogue */
+                else if (c == 3)
+                    v *= 0.5f;   /* LFE */
+            }
+            f[c] = night ? soft_limit(v) : v;
+        }
+    }
+}
+
 static void mix_audio_frame_to_queue(
     AVFrame *frame
 ) {
@@ -384,6 +453,7 @@ static void mix_audio_frame_to_queue(
         );
 
     if (converted > 0) {
+        jelly5_dsp((float *)output_buffer, converted, evo_audio_channels);
         const evo_pcm_t *samples = (const evo_pcm_t *)output_buffer;
         const int ch = evo_audio_channels;
         int index = 0;

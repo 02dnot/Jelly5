@@ -21,8 +21,9 @@ class SettingsScreen : public Screen {
 public:
     enum Row {
         SwitchUser, SignOut,
-        Quality, AudioLang, SubMode, SubLang, SubSize, SubBackground, Autoplay, AutoSkip, AudioDelay,
-        AppLanguage, Refresh, Together, ServerInfo, About, RowCount
+        Quality, AudioLang, SubMode, SubLang, SubSize, SubBackground, Autoplay, AutoSkip, AudioDelay, NightMode,
+        ThemeMusic,
+        AppLanguage, Refresh, Updates, Together, ServerInfo, About, RowCount
     };
     explicit SettingsScreen(jf::Client &client) : m_client(client) {}
 

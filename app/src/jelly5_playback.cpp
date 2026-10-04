@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "jelly5_playback.h"
+#include "evo_audio_out.h"
 
 #include "nuvio_player.h"
 #include "nuvio_subs.h"
@@ -652,8 +653,27 @@ bool jelly5_play_queue(jf::Client &client, const std::vector<jf::Item> &queue, s
     return play_chain(client, item, std::move(q), error);
 }
 
+/* A title's theme song on its page: the player headless (the caller set that),
+ * quiet, and never reported to Jellyfin - it is background, not listening. */
+bool jelly5_play_theme(jf::Client &client, const jf::Item &song)
+{
+    jf::Playback pb;
+    if (!client.playback_info(song.id, 0, -1, -2, &pb, 0))
+        return false;
+    Extras ex;
+    const std::string req = request_json(client, song, pb, {}, ex);
+    evo_audio_set_night(0);
+    evo_audio_set_gain(0.28f);
+    nuvio_player_run(req.c_str());
+    evo_audio_set_gain(1.0f);
+    client.stop_encoding(pb);
+    return true;
+}
+
 static bool play_chain(jf::Client &client, jf::Item item, std::vector<jf::Item> episodes, std::string *error)
 {
+    evo_audio_set_gain(1.0f);                                    /* full volume (a theme may have been playing) */
+    evo_audio_set_night(settings::get().local.night_mode ? 1 : 0);   /* Innstillinger: Nattmodus */
 
     for (int chain = 0; chain < 50; chain++) {
         jf::Playback pb;

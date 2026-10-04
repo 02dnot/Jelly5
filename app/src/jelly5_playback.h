@@ -20,6 +20,8 @@ bool jelly5_play(jf::Client &client, const jf::Item &item, std::string *error, b
 /* The stop report goes to the server in the background after playback; this
  * waits (up to max_ms) until it has landed, before reading positions back. */
 void jelly5_wait_reports(int max_ms);
+/* A theme song, quietly and unreported (headless: the caller sets that). */
+bool jelly5_play_theme(jf::Client &client, const jf::Item &song);
 /* A queue (a playlist, an Instant Mix, what a phone sent): plays from queue[start]
  * through the rest. */
 bool jelly5_play_queue(jf::Client &client, const std::vector<jf::Item> &queue, size_t start, std::string *error);

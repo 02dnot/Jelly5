@@ -37,6 +37,7 @@ public:
         bool have_trailer = false;
     };
     Detail(jf::Client &client, const jf::Item &item);
+    const jf::Item &item() const { return m_view.item; }
 
     /* Loads an item's page data in the background so opening it is instant
      * (screens call it when focus rests on a card). Cached across pages. */

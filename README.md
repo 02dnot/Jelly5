@@ -28,7 +28,7 @@ your Jellyfin server.
 **An interface made for the TV**
 - Liquid glass throughout: controls on frosted, light-bending glass, and one springy glass drop that marks the focus wherever you are
 - Home with a hero, *Continue watching*, *Next up*, *Recently added* per library, recommendations and genres, in the order you set in Jellyfin
-- Detail pages with logo art, cast, seasons and episodes, trailers, extras and *More like this*
+- Detail pages with logo art, cast, seasons and episodes, trailers, extras, *More like this* and the title's theme music
 - Libraries for movies, shows and music: sort, filter (unwatched, favourites, genre, decade) and jump A–Z by letter
 - Search across movies, shows, episodes, music and people
 - Several users and servers with profile pictures, and a screensaver drawn from your own backdrops
@@ -45,7 +45,7 @@ your Jellyfin server.
 - Audio and subtitle tracks (SRT, ASS/SSA, PGS and more), subtitle styling and online subtitle search
 - Trickplay thumbnails, a chapter menu, *Skip intro* from Jellyfin's media segments, auto-play of the next episode
 - Choice between versions when a title has several
-- An audio delay setting for soundbars and receivers
+- An audio delay setting for soundbars and receivers, and a night mode that evens out loud and quiet with the dialogue lifted
 - Playback info on L3: how the server serves it, codecs, decoder, bitrate and buffer
 - Keeps going through network hiccups: a stream that breaks off resumes where it stopped
 - Progress, resume and watched state synced with Jellyfin; mark whole seasons or series as watched
@@ -170,9 +170,11 @@ These come from the platform, not from Jelly5:
 
 ## Privacy
 
-Jelly5 talks to your Jellyfin server and nothing else. It keeps its accounts,
-settings and a 96 MB image cache in its own folder, `/download0/jelly5`, and
-writes nowhere else on the console. Release builds send no logs anywhere.
+Jelly5 talks to your Jellyfin server and nothing else. The one exception is
+opt-in: with *Check for updates* turned on in its settings, it asks GitHub once a
+launch whether there is a newer release. It keeps its accounts, settings and a
+96 MB image cache in its own folder, `/download0/jelly5`, and writes nowhere
+else on the console. Release builds send no logs anywhere.
 
 ## Reporting problems
 

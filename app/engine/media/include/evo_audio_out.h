@@ -40,6 +40,11 @@ extern "C" {
  * (evo_audio_port_float = 0).
  */
 typedef float evo_pcm_t;
+
+/* Jelly5: the output's gain (0..1, ramped) and night mode (dynamic range
+ * compression with the dialogue lifted), for everything that plays. */
+void evo_audio_set_gain(float gain);
+void evo_audio_set_night(int on);
 extern int evo_audio_port_float;
 
 /*

@@ -10,6 +10,7 @@
  * probes and module loads run before anything else touches the process.
  */
 #include "jelly5_playback.h"
+#include "jf/jf_http.h"
 #include "app/accounts.h"
 #include "app/i18n.h"
 #include "app/perf.h"
@@ -287,6 +288,42 @@ void refresh_hero_cache(jf::Client &c, std::vector<jf::Item> *out)
  * titles are kept (a refresh after playback only needs the rows). */
 bool draw_connection(double now);   /* below: the note when the server is out of reach */
 
+/* "00.001.001" or "v0.1.1" as one comparable number (major, minor, patch). */
+long version_number(const std::string &v)
+{
+    int a = 0, b = 0, c = 0;
+    std::sscanf(v.c_str() + (v[0] == 'v' ? 1 : 0), "%d.%d.%d", &a, &b, &c);
+    return a * 1000000L + b * 1000L + c;
+}
+
+/* Opt-in (Innstillinger: Se etter oppdateringer): once a launch, ask GitHub for
+ * the latest release and say so when there is a newer one. The only request
+ * Jelly5 makes that is not to the Jellyfin server, and only when turned on. */
+void check_for_update()
+{
+    static bool asked = false;
+    if (asked || !settings::get().local.check_updates)
+        return;
+    asked = true;
+    std::thread([] {
+        const jf::HttpResponse r =
+            jf::http_request("GET", "https://api.github.com/repos/02dnot/Jelly5/releases/latest",
+                             {"Accept: application/vnd.github+json", "User-Agent: Jelly5/" JELLY5_VERSION}, "", 10);
+        if (!r.ok())
+            return;
+        cJSON *j = cJSON_Parse(r.body.c_str());
+        const cJSON *tag = cJSON_GetObjectItemCaseSensitive(j, "tag_name");
+        const std::string latest = cJSON_IsString(tag) && tag->valuestring ? tag->valuestring : "";
+        cJSON_Delete(j);
+        evo_bt("jelly5: latest release %s, this is %s", latest.c_str(), JELLY5_VERSION);
+        if (!latest.empty() && version_number(latest) > version_number(JELLY5_VERSION)) {
+            char msg[160];
+            std::snprintf(msg, sizeof msg, T("Jelly5 %s er tilgjengelig – se GitHub"), latest.c_str());
+            notify(msg);
+        }
+    }).detach();
+}
+
 void load_home(jf::Client &c, unsigned session, bool keep_hero = false)
 {
     {
@@ -542,6 +579,7 @@ void use_account(jf::Client &c, unsigned session, accounts::Account a)
             remote::start(&c, [session] { return session == s_session; });
             syncplay::attach(&c);
             load_extras(c, session);
+            check_for_update();
             return;
         }
         const std::string err = c.last_error();
@@ -628,6 +666,63 @@ std::atomic<bool> s_music_on{false};      /* a track (and its queue) plays headl
 bool s_group_play = false;              /* this Play came from the SyncPlay group: play it here */
 
 /* Ends the music and waits for its thread to let go of the player. */
+/* ---- theme music --------------------------------------------------------------
+ * On a film's or series' page its theme song plays quietly in the background
+ * (Innstillinger: Temamusikk), as Jellyfin's own apps do; it stops when the page
+ * closes or anything else plays. The player runs headless for it on its own
+ * thread; s_theme_gen tells a starting theme whether it is still wanted. */
+std::atomic<bool> s_theme_on{false};
+std::atomic<unsigned> s_theme_gen{0};
+std::string s_theme_for;   /* the page whose theme is wanted (main thread) */
+
+void stop_theme(bool wait)
+{
+    s_theme_for.clear();
+    s_theme_gen++;
+    if (!s_theme_on)
+        return;
+    remote::Command c;
+    c.kind = remote::Command::Stop;
+    remote::send(c);
+    for (int i = 0; wait && i < 300 && s_theme_on; i++)
+        usleep(10 * 1000);
+}
+
+/* Each frame: the theme the open page wants, started or stopped to match. */
+void theme_follow()
+{
+    std::string want;
+    if (!s_stack.empty() && !s_music_on && settings::get().local.theme_music)
+        if (const auto *d = dynamic_cast<const ui::Detail *>(s_stack.back().get())) {
+            const std::string &t = d->item().type;
+            if (t == "Movie" || t == "Series" || t == "Season" || t == "Episode")
+                want = d->item().id;
+        }
+    if (want == s_theme_for)
+        return;
+    stop_theme(false);
+    s_theme_for = want;
+    if (want.empty())
+        return;
+    const unsigned gen = s_theme_gen;
+    jf::Client *c = s_client;
+    std::thread([c, want, gen] {
+        for (int i = 0; i < 300 && s_theme_on; i++)   /* the last one winding down */
+            usleep(10 * 1000);
+        usleep(600 * 1000);   /* a page only passed through starts nothing */
+        if (gen != s_theme_gen || s_theme_on)
+            return;
+        const std::vector<jf::Item> songs = c->theme_songs(want);
+        if (songs.empty() || gen != s_theme_gen || s_music_on)
+            return;
+        s_theme_on = true;
+        nuvio_player_set_headless(1);
+        jelly5_play_theme(*c, songs.front());
+        nuvio_player_set_headless(0);
+        s_theme_on = false;
+    }).detach();
+}
+
 void stop_music()
 {
     if (!s_music_on)
@@ -653,6 +748,7 @@ void open_now_playing()
 /* Music plays on the player's thread without a picture; the menus stay up. */
 void start_music(const jf::Item &item, bool shuffle, const std::vector<jf::Item> *queue, size_t start)
 {
+    stop_theme(true);
     stop_music();
     jf::Client *c = s_client;
     const std::vector<jf::Item> q = queue ? *queue : std::vector<jf::Item>();
@@ -1103,6 +1199,7 @@ bool draw_frame(double t, float dt)
             }
             if (draw_connection(t))
                 animating = true;
+            theme_follow();
         }
         /* The splash fades away over the first frames of the home screen. */
         s_splash.to(0.f);
@@ -1203,6 +1300,7 @@ bool resolve_playable(jf::Item *item)
 void play(jf::Item item, bool from_start, bool shuffle = false, const std::vector<jf::Item> *queue = nullptr,
           size_t start = 0)
 {
+    stop_theme(true);   /* the page's theme song makes way */
     if (queue && !queue->empty())
         item = (*queue)[std::min(start, queue->size() - 1)];
     if (from_start)

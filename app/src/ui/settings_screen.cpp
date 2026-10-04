@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "ui/settings_screen.h"
+#include "evo_audio_out.h"
 
 #include "app/settings.h"
 #include "evo_agc_runtime.h"
@@ -43,7 +44,7 @@ constexpr int kNumModes = 5;
 
 const char *kHeaders[] = {"Konto", "Avspilling", "Generelt"};
 
-int section_of(int row) { return row <= SettingsScreen::SignOut ? 0 : row <= SettingsScreen::AudioDelay ? 1 : 2; }
+int section_of(int row) { return row <= SettingsScreen::SignOut ? 0 : row <= SettingsScreen::ThemeMusic ? 1 : 2; }
 
 const char *label_of(int row)
 {
@@ -58,8 +59,11 @@ const char *label_of(int row)
                                          T("Spill neste episode automatisk"),
                                          T("Hopp over intro automatisk"),
                                          T("Lydforsinkelse"),
+                                         T("Nattmodus"),
+                                         T("Temamusikk"),
                                          T("Språk"),
                                          T("Bildefrekvens"),
+                                         T("Se etter oppdateringer"),
                                          T("Se sammen"),
                                          "Server",
                                          T("Om Jelly5")};
@@ -103,6 +107,9 @@ std::string SettingsScreen::value(Row r) const
                                               : std::to_string((int)(s.local.sub_background * 100 + 0.5f)) + " %";
     case Autoplay: return s.server.autoplay_next ? T("På") : T("Av");
     case AutoSkip: return s.local.auto_skip_intro ? T("På") : T("Av");
+    case NightMode: return s.local.night_mode ? T("På") : T("Av");
+    case ThemeMusic: return s.local.theme_music ? T("På") : T("Av");
+    case Updates: return s.local.check_updates ? T("På") : T("Av");
     case AudioDelay:
         return s.local.audio_delay_ms == 0 ? std::string(T("Ingen"))
                                            : (s.local.audio_delay_ms > 0 ? "+" : "") + std::to_string(s.local.audio_delay_ms) + " ms";
@@ -133,6 +140,19 @@ void SettingsScreen::change(Row r, int dir)
     }
     case AutoSkip:
         s.local.auto_skip_intro = !s.local.auto_skip_intro;
+        settings::set_local(s.local);
+        break;
+    case NightMode:
+        s.local.night_mode = !s.local.night_mode;
+        settings::set_local(s.local);
+        evo_audio_set_night(s.local.night_mode);
+        break;
+    case ThemeMusic:
+        s.local.theme_music = !s.local.theme_music;
+        settings::set_local(s.local);
+        break;
+    case Updates:
+        s.local.check_updates = !s.local.check_updates;
         settings::set_local(s.local);
         break;
     case AudioDelay:   /* 20 ms steps: a soundbar's delay is typically 40-200 ms */
@@ -272,7 +292,7 @@ void SettingsScreen::draw(double, float dt)
         const float cy = rr.y + rr.h / 2 + 9;
         gfx::text(rr.x + 32, cy, label_of(r), {focus ? gfx::Bold : gfx::SemiBold, 26}, r == SignOut ? 0xffff7a7au : fg);
         const std::string v = value((Row)r);
-        const bool adjustable = r >= Quality && r <= Refresh;
+        const bool adjustable = r >= Quality && r <= Updates;
         const float vx = rr.x + rr.w - 32 - (adjustable && focus ? 30 : 0);
         gfx::text(vx, cy, v, {gfx::Medium, 24, 700}, fg2, 2);
         if (adjustable && focus) {
