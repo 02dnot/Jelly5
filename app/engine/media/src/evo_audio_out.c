@@ -28,6 +28,7 @@
 #include "pp_playback.h"
 #include "evo_boot_log.h"
 #include "evo_speaker_cal.h"
+#include "jelly5_tempo.h"
 
 #ifndef SCREEN_PLAYER
 #define SCREEN_PLAYER 2
@@ -77,6 +78,13 @@ static evo_pcm_t audio_accum[2048 * EVO_AUDIO_MAX_CH];
 int audio_accum_pos = 0;
 
 static evo_pcm_t audio_queue[AUDIO_QUEUE_BLOCKS][AUDIO_BLOCK_SAMPLES * EVO_AUDIO_MAX_CH];
+/* Jelly5: the playback speed each queued block was made at: a block of
+ * AUDIO_BLOCK_SAMPLES played at 1.5x moves the media clock 1.5 blocks on. */
+static float audio_queue_speed[AUDIO_QUEUE_BLOCKS];
+static float s_block_speed = 1.0f;
+static volatile float s_speed = 1.0f;
+void evo_audio_set_speed(float speed) { s_speed = speed < 0.5f ? 0.5f : speed > 2.0f ? 2.0f : speed; }
+float evo_audio_speed(void) { return s_speed; }
 int evo_audio_port_float = 1;
 volatile int audio_queue_read = 0;
 volatile int audio_queue_write = 0;
@@ -135,6 +143,7 @@ static void audio_queue_push(evo_pcm_t *buf) {
 
     memcpy(audio_queue[audio_queue_write], buf,
            (size_t)AUDIO_BLOCK_SAMPLES * evo_audio_channels * sizeof(evo_pcm_t));
+    audio_queue_speed[audio_queue_write] = s_block_speed;
     audio_queue_write = (audio_queue_write + 1) % AUDIO_QUEUE_BLOCKS;
     audio_queue_count++;
 }
@@ -252,7 +261,13 @@ void *audio_output_thread(void *arg) {
                     }
                     sceAudioOutOutput(audio_handle, s16_block);
                 }
-                audio_samples_played += AUDIO_BLOCK_SAMPLES;
+                {   /* media samples: the block's speed times its length */
+                    static double frac;
+                    const double adv = AUDIO_BLOCK_SAMPLES * (double)audio_queue_speed[audio_queue_read] + frac;
+                    const long long whole = (long long)adv;
+                    frac = adv - (double)whole;
+                    audio_samples_played += whole;
+                }
                 audio_clock_seconds = (double)audio_samples_played / 48000.0;
                 audio_queue_read = (audio_queue_read + 1) % AUDIO_QUEUE_BLOCKS;
                 audio_queue_count--;
@@ -456,6 +471,21 @@ static void mix_audio_frame_to_queue(
         jelly5_dsp((float *)output_buffer, converted, evo_audio_channels);
         const evo_pcm_t *samples = (const evo_pcm_t *)output_buffer;
         const int ch = evo_audio_channels;
+        /* Jelly5: playback speed - time-stretched, the pitch kept. */
+        static int tempo_on;
+        const float sp = s_speed;
+        if (sp != 1.0f) {
+            if (!tempo_on || audio_samples_decoded == 0)
+                jelly5_tempo_reset();   /* a new stream, a seek, or just switched on */
+            tempo_on = 1;
+            const float *stretched = NULL;
+            converted = jelly5_tempo_process((const float *)output_buffer, converted, ch, sp, &stretched);
+            samples = stretched;
+        } else if (tempo_on) {
+            tempo_on = 0;
+            jelly5_tempo_reset();
+        }
+        s_block_speed = sp;
         int index = 0;
 
         /*

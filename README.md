@@ -45,6 +45,7 @@ your Jellyfin server.
 - Audio and subtitle tracks (SRT, ASS/SSA, PGS and more), subtitle styling and online subtitle search
 - Trickplay thumbnails, a chapter menu, *Skip intro* from Jellyfin's media segments, auto-play of the next episode
 - Choice between versions when a title has several
+- Playback speed from 0.75× to 2×, the pitch kept
 - An audio delay setting for soundbars and receivers, and a night mode that evens out loud and quiet with the dialogue lifted
 - Playback info on L3: how the server serves it, codecs, decoder, bitrate and buffer
 - Keeps going through network hiccups: a stream that breaks off resumes where it stopped

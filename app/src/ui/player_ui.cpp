@@ -5,6 +5,7 @@
  * The Netflix TV layout in the app's look; colours from concept/style.css.
  */
 #include "ui/player_ui.h"
+#include "evo_audio_out.h"
 
 #include "app/remote.h"
 #include "app/settings.h"
@@ -156,6 +157,18 @@ bool PlayerUi::next_card(const NuvioStatus &st) const
                                    left <= 45.0;
 }
 
+/* The speed button's label: "1×", "1.25×", ... (the current playback speed). */
+static std::string speed_label()
+{
+    const float sp = evo_audio_speed();
+    char b[16];
+    if (std::fabs(sp - std::round(sp)) < 0.01f)
+        std::snprintf(b, sizeof b, "%d\xC3\x97", (int)std::round(sp));
+    else
+        std::snprintf(b, sizeof b, "%g\xC3\x97", (double)sp);
+    return b;
+}
+
 std::vector<PlayerUi::Button> PlayerUi::buttons() const
 {
     std::vector<Button> b{Button::PlayPause};
@@ -164,6 +177,7 @@ std::vector<PlayerUi::Button> PlayerUi::buttons() const
     if (m_req && m_req->chapters.size() > 1)
         b.push_back(Button::Chapters);
     b.push_back(Button::Tracks);
+    b.push_back(Button::Speed);
     if (m_req && m_req->has_next)
         b.push_back(Button::Next);
     return b;
@@ -629,6 +643,17 @@ void PlayerUi::input_local(const nuvio_input_state &in, const NuvioStatus &st, s
                 break;
             }
             case Button::Tracks: open_overlay(Overlay::Tracks); break;
+            case Button::Speed: {   /* 1x, 1.25x, 1.5x, 2x, 0.75x, round again */
+                static const float speeds[] = {1.0f, 1.25f, 1.5f, 2.0f, 0.75f};
+                const float now_sp = evo_audio_speed();
+                int k = 0;
+                for (int i = 0; i < 5; i++)
+                    if (std::fabs(speeds[i] - now_sp) < 0.01f)
+                        k = i;
+                evo_audio_set_speed(speeds[(k + 1) % 5]);
+                show_controls(now, Zone::Buttons);
+                break;
+            }
             case Button::Next: out.push_back({OsdCmd::PlayNext}); break;
             }
         } else {
@@ -898,6 +923,7 @@ void PlayerUi::draw_controls(const NuvioStatus &st)
         case Button::PlayPause: return st.paused ? T("Spill av") : "Pause";
         case Button::Episodes: return T("Episoder");
         case Button::Chapters: return T("Kapitler");
+        case Button::Speed: return speed_label();
         case Button::Tracks: return T("Lyd og undertekster");
         case Button::Next: return T("Neste episode");
         }
@@ -927,6 +953,7 @@ void PlayerUi::draw_controls(const NuvioStatus &st)
         case Button::PlayPause: label = st.paused ? T("Spill av") : "Pause"; break;
         case Button::Episodes: label = T("Episoder"); break;
         case Button::Chapters: label = T("Kapitler"); break;
+        case Button::Speed: label = speed_label(); break;
         case Button::Tracks: label = T("Lyd og undertekster"); break;
         case Button::Next: label = T("Neste episode"); break;
         }
@@ -946,6 +973,13 @@ void PlayerUi::draw_controls(const NuvioStatus &st)
         case Button::Episodes:   /* a stack of cards */
             gfx::fill({ix + 4, cy - 11, 22, 3}, fg, 1.5f);
             gfx::fill({ix + 1, cy - 6, 28, 17}, fg, 3);
+            break;
+        case Button::Speed:      /* two chevrons: forward, faster */
+            for (int k2 = 0; k2 < 2; k2++)
+                for (int s2 = 0; s2 < 9; s2++) {
+                    const float yy = s2 < 5 ? (float)s2 : (float)(8 - s2);
+                    gfx::fill({ix + 4 + k2 * 11 + yy * 1.8f, cy - 9 + s2 * 2.2f, 3, 3}, fg, 1.5f);
+                }
             break;
         case Button::Chapters:   /* a list: three bars with dots */
             for (int k = -1; k <= 1; k++) {

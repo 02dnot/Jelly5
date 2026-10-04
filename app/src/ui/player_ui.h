@@ -63,7 +63,7 @@ public:
 private:
     enum class Overlay { None, Tracks, Episodes, Chapters };
     enum class Zone { Bar, Buttons };
-    enum class Button { PlayPause, Episodes, Chapters, Tracks, Next };
+    enum class Button { PlayPause, Episodes, Chapters, Tracks, Speed, Next };
 
     void show_controls(double now, Zone zone);
     void seek_step(int dir, const NuvioStatus &st, double now);

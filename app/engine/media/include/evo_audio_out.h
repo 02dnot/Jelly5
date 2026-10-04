@@ -45,6 +45,9 @@ typedef float evo_pcm_t;
  * compression with the dialogue lifted), for everything that plays. */
 void evo_audio_set_gain(float gain);
 void evo_audio_set_night(int on);
+/* Jelly5: playback speed, 0.5..2 (the sound time-stretched, the pitch kept). */
+void evo_audio_set_speed(float speed);
+float evo_audio_speed(void);
 extern int evo_audio_port_float;
 
 /*

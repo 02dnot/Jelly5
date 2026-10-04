@@ -673,6 +673,7 @@ bool jelly5_play_theme(jf::Client &client, const jf::Item &song)
 static bool play_chain(jf::Client &client, jf::Item item, std::vector<jf::Item> episodes, std::string *error)
 {
     evo_audio_set_gain(1.0f);                                    /* full volume (a theme may have been playing) */
+    evo_audio_set_speed(1.0f);                                   /* each playback starts at normal speed */
     evo_audio_set_night(settings::get().local.night_mode ? 1 : 0);   /* Innstillinger: Nattmodus */
 
     for (int chain = 0; chain < 50; chain++) {
