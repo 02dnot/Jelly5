@@ -22,6 +22,14 @@ bool jelly5_play(jf::Client &client, const jf::Item &item, std::string *error, b
 void jelly5_wait_reports(int max_ms);
 /* A theme song, quietly and unreported (headless: the caller sets that). */
 bool jelly5_play_theme(jf::Client &client, const jf::Item &song);
+
+/* The music queue (Now playing's queue sheet). upcoming/indices: what plays after
+ * the current track, in order, and each one's index in the queue. */
+void jelly5_music_state(std::vector<jf::Item> *upcoming, std::vector<int> *indices, int *current, bool *shuffle,
+                        int *repeat);
+void jelly5_music_set_shuffle(bool on);
+void jelly5_music_set_repeat(int mode);   /* 0 off, 1 all, 2 one */
+void jelly5_music_jump(int queue_index);  /* plays next; then send Next to end the current one */
 /* A queue (a playlist, an Instant Mix, what a phone sent): plays from queue[start]
  * through the rest. */
 bool jelly5_play_queue(jf::Client &client, const std::vector<jf::Item> &queue, size_t start, std::string *error);

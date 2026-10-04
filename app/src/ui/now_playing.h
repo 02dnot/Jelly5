@@ -32,6 +32,13 @@ public:
 
 private:
     bool refresh();                     /* the latest status; false when nothing plays */
+    /* The queue sheet (△): shuffle and repeat, then what plays next. */
+    void queue_input(uint32_t p);
+    void draw_queue(float dt);
+    bool m_queue = false;
+    int m_qrow = 0, m_qcol = 0;         /* row 0: the toggles (column 0 shuffle, 1 repeat); then tracks */
+    Anim m_qa, m_qscroll;
+    Drop m_qdrop;
 
     std::unique_ptr<NuvioRequest> m_req;   /* stable while m_ui points at it */
     NuvioStatus m_st;

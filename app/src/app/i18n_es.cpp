@@ -11,6 +11,12 @@ namespace i18n {
 const std::unordered_map<std::string, const char *> &spanish_table()
 {
     static const std::unordered_map<std::string, const char *> t = {
+        {"Kø", "Cola"},
+        {"Gjenta", "Repetir"},
+        {"Gjenta én", "Repetir una"},
+        {"Gjenta alle", "Repetir todo"},
+        {"Starter forfra etter denne", "Vuelve a empezar después"},
+        {"Ingenting mer i køen", "No hay más en la cola"},
         {"Nattmodus", "Modo nocturno"},
         {"Temamusikk", "Música temática"},
         {"Se etter oppdateringer", "Buscar actualizaciones"},

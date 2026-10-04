@@ -8,6 +8,7 @@
 #include "app/remote.h"
 #include "gfx/art.h"
 #include "nuvio_input.h"
+#include "jelly5_playback.h"
 
 #include <algorithm>
 #include <cmath>
@@ -40,6 +41,18 @@ void NowPlaying::activate()
 Action NowPlaying::input(uint32_t p)
 {
     Action a;
+    if (m_queue) {
+        queue_input(p);
+        return a;
+    }
+    if (p & NUVIO_BTN_TRIANGLE) {   /* the queue sheet */
+        m_queue = true;
+        m_qrow = 1;
+        m_qcol = 0;
+        m_qa.to(1.f);
+        m_qscroll.snap(0);
+        return a;
+    }
     if (p & NUVIO_BTN_CIRCLE) {   /* off the page; the music plays on */
         a.kind = Action::Back;
         return a;
@@ -88,6 +101,119 @@ void NowPlaying::draw(double now, float dt)
             remote::send(rc);
         }
     m_ui.draw(m_st);
+    {   /* what △ does here, and the play mode when it is not the plain one */
+        std::vector<jf::Item> up;
+        std::vector<int> idx;
+        int cur = 0, rep = 0;
+        bool sh = false;
+        jelly5_music_state(&up, &idx, &cur, &sh, &rep);
+        std::string mode;
+        if (sh)
+            mode = T("Bland");
+        if (rep)
+            mode += std::string(mode.empty() ? "" : "  \xC2\xB7  ") + (rep == 2 ? T("Gjenta én") : T("Gjenta alle"));
+        const float hx = gfx::W - kPad - pad_hint_width(PadButton::Triangle, T("Kø"), 26);
+        draw_pad_hint(hx, 90, PadButton::Triangle, T("Kø"), 26, 1.f - m_qa.value);
+        if (!mode.empty())
+            gfx::text(hx - 24, 99, mode, {gfx::SemiBold, 22}, alpha(kText2, 1.f - m_qa.value), 2);
+    }
+    draw_queue(dt);
+}
+
+void NowPlaying::queue_input(uint32_t p)
+{
+    std::vector<jf::Item> up;
+    std::vector<int> idx;
+    int cur = 0, rep = 0;
+    bool sh = false;
+    jelly5_music_state(&up, &idx, &cur, &sh, &rep);
+    const int rows = 1 + (int)up.size();
+    if (p & (NUVIO_BTN_CIRCLE | NUVIO_BTN_TRIANGLE)) {
+        m_queue = false;
+        m_qa.to(0.f);
+    } else if (p & NUVIO_BTN_UP) {
+        m_qrow = std::max(0, m_qrow - 1);
+    } else if (p & NUVIO_BTN_DOWN) {
+        m_qrow = std::min(rows - 1, m_qrow + 1);
+    } else if (m_qrow == 0 && (p & (NUVIO_BTN_LEFT | NUVIO_BTN_RIGHT))) {
+        m_qcol = (p & NUVIO_BTN_RIGHT) ? 1 : 0;
+    } else if (p & NUVIO_BTN_CROSS) {
+        if (m_qrow == 0) {
+            if (m_qcol == 0)
+                jelly5_music_set_shuffle(!sh);
+            else
+                jelly5_music_set_repeat((rep + 1) % 3);   /* off, all, one */
+        } else if (m_qrow - 1 < (int)idx.size()) {   /* play this one now */
+            jelly5_music_jump(idx[m_qrow - 1]);
+            remote::Command rc;
+            rc.kind = remote::Command::Next;
+            remote::send(rc);
+            m_queue = false;
+            m_qa.to(0.f);
+        }
+    }
+}
+
+/* The queue: a glass sheet on the right - Bland and Gjenta, then what plays next. */
+void NowPlaying::draw_queue(float dt)
+{
+    m_qa.step(dt, 12.f);
+    const float a = m_qa.value;
+    if (a <= 0.01f)
+        return;
+    std::vector<jf::Item> up;
+    std::vector<int> idx;
+    int cur = 0, rep = 0;
+    bool sh = false;
+    jelly5_music_state(&up, &idx, &cur, &sh, &rep);
+    m_qrow = std::min(m_qrow, (int)up.size());
+    gfx::fill({0, 0, gfx::W, gfx::H}, alpha(0x66000000u, a));
+    const float w = 720, x0 = gfx::W - 80 - w + (1.f - a) * 60;
+    const gfx::Rect r{x0, 100, w, gfx::H - 200};
+    glass_panel(r, 28, a);
+    gfx::text(r.x + 44, r.y + 70, T("Kø"), {gfx::Bold, 36}, alpha(kText, a));
+    /* The toggles. */
+    const std::string shuffle = T("Bland");
+    const std::string repeat = rep == 2 ? T("Gjenta én") : rep == 1 ? T("Gjenta alle") : T("Gjenta");
+    const gfx::TextStyle ts{gfx::SemiBold, 23};
+    const float tw0 = gfx::text_width(shuffle, ts) + 64, tw1 = gfx::text_width(repeat, ts) + 64, ty = r.y + 104;
+    const gfx::Rect t0{r.x + 36, ty, tw0, 56}, t1{t0.x + tw0 + 12, ty, tw1, 56};
+    glass_panel(t0, 28, a, false, sh ? 0.6f : 0.f);
+    glass_panel(t1, 28, a, false, rep ? 0.6f : 0.f);
+    /* The tracks after the current one, scrolled to keep the focus in view. */
+    const float lt = ty + 90, row_h = 72, view_h = r.y + r.h - 40 - lt;
+    const int vis = std::max(1, (int)(view_h / row_h));
+    m_qscroll.to(std::max(0.f, (float)(m_qrow - 1 - vis / 2) * row_h));
+    m_qscroll.step(dt, 12.f);
+    bool moving = false;
+    if (m_queue && m_qrow == 0)
+        m_qdrop.to(m_qcol == 0 ? t0 : t1, m_qcol, r.x, r.y);
+    else if (m_queue)
+        m_qdrop.to({r.x + 24, lt + (m_qrow - 1) * row_h - m_qscroll.value, w - 48, row_h - 6}, 100 + m_qrow, r.x,
+                   r.y - m_qscroll.value);
+    else
+        m_qdrop.hide();
+    gfx::push_scissor({r.x, lt - 4, w, view_h + 8});
+    m_qdrop.draw(dt, a, &moving, m_qrow == 0 ? 28.f : 14.f);
+    for (int i = 0; i < (int)up.size(); i++) {
+        const float y = lt + i * row_h - m_qscroll.value;
+        if (y > r.y + r.h || y + row_h < lt)
+            continue;
+        const bool focus = m_queue && m_qrow == i + 1;
+        gfx::text(r.x + 64, y + 32, up[i].name, {focus ? gfx::Bold : gfx::SemiBold, 24, w - 140},
+                  alpha(focus ? kText : kText2, a));
+        gfx::text(r.x + 64, y + 58, up[i].album_artist.empty() ? up[i].album : up[i].album_artist,
+                  {gfx::Medium, 19, w - 140}, alpha(kText3, a));
+    }
+    gfx::pop_scissor();
+    gfx::text(t0.x + t0.w / 2, ty + 36, shuffle, {sh || (m_qrow == 0 && m_qcol == 0) ? gfx::Bold : gfx::SemiBold, 23},
+              alpha(sh ? kText : kText2, a), 1);
+    gfx::text(t1.x + t1.w / 2, ty + 36, repeat, {rep || (m_qrow == 0 && m_qcol == 1) ? gfx::Bold : gfx::SemiBold, 23},
+              alpha(rep ? kText : kText2, a), 1);
+    if (up.empty())
+        gfx::text(r.x + 64, lt + 40, rep == 1 ? T("Starter forfra etter denne") : T("Ingenting mer i køen"),
+                  {gfx::Medium, 22}, alpha(kText3, a));
+    (void)cur;
 }
 
 /* A glass card at the bottom right: the cover, the track and artist, a thin bar,

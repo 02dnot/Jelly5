@@ -653,6 +653,86 @@ bool jelly5_play_queue(jf::Client &client, const std::vector<jf::Item> &queue, s
     return play_chain(client, item, std::move(q), error);
 }
 
+/* ---- the music queue ---------------------------------------------------------
+ * Music plays through `queue` in `order` (the queue's own order, or shuffled);
+ * after each track this decides what comes next - repeat one, repeat all, a
+ * jump picked on the queue sheet - instead of the player's album order. */
+namespace {
+struct MusicQueue {
+    std::mutex lock;
+    std::vector<jf::Item> queue;
+    std::vector<int> order;   /* indices into queue, in play order */
+    int pos = 0;              /* where in order the current track is */
+    bool shuffle = false;
+    int repeat = 0;           /* 0 off, 1 all, 2 one */
+    int jump = -1;            /* a queue index to play next, picked on the sheet */
+} s_music;
+
+void reorder_locked(int current)
+{
+    const int n = (int)s_music.queue.size();
+    s_music.order.resize(n);
+    for (int i = 0; i < n; i++)
+        s_music.order[i] = i;
+    if (s_music.shuffle && n > 1) {   /* the current track first, the rest shuffled */
+        std::swap(s_music.order[0], s_music.order[std::max(0, std::min(current, n - 1))]);
+        for (int i = n - 1; i > 1; i--)
+            std::swap(s_music.order[i], s_music.order[1 + std::rand() % i]);
+        s_music.pos = 0;
+    } else {
+        s_music.pos = std::max(0, std::min(current, n - 1));
+    }
+}
+
+int current_locked() { return s_music.order.empty() ? 0 : s_music.order[std::min(s_music.pos, (int)s_music.order.size() - 1)]; }
+
+std::string state_from_result(const std::string &result)
+{
+    cJSON *j = cJSON_Parse(result.c_str());
+    const cJSON *s = cJSON_GetObjectItemCaseSensitive(j, "state");
+    const std::string out = cJSON_IsString(s) && s->valuestring ? s->valuestring : "";
+    cJSON_Delete(j);
+    return out;
+}
+} // namespace
+
+void jelly5_music_state(std::vector<jf::Item> *upcoming, std::vector<int> *indices, int *current, bool *shuffle,
+                        int *repeat)
+{
+    std::lock_guard<std::mutex> g(s_music.lock);
+    upcoming->clear();
+    indices->clear();
+    for (size_t i = s_music.pos + 1; i < s_music.order.size(); i++) {
+        upcoming->push_back(s_music.queue[s_music.order[i]]);
+        indices->push_back(s_music.order[i]);
+    }
+    *current = current_locked();
+    *shuffle = s_music.shuffle;
+    *repeat = s_music.repeat;
+}
+
+void jelly5_music_set_shuffle(bool on)
+{
+    std::lock_guard<std::mutex> g(s_music.lock);
+    if (s_music.shuffle == on)
+        return;
+    const int cur = current_locked();
+    s_music.shuffle = on;
+    reorder_locked(cur);
+}
+
+void jelly5_music_set_repeat(int mode)
+{
+    std::lock_guard<std::mutex> g(s_music.lock);
+    s_music.repeat = std::max(0, std::min(2, mode));
+}
+
+void jelly5_music_jump(int queue_index)
+{
+    std::lock_guard<std::mutex> g(s_music.lock);
+    s_music.jump = queue_index;
+}
+
 /* A title's theme song on its page: the player headless (the caller set that),
  * quiet, and never reported to Jellyfin - it is background, not listening. */
 bool jelly5_play_theme(jf::Client &client, const jf::Item &song)
@@ -672,6 +752,16 @@ bool jelly5_play_theme(jf::Client &client, const jf::Item &song)
 
 static bool play_chain(jf::Client &client, jf::Item item, std::vector<jf::Item> episodes, std::string *error)
 {
+    if (item.type == "Audio" && !episodes.empty()) {   /* the music queue starts on this track */
+        std::lock_guard<std::mutex> g(s_music.lock);
+        s_music.queue = episodes;
+        s_music.jump = -1;
+        int cur = 0;
+        for (size_t i = 0; i < episodes.size(); i++)
+            if (episodes[i].id == item.id)
+                cur = (int)i;
+        reorder_locked(cur);
+    }
     evo_audio_set_gain(1.0f);                                    /* full volume (a theme may have been playing) */
     evo_audio_set_speed(1.0f);                                   /* each playback starts at normal speed */
     evo_audio_set_night(settings::get().local.night_mode ? 1 : 0);   /* Innstillinger: Nattmodus */
@@ -735,6 +825,55 @@ static bool play_chain(jf::Client &client, jf::Item item, std::vector<jf::Item> 
         evo_bt("jelly5: playback done at %.1f s: %s", pos, result.c_str());
 
         int season = 0, number = 0;
+        if (item.type == "Audio" && !episodes.empty()) {   /* music: the queue decides */
+            const bool natural = state_from_result(result) == "ended";
+            const bool asked = next_from_result(result, &season, &number);
+            std::lock_guard<std::mutex> g(s_music.lock);
+            const int n = (int)s_music.queue.size();
+            int next_index = -1;
+            if (s_music.jump >= 0 && s_music.jump < n) {   /* picked on the queue sheet */
+                next_index = s_music.jump;
+                for (int i = 0; i < (int)s_music.order.size(); i++)
+                    if (s_music.order[i] == next_index)
+                        s_music.pos = i;
+            } else if (!natural && !asked) {
+                s_music.jump = -1;
+                return true;   /* stopped */
+            } else if (natural && s_music.repeat == 2) {
+                next_index = current_locked();   /* repeat one */
+            } else if (asked && !natural && !s_music.shuffle) {   /* Next / Previous: the player's pick */
+                for (int i = 0; i < n; i++)
+                    if (s_music.queue[i].parent_index == season && s_music.queue[i].index == number)
+                        next_index = i;
+                for (int i = 0; i < (int)s_music.order.size(); i++)
+                    if (s_music.order[i] == next_index)
+                        s_music.pos = i;
+            }
+            if (next_index < 0) {   /* on through the play order */
+                /* Previous while shuffled: the player asked for the track before
+                 * in the queue's own order; step back in the play order instead. */
+                bool back = false;
+                if (asked && !natural && s_music.shuffle) {
+                    const int was = current_locked();
+                    for (int i = 0; i < n; i++)
+                        if (s_music.queue[i].parent_index == season && s_music.queue[i].index == number)
+                            back = i < was;
+                }
+                if (back) {
+                    s_music.pos = std::max(0, s_music.pos - 1);
+                } else if (++s_music.pos >= (int)s_music.order.size()) {
+                    if (s_music.repeat != 1)
+                        return true;   /* the end of the queue */
+                    reorder_locked(s_music.shuffle ? std::rand() % std::max(1, n) : 0);
+                    s_music.pos = 0;
+                }
+                next_index = s_music.order[s_music.pos];
+            }
+            s_music.jump = -1;
+            item = s_music.queue[next_index];
+            item.position_ticks = 0;
+            continue;
+        }
         if (!next_from_result(result, &season, &number))
             return true;
         const jf::Item *next = nullptr;
