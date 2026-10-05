@@ -129,13 +129,33 @@ void SyncPlayScreen::draw(double now, float dt)
         if (r + 1 == actions && !groups.empty())
             y += 24;   /* a gap before the groups */
     }
+    /* More than fit above the hints: the list scrolls with the focus kept mid-way;
+     * the cards and text are cut at its ends, never the drop. */
+    const float view_top = 340, view_bottom = gfx::H - 130, content = ys.back() + 84 + 8 - view_top;
+    bool anim = false;
+    const bool clip = content > view_bottom - view_top;
+    if (clip) {
+        const float c = ys[m_row] + 42 - view_top;
+        m_scroll.to(std::max(0.f, std::min(content - (view_bottom - view_top), c - (view_bottom - view_top) / 2)));
+        anim = m_scroll.step(dt, 12.f);
+    } else {
+        m_scroll.snap(0);
+    }
+    const float sy = m_scroll.value;
+    for (float &v : ys)
+        v -= sy;
     /* Two glass cards (the actions, the groups), the focus drop, then the text. */
+    if (clip)
+        gfx::push_scissor({0, view_top, gfx::W, view_bottom - view_top});
     glass_panel({left - 8, ys[0] - 8, width + 16, ys[actions - 1] + 84 - ys[0] + 16}, 24, 1.f, false);
     if (rows.size() > actions)
         glass_panel({left - 8, ys[actions] - 8, width + 16, ys.back() + 84 - ys[actions] + 16}, 24, 1.f, false);
-    bool anim = false;
-    m_drop.to({left, ys[m_row], width, 84}, m_row);
+    if (clip)
+        gfx::pop_scissor();
+    m_drop.to({left, ys[m_row], width, 84}, m_row, 0, -sy);
     m_drop.draw(dt, 1.f, &anim, 16);
+    if (clip)
+        gfx::push_scissor({0, view_top, gfx::W, view_bottom - view_top});
     for (size_t r = 0; r < rows.size(); r++) {
         const bool focus = (int)r == m_row;
         const gfx::Rect rr{left, ys[r], width, 84};
@@ -145,6 +165,8 @@ void SyncPlayScreen::draw(double now, float dt)
             gfx::text(rr.x + rr.w - 32, rr.y + rr.h / 2 + 9, rows[r].value, {gfx::Medium, 22, 440},
                       focus ? kText : kText2, 2);
     }
+    if (clip)
+        gfx::pop_scissor();
     if (loaded && groups.empty())
         gfx::text(left + 8, y + 40, T("Ingen andre grupper akkurat nå."), {gfx::Medium, 22}, kText3);
     draw_pad_hints(left, gfx::H - 78, {{PadButton::Circle, T("Tilbake")}}, 0, 26);

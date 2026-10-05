@@ -38,6 +38,7 @@ private:
     Choice m_choice;
     Lifts m_lifts;
     Drop m_drop;                        /* the focus ring */
+    Anim m_scroll;                      /* the row, when there are more than fit */
     bool m_animating = false;
 };
 

@@ -133,7 +133,7 @@ private:
     int m_find_lang = 0;
     /* Episodes: 0 seasons, 1 episodes. */
     int m_ep_col = 1, m_ep_season = 0, m_ep_index = 0;
-    Anim m_ep_scroll;
+    Anim m_ep_scroll, m_ep_season_scroll;   /* the episode list; the season column, when it overflows */
     int m_chap = 0;                     /* the chapter menu: the focused chapter */
     Anim m_chap_scroll;
     Drop m_chap_drop;

@@ -43,6 +43,7 @@ private:
     double m_now = 0, m_refreshed = -10;
     Lifts m_lifts;
     Drop m_drop;                        /* the focus */
+    Anim m_scroll;                      /* the list, when there are more groups than fit */
 };
 
 } // namespace ui

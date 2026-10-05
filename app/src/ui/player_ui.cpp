@@ -223,6 +223,7 @@ void PlayerUi::open_overlay(Overlay o)
             if (m_req->episodes[eps[i]].episode == m_req->episode)
                 m_ep_index = (int)i;
         m_ep_scroll.snap(std::max(0.f, (m_ep_index - 1) * 178.f));
+        m_ep_season_scroll.snap(-1);   /* placed, not slid, on the first draw */
     }
 }
 
@@ -831,7 +832,7 @@ void PlayerUi::draw_chapters(const NuvioStatus &st, float a, float dt)
     gfx::text(r.x + 56, r.y + 86, T("Kapitler"), {gfx::Bold, 40}, alpha(kText, a));
     gfx::text(r.x + 56 + gfx::text_width(T("Kapitler"), {gfx::Bold, 40}) + 22, r.y + 86, m_req->header_title(),
               {gfx::Medium, 26, 900}, alpha(kText3, a));
-    const float top = r.y + 140, lx = r.x + 40, lw = r.w - 80, row_h = 178, view_h = r.h - 180;
+    const float top = r.y + 140, lx = r.x + 40, lw = r.w - 80, row_h = 178, view_h = r.h - 250;   /* clear of the hints at the foot */
     m_chap_scroll.to(std::max(0.f, std::min(std::max(0.f, n * row_h - view_h), (m_chap - 1) * row_h)));
     if (m_chap_scroll.step(dt, 12.f))
         m_dirty = true;
@@ -1095,7 +1096,7 @@ void PlayerUi::draw_tracks(const NuvioStatus &st, float a)
     gfx::text(r.x + 56, r.y + 86, T("Lyd og undertekster"), {gfx::Bold, 40}, alpha(kText, a));
 
     const float top = r.y + 150, row_h = 62;
-    const int visible = 10;
+    const int visible = 8;   /* 10 ran into the hints at the foot */
     const float cols[3] = {r.x + 56, r.x + 640, r.x + 1180};
     const float widths[3] = {520, 480, 380};
     const std::string heads[3] = {T("Lyd"), T("Undertekster"), m_find_open ? T("S\xC3\xB8k") : T("Tilpass")};
@@ -1248,27 +1249,43 @@ void PlayerUi::draw_episodes(float a, float dt)
               {gfx::Medium, 26, 900}, alpha(kText3, a));
 
     const std::vector<int> ss = seasons();
-    const float top = r.y + 140;
-    bool moving = false;
-    for (size_t i = 0; i < ss.size() && i < 12; i++)   /* the drop on the season, brighter while focused */
+    const float top = r.y + 140, col_h = r.h - 250, season_h = 66;   /* clear of the hints at the foot */
+    /* More seasons than fit: the column scrolls, the season shown kept in view. */
+    int si = 0;
+    for (size_t i = 0; i < ss.size(); i++)
         if (ss[i] == m_ep_season)
-            m_season_drop.to({r.x + 40, top + i * 66, 280, 58}, (int)i, r.x, r.y);
+            si = (int)i;
+    const float want = std::max(0.f, std::min(ss.size() * season_h - 8 - col_h, (si + 0.5f) * season_h - col_h / 2));
+    if (m_ep_season_scroll.value < 0)
+        m_ep_season_scroll.snap(want);
+    m_ep_season_scroll.to(want);
+    bool moving = m_ep_season_scroll.step(dt, 12.f);
+    const float sy = m_ep_season_scroll.value;
+    /* The drop is never cut (the season shown is always in view); only the labels
+     * of an overflowing column are. */
+    m_season_drop.to({r.x + 40, top + si * season_h - sy, 280, 58}, si, r.x, r.y - sy);   /* brighter while focused */
     m_season_drop.draw(dt, a * (m_ep_col == 0 ? 1.f : 0.5f), &moving, 14);
-    for (size_t i = 0; i < ss.size() && i < 12; i++) {
+    const bool clip = ss.size() * season_h - 8 > col_h;
+    if (clip)
+        gfx::push_scissor({r.x, top - 10, 360, col_h + 10});
+    for (size_t i = 0; i < ss.size(); i++) {
+        const float y = top + i * season_h - sy;
+        if (y > top + col_h || y + season_h < top - 10)
+            continue;
         char label[32];
         if (ss[i] == 0)
             std::snprintf(label, sizeof label, "%s", T("Spesialer"));
         else
             std::snprintf(label, sizeof label, T("Sesong %d"), ss[i]);
-        const float y = top + i * 66;
-        const bool active = ss[i] == m_ep_season, focus = active && m_ep_col == 0;
-        (void)focus;
+        const bool active = ss[i] == m_ep_season;
         gfx::text(r.x + 64, y + 38, label, {active ? gfx::Bold : gfx::Medium, 25}, alpha(active ? kText : kText2, a));
     }
+    if (clip)
+        gfx::pop_scissor();
 
     const std::vector<int> eps = episodes_in(m_ep_season);
     const float lx = r.x + 360, lw = r.w - 400, row_h = 178;
-    const float view_h = r.h - 180;
+    const float view_h = r.h - 180;   /* the list runs to the foot: the hints are under the seasons */
     m_ep_index = std::min(m_ep_index, std::max(0, (int)eps.size() - 1));
     m_ep_scroll.to(std::max(0.f, std::min(std::max(0.f, eps.size() * row_h - view_h), (m_ep_index - 1) * row_h)));
     m_ep_scroll.step(dt, 12.f);
@@ -1316,7 +1333,17 @@ void PlayerUi::draw_episodes(float a, float dt)
     gfx::pop_scissor();
     if (eps.empty())
         gfx::text(lx, top + 50, T("Ingen episoder i denne sesongen."), {gfx::Medium, 24}, alpha(kText3, a));
-    draw_pad_hints(r.x + 56, r.y + r.h - 48, {{PadButton::Cross, T("Spill av")}, {PadButton::Circle, T("Lukk")}}, 0, 26, a);
+    /* The hints stay under the season column: on two lines when one is too wide for it. */
+    const std::vector<PadHint> hints{{PadButton::Cross, T("Spill av")}, {PadButton::Circle, T("Lukk")}};
+    float hw = 26 * 0.9f;
+    for (const PadHint &h : hints)
+        hw += pad_hint_width(h.button, h.label, 26);
+    if (hw <= lx - 20 - (r.x + 56)) {
+        draw_pad_hints(r.x + 56, r.y + r.h - 48, hints, 0, 26, a);
+    } else {
+        draw_pad_hints(r.x + 56, r.y + r.h - 92, {hints[0]}, 0, 26, a);
+        draw_pad_hints(r.x + 56, r.y + r.h - 48, {hints[1]}, 0, 26, a);
+    }
 }
 
 void PlayerUi::draw_error(const NuvioStatus &st)

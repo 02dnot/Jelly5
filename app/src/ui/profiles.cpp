@@ -62,10 +62,19 @@ void Profiles::draw(double, float dt)
 
     const int n = (int)m_list.size() + 1;
     const float d = 220, gap = 64;
-    float x = (gfx::W - (n * d + (n - 1) * gap)) / 2;
+    /* Centred; with more than fit, the row scrolls with the focus kept mid-screen. */
+    const float row_w = n * (d + gap) - gap, margin = 160;
+    float x = (gfx::W - row_w) / 2;
+    if (row_w > gfx::W - 2 * margin) {
+        const float c = m_focus * (d + gap) + d / 2;
+        m_scroll.to(std::max(0.f, std::min(row_w - (gfx::W - 2 * margin), c - (gfx::W / 2 - margin))));
+        if (m_scroll.step(dt, 12.f))
+            m_animating = true;
+        x = margin - m_scroll.value;
+    }
     /* The focus: the liquid glass drop as a ring round the picture, sliding between them. */
     const float fx = x + m_focus * (d + gap), ring = d * 1.12f + 28;
-    m_drop.to({fx + d / 2 - ring / 2, 440 + d / 2 - ring / 2, ring, ring}, m_focus);
+    m_drop.to({fx + d / 2 - ring / 2, 440 + d / 2 - ring / 2, ring, ring}, m_focus, x, 0);
     m_drop.draw(dt, 1.f, &m_animating);
     for (int i = 0; i < n; i++, x += d + gap) {
         const bool focus = i == m_focus;

@@ -671,28 +671,48 @@ void Detail::draw_sections(float dt)
     if (!m_view.seasons.empty()) {
         const float y = zone_top(Seasons) - off;
         if (vis(y, kSeasonsH)) {
-            /* One glass bar of seasons (like the top bar), the drop on the picked one. */
+            /* One glass bar of seasons (like the top bar), the drop on the picked one.
+             * With more than fit, the bar stops short of the Options hint and its
+             * pills scroll inside it, the picked one kept in view. */
             const gfx::TextStyle st{gfx::SemiBold, 23};
-            float total = 12;
-            for (const jf::Item &s : m_view.seasons)
-                total += gfx::text_width(s.name, st) + 56 + 6;
-            glass_panel({kPad - 6, y - 6, total, 66}, 33, 1.f, false);
-            float x = kPad;
-            for (size_t i = 0; i < m_view.seasons.size(); i++) {
-                const float w = gfx::text_width(m_view.seasons[i].name, st) + 56;
+            const size_t n = m_view.seasons.size();
+            std::vector<float> px(n), pw(n);
+            float total = 6;
+            for (size_t i = 0; i < n; i++) {
+                px[i] = total;
+                pw[i] = gfx::text_width(m_view.seasons[i].name, st) + 56;
+                total += pw[i] + 6;
+            }
+            float hint_w = 0;
+            for (const char *h : {"Merk sesongen som usett", "Merk sesongen som sett", "Merk som usett", "Merk som sett"})
+                hint_w = std::max(hint_w, pad_hint_width(PadButton::Options, T(h), 26));
+            const float bar_w = std::min(total + 6, gfx::W - 2 * kPad - hint_w - 34);   /* 40 clear of the hint */
+            const float inner = bar_w - 12;   /* where the pills show */
+            const float pick = px[std::min((size_t)m_season, n - 1)] + pw[std::min((size_t)m_season, n - 1)] / 2;
+            m_scroll[Seasons].to(std::max(0.f, std::min(total - 6 - inner, pick - inner / 2)));
+            if (m_scroll[Seasons].step(dt, 12.f))
+                m_animating = true;
+            const float sx = m_scroll[Seasons].value;
+            glass_panel({kPad - 6, y - 6, bar_w, 66}, 33, 1.f, false);
+            /* The drop is never cut (the picked season is always in view, and its bounce
+             * may reach past the bar); only the labels of an overflowing bar are. */
+            for (size_t i = 0; i < n; i++)
                 if ((int)i == m_season)
-                    m_season_drop.to({x, y, w, 54}, (int)i, 0, y);
-                x += w + 6;
-            }
+                    m_season_drop.to({kPad - 6 + px[i] - sx, y, pw[i], 54}, (int)i, -sx, y);
             m_season_drop.draw(dt, m_zone == Seasons ? 1.f : 0.55f, &m_animating);
-            x = kPad;
-            for (size_t i = 0; i < m_view.seasons.size(); i++) {
-                const jf::Item &s = m_view.seasons[i];
-                const float w = gfx::text_width(s.name, st) + 56;
+            const bool clip = total - 6 > inner;
+            if (clip)
+                gfx::push_scissor({kPad - 6, y - 40, bar_w, 140});
+            for (size_t i = 0; i < n; i++) {
+                const float x = kPad - 6 + px[i] - sx;
+                if (x > kPad + inner + 6 || x + pw[i] < kPad - 6)
+                    continue;
                 const bool on = (int)i == m_season;
-                gfx::text(x + w / 2, y + 27 + 8, s.name, on ? gfx::TextStyle{gfx::Bold, 23} : st, on ? kText : kText2, 1);
-                x += w + 6;
+                gfx::text(x + pw[i] / 2, y + 27 + 8, m_view.seasons[i].name, on ? gfx::TextStyle{gfx::Bold, 23} : st,
+                          on ? kText : kText2, 1);
             }
+            if (clip)
+                gfx::pop_scissor();
             if ((m_zone == Episodes && m_episode < (int)m_eps.size()) ||
                 (m_zone == Seasons && m_season < (int)m_view.seasons.size())) {   /* what Options does here */
                 const std::string what = m_zone == Seasons
