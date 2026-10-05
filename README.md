@@ -77,8 +77,15 @@ your Jellyfin server.
 
 ### What you need
 
-- A **jailbroken PS5** that can load payloads. Jelly5 is tested on firmware
-  **11.60**; other firmware with the same tools should work but is untested.
+- A **jailbroken PS5** that can load payloads:
+
+  | Firmware | Jailbreak | Status |
+  |---|---|---|
+  | 11.60 | Poops | Tested |
+  | 13.60 | Relapse | Works (reported by a user) |
+
+  Other firmware with the same tools should work too. If yours does (or doesn't),
+  open an issue and it goes in the list.
 - **ShadowMount+**, which turns a homebrew folder into a tile on the home screen.
 - A way to copy files to the console. **[ps5upload](https://github.com/phantomptr/ps5upload)**
   is recommended; plain FTP works too (**ftpsrv** on port 2121 or **etaHEN**'s
