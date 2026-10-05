@@ -78,13 +78,18 @@ static evo_pcm_t audio_accum[2048 * EVO_AUDIO_MAX_CH];
 int audio_accum_pos = 0;
 
 static evo_pcm_t audio_queue[AUDIO_QUEUE_BLOCKS][AUDIO_BLOCK_SAMPLES * EVO_AUDIO_MAX_CH];
-/* Jelly5: the playback speed each queued block was made at: a block of
- * AUDIO_BLOCK_SAMPLES played at 1.5x moves the media clock 1.5 blocks on. */
-static float audio_queue_speed[AUDIO_QUEUE_BLOCKS];
-static float s_block_speed = 1.0f;
+/* Jelly5: playback speed. The queue holds the sound at normal speed; the output
+ * thread time-stretches it as it plays (jelly5_tempo), so a new speed is heard
+ * within a block, not after the queue's seconds. The media clock moves on by the
+ * input each output block was made from; the picture's clock follows the speed
+ * that is playing (evo_audio_play_speed). */
 static volatile float s_speed = 1.0f;
+static volatile float s_play_speed = 1.0f;
+static volatile int s_tempo_flush;
 void evo_audio_set_speed(float speed) { s_speed = speed < 0.5f ? 0.5f : speed > 2.0f ? 2.0f : speed; }
 float evo_audio_speed(void) { return s_speed; }
+float evo_audio_play_speed(void) { return s_play_speed; }
+void evo_audio_flush_speed(void) { s_tempo_flush = 1; }
 int evo_audio_port_float = 1;
 volatile int audio_queue_read = 0;
 volatile int audio_queue_write = 0;
@@ -143,9 +148,76 @@ static void audio_queue_push(evo_pcm_t *buf) {
 
     memcpy(audio_queue[audio_queue_write], buf,
            (size_t)AUDIO_BLOCK_SAMPLES * evo_audio_channels * sizeof(evo_pcm_t));
-    audio_queue_speed[audio_queue_write] = s_block_speed;
     audio_queue_write = (audio_queue_write + 1) % AUDIO_QUEUE_BLOCKS;
     audio_queue_count++;
+}
+
+/* Jelly5: the next block to play, and how many media samples it covers (*media);
+ * NULL when the queue has run dry. At normal speed a queued block as it is; else
+ * the queue time-stretched into a FIFO, played out a block at a time. Leftovers
+ * of a stretch play out before normal speed takes over again (through the FIFO,
+ * so nothing is skipped). */
+#define TEMPO_FIFO (AUDIO_BLOCK_SAMPLES * 4)
+static const evo_pcm_t *next_output_block(double *media)
+{
+    static evo_pcm_t out[AUDIO_BLOCK_SAMPLES * EVO_AUDIO_MAX_CH];
+    static evo_pcm_t fifo[TEMPO_FIFO * EVO_AUDIO_MAX_CH];
+    static int fifo_len, tempo_on;
+    static double fifo_media;
+    const int ch = evo_audio_channels;
+    const size_t block_bytes = (size_t)AUDIO_BLOCK_SAMPLES * (size_t)ch * sizeof(evo_pcm_t);
+    if (s_tempo_flush) {   /* a seek or a new stream: what was waiting is gone */
+        s_tempo_flush = 0;
+        fifo_len = 0;
+        fifo_media = 0.0;
+        tempo_on = 0;
+        jelly5_tempo_reset();
+    }
+    const float sp = s_speed;
+    if (sp == 1.0f && fifo_len == 0) {
+        tempo_on = 0;
+        if (audio_queue_count <= 0)
+            return NULL;
+        memcpy(out, audio_queue[audio_queue_read], block_bytes);
+        audio_queue_read = (audio_queue_read + 1) % AUDIO_QUEUE_BLOCKS;
+        audio_queue_count--;
+        *media = AUDIO_BLOCK_SAMPLES;
+        s_play_speed = 1.0f;
+        return out;
+    }
+    while (fifo_len < AUDIO_BLOCK_SAMPLES && audio_queue_count > 0) {
+        const evo_pcm_t *src = audio_queue[audio_queue_read];
+        int n = AUDIO_BLOCK_SAMPLES;
+        if (sp != 1.0f) {
+            if (!tempo_on) {
+                jelly5_tempo_reset();
+                tempo_on = 1;
+            }
+            const float *st = NULL;
+            n = jelly5_tempo_process(src, AUDIO_BLOCK_SAMPLES, ch, sp, &st);
+            src = st;
+        } else {
+            tempo_on = 0;
+        }
+        if (n > TEMPO_FIFO - fifo_len)
+            n = TEMPO_FIFO - fifo_len;
+        if (n > 0 && src)
+            memcpy(&fifo[(size_t)fifo_len * ch], src, (size_t)n * ch * sizeof(evo_pcm_t));
+        fifo_len += n;
+        fifo_media += AUDIO_BLOCK_SAMPLES;
+        audio_queue_read = (audio_queue_read + 1) % AUDIO_QUEUE_BLOCKS;
+        audio_queue_count--;
+    }
+    if (fifo_len < AUDIO_BLOCK_SAMPLES)
+        return NULL;
+    const double share = fifo_media * AUDIO_BLOCK_SAMPLES / fifo_len;
+    fifo_media -= share;
+    memcpy(out, fifo, block_bytes);
+    fifo_len -= AUDIO_BLOCK_SAMPLES;
+    memmove(fifo, &fifo[(size_t)AUDIO_BLOCK_SAMPLES * ch], (size_t)fifo_len * ch * sizeof(evo_pcm_t));
+    *media = share;
+    s_play_speed = (float)(share / AUDIO_BLOCK_SAMPLES);
+    return out;
 }
 
 void *audio_output_thread(void *arg) {
@@ -174,7 +246,9 @@ void *audio_output_thread(void *arg) {
          * target together is the whole point of the gate; this is the other
          * half of it.
          */
-        if ((g_pp_pb.active && g_pp_pb.seek_discarding) || pb_scrub_hold) {
+        /* Jelly5: only with a picture - the hold is lifted by the first video frame
+         * past the target, so music (no video stream) stayed silent after a seek. */
+        if ((g_pp_pb.active && g_pp_pb.seek_discarding && video_stream_index >= 0) || pb_scrub_hold) {
             /* The clocks restart at the seek target; so does the stall
              * detector, so a pre-seek reading cannot leak past the seek.
              * pb_scrub_hold parks output for the same reason it parks the two
@@ -245,8 +319,9 @@ void *audio_output_thread(void *arg) {
                 usleep(2000);
                 continue;
             }
-            if (audio_queue_count > 0) {
-                const evo_pcm_t *blk = audio_queue[audio_queue_read];
+            double media = 0.0;
+            const evo_pcm_t *blk = next_output_block(&media);
+            if (blk) {
                 if (evo_audio_port_float) {
                     sceAudioOutOutput(audio_handle, blk);
                 } else {
@@ -261,16 +336,14 @@ void *audio_output_thread(void *arg) {
                     }
                     sceAudioOutOutput(audio_handle, s16_block);
                 }
-                {   /* media samples: the block's speed times its length */
+                {   /* media samples: what this block was made from */
                     static double frac;
-                    const double adv = AUDIO_BLOCK_SAMPLES * (double)audio_queue_speed[audio_queue_read] + frac;
+                    const double adv = media + frac;
                     const long long whole = (long long)adv;
                     frac = adv - (double)whole;
                     audio_samples_played += whole;
                 }
                 audio_clock_seconds = (double)audio_samples_played / 48000.0;
-                audio_queue_read = (audio_queue_read + 1) % AUDIO_QUEUE_BLOCKS;
-                audio_queue_count--;
             } else {
                 /*
                  * Soft underrun: silence without advancing media clock.
@@ -471,21 +544,6 @@ static void mix_audio_frame_to_queue(
         jelly5_dsp((float *)output_buffer, converted, evo_audio_channels);
         const evo_pcm_t *samples = (const evo_pcm_t *)output_buffer;
         const int ch = evo_audio_channels;
-        /* Jelly5: playback speed - time-stretched, the pitch kept. */
-        static int tempo_on;
-        const float sp = s_speed;
-        if (sp != 1.0f) {
-            if (!tempo_on || audio_samples_decoded == 0)
-                jelly5_tempo_reset();   /* a new stream, a seek, or just switched on */
-            tempo_on = 1;
-            const float *stretched = NULL;
-            converted = jelly5_tempo_process((const float *)output_buffer, converted, ch, sp, &stretched);
-            samples = stretched;
-        } else if (tempo_on) {
-            tempo_on = 0;
-            jelly5_tempo_reset();
-        }
-        s_block_speed = sp;
         int index = 0;
 
         /*

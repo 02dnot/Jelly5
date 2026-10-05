@@ -42,7 +42,24 @@ int64_t pp_clock_media_us(const pp_clock *c)
     if (c->paused)
         return c->media_at_pause_us;
     elapsed = now_us() - c->host_start_us;
+    if (c->speed > 0.0 && c->speed != 1.0)
+        return c->media_start_pts_us + (int64_t)((double)elapsed * c->speed);
     return c->media_start_pts_us + (int64_t)elapsed;
+}
+
+void pp_clock_set_speed(pp_clock *c, double speed)
+{
+    const double now = c && c->speed > 0.0 ? c->speed : 1.0;
+    if (!c || speed <= 0.0 || speed == now)
+        return;
+    if (c->started && !c->paused) {   /* re-anchor here, so the media time does not jump */
+        c->media_start_pts_us = pp_clock_media_us(c);
+        c->host_start_us = now_us();
+    } else if (c->started && c->paused) {   /* resume adds the pause to host_start */
+        c->media_start_pts_us = c->media_at_pause_us;
+        c->host_start_us = c->pause_host_us;
+    }
+    c->speed = speed;
 }
 
 static void note_lag(pp_clock *c, int64_t lag)
@@ -98,10 +115,12 @@ void pp_clock_reset(pp_clock *c)
     pp_clock_stats kept;
     if (!c)
         return;
+    double speed = c->speed;
     max_late = c->max_late_us;
     max_early = c->max_early_us;
     kept = c->stats;
     memset(c, 0, sizeof(*c));
+    c->speed = speed;
     c->max_late_us = max_late;
     c->max_early_us = max_early;
     c->stats = kept;
@@ -149,7 +168,8 @@ int pp_clock_wait_or_drop(pp_clock *c, int64_t pts_us)
             c->stats.wait_count++;
             c->stats.early_sleeps++;
             c->stats.wait_us_total += (uint64_t)early;
-            usleep((useconds_t)early);
+            /* early is media time; at another speed it passes faster or slower */
+            usleep((useconds_t)(c->speed > 0.0 ? (double)early / c->speed : (double)early));
         }
         if (c->paused)
             return PP_CLOCK_DROP;

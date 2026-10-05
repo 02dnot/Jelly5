@@ -202,6 +202,7 @@ static int present_pp_frame(const pp_frame *pf)
     }
     g_pp_pb.aspect = prospero_view_mode_to_aspect();
     g_pp_pb.stats.aspect = (int)g_pp_pb.aspect;
+    pp_clock_set_speed(&g_pp_pb.clock, evo_audio_play_speed());   /* Jelly5: the picture keeps the sound's speed */
     (void)pp_playback_push_frame(&g_pp_pb, (pp_frame *)pf);
     video_frame_loaded = pp_playback_has_display(&g_pp_pb);
     return 1;

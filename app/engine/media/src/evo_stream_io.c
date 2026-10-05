@@ -257,7 +257,10 @@ void evo_stream_io_apply_network_options(AVDictionary **opts, const char *url)
      *
      * The hls demuxer already reloads a playlist and retries a segment itself.
      */
-    if (!evo_stream_io_url_is_playlist(url))
+    /* Jelly5: nor for Jellyfin's direct play (static=true): a file with a known
+     * length, whose end is the end. Seeking in a FLAC reads at it, and the reconnect
+     * looped there until the seek failed (7 s, "Decoder seek failed"). */
+    if (!evo_stream_io_url_is_playlist(url) && !(url && strstr(url, "static=true")))
         av_dict_set(opts, "reconnect_at_eof", "1", 0);
 
     /*

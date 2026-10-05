@@ -48,6 +48,10 @@ void evo_audio_set_night(int on);
 /* Jelly5: playback speed, 0.5..2 (the sound time-stretched, the pitch kept). */
 void evo_audio_set_speed(float speed);
 float evo_audio_speed(void);
+/* Jelly5: the speed of the sound being heard now (the picture's clock follows it). */
+float evo_audio_play_speed(void);
+/* Jelly5: the queue was flushed (seek, new stream): drop the stretcher's leftovers. */
+void evo_audio_flush_speed(void);
 extern int evo_audio_port_float;
 
 /*

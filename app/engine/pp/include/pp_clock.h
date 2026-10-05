@@ -37,6 +37,7 @@ typedef struct pp_clock {
     int64_t media_start_pts_us;
     int64_t max_late_us;
     int64_t max_early_us;
+    double speed;                /* Jelly5: media time per host time (0 = 1x) */
     pp_clock_stats stats;
 } pp_clock;
 
@@ -48,6 +49,8 @@ void pp_clock_start(pp_clock *c, int64_t first_pts_us);
 /** Re-sync host timeline to a media PTS (soft-decode catch-up). */
 void pp_clock_reanchor(pp_clock *c, int64_t pts_us);
 int64_t pp_clock_media_us(const pp_clock *c);
+/** Jelly5: run at `speed` from now on (playback speed), the media time kept. */
+void pp_clock_set_speed(pp_clock *c, double speed);
 int pp_clock_wait_or_drop(pp_clock *c, int64_t pts_us);
 
 /** Freeze media timeline. Safe if already paused. */

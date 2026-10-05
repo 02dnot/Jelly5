@@ -273,6 +273,7 @@ packet_queue_clear(
     }
 
     audio_queue_count = 0;
+    evo_audio_flush_speed();   /* Jelly5: the stretcher's leftovers too */
     audio_queue_read = 0;
     audio_queue_write = 0;
     audio_accum_pos = 0;
