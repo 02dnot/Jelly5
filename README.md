@@ -54,7 +54,7 @@ your Jellyfin server.
 **Music**
 - Albums, artists, playlists and Instant Mix
 - Background playback while you browse, a mini player and a full *Now playing* view with time-synced lyrics (word by word when the lyrics have it)
-- A queue on *Now playing* (△): see what's next, jump to a track, shuffle, and repeat all or one
+- A queue on *Now playing* (△): see what's next, jump to a track, shuffle, and repeat all or one; □ stops the music
 
 **PS5 touches**
 - Adaptive triggers: L2/R2 scrub against a resistance, faster the harder you press

@@ -72,6 +72,12 @@ void image(const Rect &r, const Texture *t, float opacity = 1, float radius = 0,
 /* Returns 0 (nothing drawn), 1 (the blurred backdrop, as through a lens: draw a
  * tint and rim over it) or 2 (the whole liquid glass pane, by its shader). */
 int backdrop_blur(const Rect &r, float radius, float sigma = 24.f, float opacity = 1.f, float lift = 0.f);
+/* A fade at a scrolling list's edges: every quad drawn until pop_fade_mask is cut
+ * where the ramps start and end and faded per corner, so it goes from opaque
+ * inside r to clear at its edges over the given lengths (0: that edge stays
+ * hard). Done in the geometry: no layer, nothing read back. */
+void push_fade_mask(const Rect &r, float top, float bottom, float left = 0, float right = 0);
+void pop_fade_mask();
 /* Where the glass's light comes from (screen direction, x right, y down); the
  * shell tilts it with the DualSense. Returns true when it moved enough to redraw. */
 bool set_glass_light(float x, float y);

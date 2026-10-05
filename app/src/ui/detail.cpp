@@ -701,8 +701,11 @@ void Detail::draw_sections(float dt)
                     m_season_drop.to({kPad - 6 + px[i] - sx, y, pw[i], 54}, (int)i, -sx, y);
             m_season_drop.draw(dt, m_zone == Seasons ? 1.f : 0.55f, &m_animating);
             const bool clip = total - 6 > inner;
-            if (clip)
-                gfx::push_scissor({kPad - 6, y - 40, bar_w, 140});
+            const gfx::Rect bar_view{kPad - 6, y - 6, bar_w, 66};
+            if (clip) {
+                gfx::push_scissor(bar_view);
+                gfx::push_fade_mask(bar_view, 0, 0, edge_fade(sx, 64), edge_fade(total - 6 - inner - sx, 64));   /* the labels fade out where more lie beyond */
+            }
             for (size_t i = 0; i < n; i++) {
                 const float x = kPad - 6 + px[i] - sx;
                 if (x > kPad + inner + 6 || x + pw[i] < kPad - 6)
@@ -711,8 +714,10 @@ void Detail::draw_sections(float dt)
                 gfx::text(x + pw[i] / 2, y + 27 + 8, m_view.seasons[i].name, on ? gfx::TextStyle{gfx::Bold, 23} : st,
                           on ? kText : kText2, 1);
             }
-            if (clip)
+            if (clip) {
+                gfx::pop_fade_mask();
                 gfx::pop_scissor();
+            }
             if ((m_zone == Episodes && m_episode < (int)m_eps.size()) ||
                 (m_zone == Seasons && m_season < (int)m_view.seasons.size())) {   /* what Options does here */
                 const std::string what = m_zone == Seasons

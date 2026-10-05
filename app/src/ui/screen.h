@@ -178,6 +178,13 @@ void draw_drift(const gfx::Rect &full, const gfx::Texture *t, float opacity, dou
  * (pills) that sit on other glass. */
 /* lift: 0 a pane, 1 the brighter glass drop that marks focus (the top bar's tab). */
 void glass_panel(const gfx::Rect &r, float radius, float opacity = 1.f, bool shadow = true, float lift = 0.f);
+/* How far a scrolling list fades out at an edge (for gfx::pop_fade): `depth` where
+ * more lies beyond it, easing in over the first 40 px scrolled; 0 at its end, so
+ * the first and last rows stand whole. */
+inline float edge_fade(float hidden, float depth = 72.f)
+{
+    return depth * (hidden <= 0.f ? 0.f : hidden >= 40.f ? 1.f : hidden / 40.f);
+}
 
 /* A controller hint, drawn the way the PS5's own hints look (our shapes, not
  * Sony's artwork): the button on a dark disc (Options and the shoulder buttons

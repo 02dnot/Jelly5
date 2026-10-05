@@ -12,6 +12,7 @@ const std::unordered_map<std::string, const char *> &french_table()
 {
     static const std::unordered_map<std::string, const char *> t = {
         {"Kø", "File d'attente"},
+        {"Stopp", "Arrêter"},
         {"Gjenta", "Répéter"},
         {"Gjenta én", "Répéter un"},
         {"Gjenta alle", "Tout répéter"},

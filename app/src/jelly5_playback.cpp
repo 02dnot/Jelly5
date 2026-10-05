@@ -624,7 +624,15 @@ std::vector<jf::Item> album_queue(jf::Client &client, jf::Item *item, bool shuff
     return tracks;
 }
 
-static bool play_chain(jf::Client &client, jf::Item item, std::vector<jf::Item> episodes, std::string *error);
+static bool play_chain_tracks(jf::Client &client, jf::Item item, std::vector<jf::Item> episodes, std::string *error);
+
+/* The chain, then out of player mode (music keeps it on between tracks). */
+static bool play_chain(jf::Client &client, jf::Item item, std::vector<jf::Item> episodes, std::string *error)
+{
+    const bool ok = play_chain_tracks(client, std::move(item), std::move(episodes), error);
+    nuvio_player_leave();
+    return ok;
+}
 
 bool jelly5_play(jf::Client &client, const jf::Item &first, std::string *error, bool shuffle)
 {
@@ -750,7 +758,7 @@ bool jelly5_play_theme(jf::Client &client, const jf::Item &song)
     return true;
 }
 
-static bool play_chain(jf::Client &client, jf::Item item, std::vector<jf::Item> episodes, std::string *error)
+static bool play_chain_tracks(jf::Client &client, jf::Item item, std::vector<jf::Item> episodes, std::string *error)
 {
     if (item.type == "Audio" && !episodes.empty()) {   /* the music queue starts on this track */
         std::lock_guard<std::mutex> g(s_music.lock);

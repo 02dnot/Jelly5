@@ -31,6 +31,9 @@ void nuvio_player_run(const char *request_json);
  * draws (from nuvio_player_now_playing) and sends commands through app/remote.
  * Only for audio: there is no picture to show. */
 void nuvio_player_set_headless(int headless);
+/* Jelly5: after music, leave player mode (a music run keeps it on, so the next
+ * track follows without a blank screen). Safe to call when nothing is pending. */
+void nuvio_player_leave(void);
 
 #ifdef __cplusplus
 }

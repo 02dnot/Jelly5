@@ -733,6 +733,17 @@ void apply(Session &s, const OsdCommand &c)
 
 extern "C" void nuvio_player_set_headless(int headless) { s_headless = headless != 0; }
 
+static bool s_left_in_player;   /* music: the last run kept player mode on */
+
+extern "C" void nuvio_player_leave(void)
+{
+    if (!s_left_in_player)
+        return;
+    s_left_in_player = false;
+    update_hdr(false);
+    evo_agc_runtime_set_player_mode(0);
+}
+
 bool nuvio_player_now_playing(NuvioStatus *st, NuvioRequest *req, unsigned *track)
 {
     std::lock_guard<std::mutex> g(s_now_lock);
@@ -874,7 +885,7 @@ extern "C" void nuvio_player_run(const char *json)
     if (s.req.light_color)
         nuvio_input_set_lightbar(s.req.light_color);   /* the controller glows in the title's colour */
     evo_pb_set_av_offset(settings::get().local.audio_delay_ms / 1000.0);   /* Innstillinger: Lydforsinkelse */
-    const bool triggers = !headless && s.req.item_type != "Audio";
+    const bool triggers = !headless && s.req.item_type != "audio";   /* the request says "audio" */
     if (triggers)
         nuvio_input_trigger_resistance(1);   /* L2/R2 scrub against a resistance */
     if (headless) {
@@ -1222,6 +1233,11 @@ extern "C" void nuvio_player_run(const char *json)
     if (headless) {
         std::lock_guard<std::mutex> g(s_now_lock);
         s_now_active = false;
+    } else if (s.req.item_type == "audio") {
+        /* Jelly5: music stays in player mode from one track to the next - leaving it
+         * and coming back blanked the screen at every change. jelly5_playback calls
+         * nuvio_player_leave when the queue is done. */
+        s_left_in_player = true;
     } else {
         update_hdr(false);
         /* Jelly5: no black frame on the way out - the last picture stays up until

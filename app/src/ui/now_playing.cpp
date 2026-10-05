@@ -13,16 +13,30 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <ctime>
 #include <vector>
 
 namespace ui {
+
+namespace {
+double mono_now()
+{
+    timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (double)ts.tv_sec + (double)ts.tv_nsec / 1e9;
+}
+} // namespace
 
 bool NowPlaying::refresh()
 {
     NuvioRequest req;
     unsigned track = 0;
+    /* Between two tracks the player has none for a moment: the last one stays up
+     * (for up to 2 s), so the page does not go dark at every change. */
+    const double t = mono_now();
     if (!nuvio_player_now_playing(&m_st, &req, &track))
-        return false;
+        return m_req && t - m_seen_at < 2.0;
+    m_seen_at = t;
     if (track != m_track || !m_req) {   /* a new track: the interface starts over on it */
         m_req.reset(new NuvioRequest(req));
         m_ui.begin(m_req.get(), m_st.now);
@@ -54,6 +68,13 @@ Action NowPlaying::input(uint32_t p)
         return a;
     }
     if (p & NUVIO_BTN_CIRCLE) {   /* off the page; the music plays on */
+        a.kind = Action::Back;
+        return a;
+    }
+    if (p & NUVIO_BTN_SQUARE) {   /* stop: the music ends and the page closes behind it */
+        remote::Command rc;
+        rc.kind = remote::Command::Stop;
+        remote::send(rc);
         a.kind = Action::Back;
         return a;
     }
@@ -112,8 +133,10 @@ void NowPlaying::draw(double now, float dt)
             mode = T("Bland");
         if (rep)
             mode += std::string(mode.empty() ? "" : "  \xC2\xB7  ") + (rep == 2 ? T("Gjenta én") : T("Gjenta alle"));
-        const float hx = gfx::W - kPad - pad_hint_width(PadButton::Triangle, T("Kø"), 26);
-        draw_pad_hint(hx, 90, PadButton::Triangle, T("Kø"), 26, 1.f - m_qa.value);
+        /* △ the queue, □ stop (the music ends, and with it the mini player). */
+        const float hw = draw_pad_hints(gfx::W - kPad, 90, {{PadButton::Square, T("Stopp")}, {PadButton::Triangle, T("Kø")}}, 2,
+                                        26, 1.f - m_qa.value);
+        const float hx = gfx::W - kPad - hw;
         if (!mode.empty())
             gfx::text(hx - 24, 99, mode, {gfx::SemiBold, 22}, alpha(kText2, 1.f - m_qa.value), 2);
     }
@@ -193,8 +216,14 @@ void NowPlaying::draw_queue(float dt)
                    r.y - m_qscroll.value);
     else
         m_qdrop.hide();
-    gfx::push_scissor({r.x, lt - 4, w, view_h + 8});
-    m_qdrop.draw(dt, a, &moving, m_qrow == 0 ? 28.f : 14.f);
+    const gfx::Rect q_view{r.x, lt - 4, w, view_h + 8};
+    if (m_qrow == 0)   /* on Bland / Gjenta: above the list, so outside its clip */
+        m_qdrop.draw(dt, a, &moving, 28.f);
+    gfx::push_scissor(q_view);
+    if (m_qrow != 0)
+        m_qdrop.draw(dt, a, &moving, 14.f);
+    gfx::push_fade_mask(q_view, edge_fade(m_qscroll.value),
+                        edge_fade(std::max(0.f, up.size() * row_h - view_h) - m_qscroll.value));   /* the rows fade out where more lie beyond */
     for (int i = 0; i < (int)up.size(); i++) {
         const float y = lt + i * row_h - m_qscroll.value;
         if (y > r.y + r.h || y + row_h < lt)
@@ -205,11 +234,12 @@ void NowPlaying::draw_queue(float dt)
         gfx::text(r.x + 64, y + 58, up[i].album_artist.empty() ? up[i].album : up[i].album_artist,
                   {gfx::Medium, 19, w - 140}, alpha(kText3, a));
     }
+    gfx::pop_fade_mask();
     gfx::pop_scissor();
     gfx::text(t0.x + t0.w / 2, ty + 36, shuffle, {sh || (m_qrow == 0 && m_qcol == 0) ? gfx::Bold : gfx::SemiBold, 23},
-              alpha(sh ? kText : kText2, a), 1);
+              alpha(sh || (m_qrow == 0 && m_qcol == 0) ? kText : kText2, a), 1);
     gfx::text(t1.x + t1.w / 2, ty + 36, repeat, {rep || (m_qrow == 0 && m_qcol == 1) ? gfx::Bold : gfx::SemiBold, 23},
-              alpha(rep ? kText : kText2, a), 1);
+              alpha(rep || (m_qrow == 0 && m_qcol == 1) ? kText : kText2, a), 1);
     if (up.empty())
         gfx::text(r.x + 64, lt + 40, rep == 1 ? T("Starter forfra etter denne") : T("Ingenting mer i køen"),
                   {gfx::Medium, 22}, alpha(kText3, a));
@@ -220,9 +250,15 @@ void NowPlaying::draw_queue(float dt)
  * and how to open the page. */
 void draw_mini_player(double now, float a)
 {
-    NuvioStatus st;
-    NuvioRequest req;
-    if (a <= 0.01f || !nuvio_player_now_playing(&st, &req, nullptr))
+    /* The last track, kept through the gap before the next (as the page does). */
+    static NuvioStatus st;
+    static NuvioRequest req;
+    static double seen_at;
+    if (a <= 0.01f)
+        return;
+    if (nuvio_player_now_playing(&st, &req, nullptr))
+        seen_at = mono_now();
+    else if (seen_at == 0 || mono_now() - seen_at >= 2.0)
         return;
     (void)now;
     const float w = 560, h = 112;

@@ -105,7 +105,12 @@ void PlayerUi::begin(const NuvioRequest *req, double now)
     m_music = req && req->item_type == "audio";
     m_controls = m_music;   /* the music screen is all controls, always up */
     m_now = m_last = m_load_since = now;
-    a_loading.snap(1.f);
+    /* Video opens on the dark loading veil; music never does: its screen (the
+     * cover, the controls) is up from the first frame, so going from one track
+     * to the next only changes what is on it. */
+    a_loading.snap(m_music ? 0.f : 1.f);
+    if (m_music)
+        a_controls.snap(1.f);
     m_dirty = true;
 }
 
@@ -840,13 +845,16 @@ void PlayerUi::draw_chapters(const NuvioStatus &st, float a, float dt)
     for (int i = 0; i < n; i++)
         if (ch[i].start <= st.position + 0.5)
             now_i = i;
-    gfx::push_scissor({lx - 20, top - 10, lw + 40, view_h + 10});
+    const gfx::Rect chap_view{lx - 20, top - 10, lw + 40, view_h + 10};
+    gfx::push_scissor(chap_view);
     bool moving = false;
     m_chap_drop.to({lx, top + m_chap * row_h - m_chap_scroll.value, lw, row_h - 14}, m_chap, r.x,
                    r.y - m_chap_scroll.value);
     m_chap_drop.draw(dt, a, &moving, 18);
     if (moving)
         m_dirty = true;
+    gfx::push_fade_mask(chap_view, edge_fade(m_chap_scroll.value),
+                        edge_fade(std::max(0.f, n * row_h - view_h) - m_chap_scroll.value));   /* the rows fade out where more lie beyond */
     for (int i = 0; i < n; i++) {
         const float y = top + i * row_h - m_chap_scroll.value;
         if (y > top + view_h || y + row_h < top - 10)
@@ -875,6 +883,7 @@ void PlayerUi::draw_chapters(const NuvioStatus &st, float a, float dt)
             std::snprintf(t, sizeof t, "%d:%02d", s / 60, s % 60);
         gfx::text(tx, y + 88, t, {gfx::Medium, 22}, alpha(kText3, a));
     }
+    gfx::pop_fade_mask();
     gfx::pop_scissor();
     draw_pad_hints(r.x + 56, r.y + r.h - 48, {{PadButton::Cross, T("Spill herfra")}, {PadButton::Circle, T("Lukk")}}, 0,
                    26, a);
@@ -1266,8 +1275,11 @@ void PlayerUi::draw_episodes(float a, float dt)
     m_season_drop.to({r.x + 40, top + si * season_h - sy, 280, 58}, si, r.x, r.y - sy);   /* brighter while focused */
     m_season_drop.draw(dt, a * (m_ep_col == 0 ? 1.f : 0.5f), &moving, 14);
     const bool clip = ss.size() * season_h - 8 > col_h;
-    if (clip)
-        gfx::push_scissor({r.x, top - 10, 360, col_h + 10});
+    const gfx::Rect season_view{r.x, top - 10, 360, col_h + 10};
+    if (clip) {
+        gfx::push_scissor(season_view);
+        gfx::push_fade_mask(season_view, edge_fade(sy, 56), edge_fade(ss.size() * season_h - 8 - col_h - sy, 56));   /* the labels fade out where more lie beyond */
+    }
     for (size_t i = 0; i < ss.size(); i++) {
         const float y = top + i * season_h - sy;
         if (y > top + col_h || y + season_h < top - 10)
@@ -1280,8 +1292,10 @@ void PlayerUi::draw_episodes(float a, float dt)
         const bool active = ss[i] == m_ep_season;
         gfx::text(r.x + 64, y + 38, label, {active ? gfx::Bold : gfx::Medium, 25}, alpha(active ? kText : kText2, a));
     }
-    if (clip)
+    if (clip) {
+        gfx::pop_fade_mask();
         gfx::pop_scissor();
+    }
 
     const std::vector<int> eps = episodes_in(m_ep_season);
     const float lx = r.x + 360, lw = r.w - 400, row_h = 178;
@@ -1298,6 +1312,9 @@ void PlayerUi::draw_episodes(float a, float dt)
     m_ep_drop.draw(dt, a, &moving, 18);
     if (moving)
         m_dirty = true;
+    const gfx::Rect ep_view{lx - 20, top - 10, lw + 40, view_h + 10};
+    gfx::push_fade_mask(ep_view, edge_fade(m_ep_scroll.value),
+                        edge_fade(std::max(0.f, eps.size() * row_h - view_h) - m_ep_scroll.value));   /* the rows fade out where more lie beyond */
     for (size_t i = 0; i < eps.size(); i++) {
         const float y = top + i * row_h - m_ep_scroll.value;
         if (y > top + view_h || y + row_h < top - 10)
@@ -1330,6 +1347,7 @@ void PlayerUi::draw_episodes(float a, float dt)
         gfx::text(tx, y + 88, e.overview.empty() ? T("Ingen beskrivelse.") : e.overview,
                   {gfx::Regular, 21, lw - 320, 2, 30}, alpha(kText3, a));
     }
+    gfx::pop_fade_mask();
     gfx::pop_scissor();
     if (eps.empty())
         gfx::text(lx, top + 50, T("Ingen episoder i denne sesongen."), {gfx::Medium, 24}, alpha(kText3, a));
@@ -1520,15 +1538,21 @@ void PlayerUi::draw_music(const NuvioStatus &st)
     const gfx::Rect cover{cx, cy, cs, cs};
     gfx::shadow(cover, 24, 60, 0.75f, 26);
     art::draw(cover, r.cover, r.cover_blurhash, 800, 800, 24, 1.f, 0xff1c1c22u);
-    if (!st.started && st.error.empty()) {   /* opening: dots chasing round on the cover */
-        gfx::fill(cover, 0x66000000u, 24);
+    /* Opening: dots chasing round on the cover - only when it takes a while (a track
+     * normally starts in ~0.3 s, and a flash on every change read as a glitch). */
+    const float opening = (float)(st.now - m_load_since);
+    if (!st.started && st.error.empty() && opening > 0.8f) {
+        const float da = std::min(1.f, (opening - 0.8f) / 0.4f);
+        gfx::fill(cover, alpha(0x66000000u, da), 24);
         for (int i = 0; i < 12; i++) {
             const float ang = (float)i / 12.f * 6.2832f;
             const float phase = std::fmod((float)st.now * 1.2f + 1.f - (float)i / 12.f, 1.f);
             gfx::fill({cx + cs / 2 + std::cos(ang) * 34 - 5, cy + cs / 2 + std::sin(ang) * 34 - 5, 10, 10},
-                      alpha(kText, 0.2f + 0.8f * (1.f - phase)), 5);
+                      alpha(kText, da * (0.2f + 0.8f * (1.f - phase))), 5);
         }
     }
+    if (!st.started && st.error.empty())
+        m_dirty = true;   /* keep drawing, so the dots come in on time */
 
     const float x = cx + cs + 110, w = W - kPad - x;
     if (!r.lyrics.empty()) {
@@ -1693,7 +1717,7 @@ void PlayerUi::draw(const NuvioStatus &st)
     art::tick();   /* the player's loop owns the frame: uploads and eviction run here */
 
     const bool overlay = m_overlay != Overlay::None;
-    a_loading.to(st.started || !st.error.empty() ? 0.f : 1.f);
+    a_loading.to(st.started || !st.error.empty() || m_music ? 0.f : 1.f);
     a_loading.step(dt, 8.f);
     a_controls.to((m_controls || m_seeking || st.paused) && !overlay ? 1.f : 0.f);
     a_controls.step(dt, 12.f);

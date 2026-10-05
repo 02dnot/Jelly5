@@ -12,6 +12,7 @@ const std::unordered_map<std::string, const char *> &spanish_table()
 {
     static const std::unordered_map<std::string, const char *> t = {
         {"Kø", "Cola"},
+        {"Stopp", "Detener"},
         {"Gjenta", "Repetir"},
         {"Gjenta én", "Repetir una"},
         {"Gjenta alle", "Repetir todo"},

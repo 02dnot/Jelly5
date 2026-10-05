@@ -12,6 +12,7 @@ const std::unordered_map<std::string, const char *> &portuguese_table()
 {
     static const std::unordered_map<std::string, const char *> t = {
         {"Kø", "Fila"},
+        {"Stopp", "Parar"},
         {"Gjenta", "Repetir"},
         {"Gjenta én", "Repetir uma"},
         {"Gjenta alle", "Repetir todas"},

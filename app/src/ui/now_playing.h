@@ -43,6 +43,7 @@ private:
     std::unique_ptr<NuvioRequest> m_req;   /* stable while m_ui points at it */
     NuvioStatus m_st;
     unsigned m_track = ~0u;
+    double m_seen_at = 0;               /* when a track was last playing (the gap between two) */
     PlayerUi m_ui;
     Anim m_enter;
 };

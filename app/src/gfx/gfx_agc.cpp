@@ -171,11 +171,75 @@ void draw_mesh(const Vertex *v, int nv, const uint16_t *idx, int ni, const Textu
 
 const uint16_t kQuad[6] = {0, 1, 2, 2, 1, 3};
 
+/* The geometric fade (push_fade_mask): quads are cut where a fade starts and
+ * ends, and each corner takes the mask's opacity there, so the GPU's own
+ * interpolation draws the ramp exactly. */
+static bool s_mask_on;
+static Rect s_mask_r;
+static float s_mask_t, s_mask_b, s_mask_l, s_mask_rt;
+
+static float ramp(float d, float len) { return len <= 0.f ? 1.f : d <= 0.f ? 0.f : d >= len ? 1.f : d / len; }
+
+static float mask_at(float x, float y)
+{
+    return ramp(x - s_mask_r.x, s_mask_l) * ramp(s_mask_r.x + s_mask_r.w - x, s_mask_rt) *
+           ramp(y - s_mask_r.y, s_mask_t) * ramp(s_mask_r.y + s_mask_r.h - y, s_mask_b);
+}
+
+/* Premultiplied ARGB times a. */
+static uint32_t scale_color(uint32_t c, float a)
+{
+    uint32_t out = 0;
+    for (int sh = 0; sh < 32; sh += 8)
+        out |= (uint32_t)std::lround(((c >> sh) & 0xff) * a) << sh;
+    return out;
+}
+
+static uint32_t lerp_color(uint32_t a, uint32_t b, float t)
+{
+    uint32_t out = 0;
+    for (int sh = 0; sh < 32; sh += 8) {
+        const float x = (float)((a >> sh) & 0xff), y = (float)((b >> sh) & 0xff);
+        out |= (uint32_t)std::lround(x + (y - x) * t) << sh;
+    }
+    return out;
+}
+
+
 void quad(const Rect &r, const Texture *t, float u0, float v0, float u1, float v1, uint32_t c_tl,
           uint32_t c_tr, uint32_t c_bl, uint32_t c_br, float radius)
 {
     if (r.w <= 0 || r.h <= 0)
         return;
+    if (s_mask_on) {
+        /* Cut at the mask's ramps that cross r; the rounding keeps r as its shape. */
+        float xs[6], ys[6];
+        int nx = 0, ny = 0;
+        const float bx[4] = {s_mask_r.x, s_mask_r.x + s_mask_l, s_mask_r.x + s_mask_r.w - s_mask_rt, s_mask_r.x + s_mask_r.w};
+        const float by[4] = {s_mask_r.y, s_mask_r.y + s_mask_t, s_mask_r.y + s_mask_r.h - s_mask_b, s_mask_r.y + s_mask_r.h};
+        xs[nx++] = r.x;
+        for (float b : bx)
+            if (b > r.x && b < r.x + r.w && b > xs[nx - 1])
+                xs[nx++] = b;
+        xs[nx++] = r.x + r.w;
+        ys[ny++] = r.y;
+        for (float b : by)
+            if (b > r.y && b < r.y + r.h && b > ys[ny - 1])
+                ys[ny++] = b;
+        ys[ny++] = r.y + r.h;
+        for (int j = 0; j + 1 < ny; j++)
+            for (int i = 0; i + 1 < nx; i++) {
+                Vertex v[4];
+                for (int k = 0; k < 4; k++) {
+                    const float x = xs[i + (k & 1)], y = ys[j + (k >> 1)];
+                    const float fx = (x - r.x) / r.w, fy = (y - r.y) / r.h;
+                    const uint32_t c = lerp_color(lerp_color(c_tl, c_tr, fx), lerp_color(c_bl, c_br, fx), fy);
+                    v[k] = {x, y, scale_color(c, mask_at(x, y)), u0 + (u1 - u0) * fx, v0 + (v1 - v0) * fy};
+                }
+                draw_mesh(v, 4, kQuad, 6, t, &r, radius);
+            }
+        return;
+    }
     const Vertex v[4] = {
         {r.x, r.y, c_tl, u0, v0},
         {r.x + r.w, r.y, c_tr, u1, v0},
@@ -557,11 +621,17 @@ static bool glass_pass(const Texture &src, const Rect &r, float radius, float op
     }
     float *c = (float *)consts.cpu;
     const float s = s_scale;
+    /* The shader's lens bends by up to ~0.74 of the pane's half size at the rim:
+     * gentle on a button, but a large sheet pulled in what lay a few hundred pixels
+     * inside (big text), split into colours by the dispersion - streaks along its
+     * edge. Capped to what a 32 px half-height pane bends. */
+    const float half = std::max(1.f, std::min(r.w, r.h) / 2);
+    const float bend = std::min(1.f, 32.f / half);
     const float k[24] = {
         r.x * s, r.y * s, (r.x + r.w) * s, (r.y + r.h) * s,              /* uRect */
         radius * s, std::min(30.f, std::min(r.w, r.h) * 0.3f) * s,      /* uShape: radius, bevel */
         1.f / (float)src.w, 1.f / (float)src.h,
-        s_light_x, s_light_y, 1.f, 1.f - 0.55f * lift,                   /* uLight: dir, rim, refraction */
+        s_light_x, s_light_y, 1.f, (1.f - 0.55f * lift) * bend,          /* uLight: dir, rim, refraction */
         1.3f, 1.05f, 0.07f, opacity,                                     /* uTone: saturation, brightness, tint */
         0.92f, 0.94f, 1.f, 0.05f,                                        /* uTint: a milky white, sheen */
         lift, 0.28f * (1.f - lift), 0.f, 0.10f * (1.f - lift),           /* uMore: lift, legibility, magnify, dispersion */
@@ -588,6 +658,67 @@ static bool glass_pass(const Texture &src, const Rect &r, float radius, float op
     return true;
 }
 
+/* The screen under (bx0, by0)-(bx1, by1), physical pixels, blurred (sigma sp,
+ * physical) into a layer: *out samples it. Two layers, alternating between two
+ * pairs from one call to the next, so a call's passes never write the layer the
+ * call just before is still reading on the GPU. (No CPU clear: the passes write
+ * all that is read.) *h stays null when there was no layer; else the caller
+ * restores the scissor and releases *h and *v. */
+static bool blur_layers(int bx0, int by0, int bx1, int by1, float sp, evo_agc_layer_surface_t **ph,
+                        evo_agc_layer_surface_t **pv, Texture *out)
+{
+    const float reach = 3.f * sp + 2.f;
+    const int gy0 = std::max(0, (int)(by0 - reach)), gy1 = std::min(s_ph, (int)(by1 + reach));
+    static bool s_no_clear = (evo_agc_layers_set_clear(0), true);
+    (void)s_no_clear;
+    static unsigned s_pane = 0;
+    evo_agc_layer_surface_t *got[4] = {nullptr, nullptr, nullptr, nullptr};
+    int n = 0;
+    while (n < 4 && evo_agc_layer_acquire(&got[n]) == 0 && got[n])
+        n++;
+    if (n < 2) {
+        glass_why(n == 0 ? "no free layer" : "no second layer");
+        for (int i = 0; i < n; i++)
+            evo_agc_layer_release(got[i]);
+        restore_scissor();
+        return false;
+    }
+    const int pair = (n >= 4 && (s_pane++ & 1)) ? 2 : 0;
+    evo_agc_layer_surface_t *h = got[pair], *v = got[pair + 1];
+    for (int i = 0; i < n; i++)
+        if (i != pair && i != pair + 1)
+            evo_agc_layer_release(got[i]);
+    evo_agc_layer_surface_t scan;
+    evo_agc_get_scanout_layer(&scan);
+    Texture src_scan, src_h;
+    src_scan.mem = (uint8_t *)(uintptr_t)scan.gpu_addr;
+    src_scan.w = (int)scan.width;
+    src_scan.h = (int)scan.height;
+    src_scan.tiled = src_scan.bgra = true;
+    src_h.mem = (uint8_t *)(uintptr_t)h->gpu_addr;
+    src_h.w = (int)h->width;
+    src_h.h = (int)h->height;
+    src_h.tiled = true;
+    *out = src_h;
+    out->mem = (uint8_t *)(uintptr_t)v->gpu_addr;
+
+    evo_agc_runtime_bind_pipeline(EVO_AGC_PIPE_UI_BLUR);
+    evo_agc_runtime_set_blend(EVO_AGC_BLEND_NONE);
+    gpu_barrier();                                      /* what is drawn so far, finished and readable */
+    evo_agc_set_layer_target(h);
+    evo_agc_runtime_set_scissor(bx0, gy0, bx1 - bx0, gy1 - gy0);
+    bool ok = blur_pass(src_scan, sp, true);
+    gpu_barrier();
+    evo_agc_set_layer_target(v);
+    evo_agc_runtime_set_scissor(bx0, by0, bx1 - bx0, by1 - by0);
+    ok = ok && blur_pass(src_h, sp, false);
+    gpu_barrier();
+    evo_agc_set_layer_target(nullptr);                  /* back on the scanout */
+    *ph = h;
+    *pv = v;
+    return ok;
+}
+
 int backdrop_blur(const Rect &r, float radius, float sigma, float opacity, float lift)
 {
 #ifdef JELLY5_LOG_HOST
@@ -606,7 +737,7 @@ int backdrop_blur(const Rect &r, float radius, float sigma, float opacity, float
     /* The real glass shows the picture behind it, only softened, so the bending at
      * the rim can be seen; without the shader a stronger blur carries the look. */
     const bool shader = evo_agc_runtime_pipeline_valid(EVO_AGC_PIPE_UI_GLASS);
-    const float sp = (shader ? sigma * 0.3f : sigma) * s_scale, reach = 3.f * sp + 2.f;
+    const float sp = (shader ? sigma * 0.3f : sigma) * s_scale;
     const int x0 = std::max(0, (int)std::floor(r.x * s_scale)), y0 = std::max(0, (int)std::floor(r.y * s_scale));
     const int x1 = std::min(s_pw, (int)std::ceil((r.x + r.w) * s_scale));
     const int y1 = std::min(s_ph, (int)std::ceil((r.y + r.h) * s_scale));
@@ -619,56 +750,11 @@ int backdrop_blur(const Rect &r, float radius, float sigma, float opacity, float
     const int m = shader ? (int)std::ceil(30.f * s_scale) : 0;
     const int bx0 = std::max(0, x0 - m), by0 = std::max(0, y0 - m), bx1 = std::min(s_pw, x1 + m),
               by1 = std::min(s_ph, y1 + m);
-    const int gy0 = std::max(0, (int)(by0 - reach)), gy1 = std::min(s_ph, (int)(by1 + reach));
-
-    /* Two layers, alternating between two pairs from one glass pane to the next,
-     * so a pane's passes never write the layer the pane just before is still
-     * reading on the GPU. (No CPU clear: the passes write all that is read.) */
-    static bool s_no_clear = (evo_agc_layers_set_clear(0), true);
-    (void)s_no_clear;
-    static unsigned s_pane = 0;
-    evo_agc_layer_surface_t *got[4] = {nullptr, nullptr, nullptr, nullptr};
-    int n = 0;
-    while (n < 4 && evo_agc_layer_acquire(&got[n]) == 0 && got[n])
-        n++;
-    if (n < 2) {
-        glass_why(n == 0 ? "no free layer" : "no second layer");
-        for (int i = 0; i < n; i++)
-            evo_agc_layer_release(got[i]);
-        restore_scissor();
+    evo_agc_layer_surface_t *h = nullptr, *v = nullptr;
+    Texture out_v;
+    const bool ok = blur_layers(bx0, by0, bx1, by1, sp, &h, &v, &out_v);
+    if (!h)
         return 0;
-    }
-    const int pair = (n >= 4 && (s_pane++ & 1)) ? 2 : 0;
-    evo_agc_layer_surface_t *h = got[pair], *v = got[pair + 1];
-    for (int i = 0; i < n; i++)
-        if (i != pair && i != pair + 1)
-            evo_agc_layer_release(got[i]);
-    evo_agc_layer_surface_t scan;
-    evo_agc_get_scanout_layer(&scan);
-    Texture src_scan, src_h, out_v;
-    src_scan.mem = (uint8_t *)(uintptr_t)scan.gpu_addr;
-    src_scan.w = (int)scan.width;
-    src_scan.h = (int)scan.height;
-    src_scan.tiled = src_scan.bgra = true;
-    src_h.mem = (uint8_t *)(uintptr_t)h->gpu_addr;
-    src_h.w = (int)h->width;
-    src_h.h = (int)h->height;
-    src_h.tiled = true;
-    out_v = src_h;
-    out_v.mem = (uint8_t *)(uintptr_t)v->gpu_addr;
-
-    evo_agc_runtime_bind_pipeline(EVO_AGC_PIPE_UI_BLUR);
-    evo_agc_runtime_set_blend(EVO_AGC_BLEND_NONE);
-    gpu_barrier();                                      /* what is drawn so far, finished and readable */
-    evo_agc_set_layer_target(h);
-    evo_agc_runtime_set_scissor(bx0, gy0, bx1 - bx0, gy1 - gy0);
-    bool ok = blur_pass(src_scan, sp, true);
-    gpu_barrier();
-    evo_agc_set_layer_target(v);
-    evo_agc_runtime_set_scissor(bx0, by0, bx1 - bx0, by1 - by0);
-    ok = ok && blur_pass(src_h, sp, false);
-    gpu_barrier();
-    evo_agc_set_layer_target(nullptr);                  /* back on the scanout */
     int result = ok ? 1 : 0;
     if (ok && shader) {   /* the real glass */
         evo_agc_runtime_set_scissor(x0, y0, x1 - x0, y1 - y0);
@@ -713,6 +799,16 @@ int backdrop_blur(const Rect &r, float radius, float sigma, float opacity, float
     evo_agc_layer_release(v);
     return result;
 }
+
+void push_fade_mask(const Rect &r, float top, float bottom, float left, float right)
+{
+    s_mask_on = top > 0 || bottom > 0 || left > 0 || right > 0;
+    s_mask_r = r;
+    s_mask_t = std::min(top, r.h / 2), s_mask_b = std::min(bottom, r.h / 2);
+    s_mask_l = std::min(left, r.w / 2), s_mask_rt = std::min(right, r.w / 2);
+}
+
+void pop_fade_mask() { s_mask_on = false; }
 
 void rim(const Rect &r, float radius, float opacity)
 {
