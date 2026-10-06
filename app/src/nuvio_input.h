@@ -5,12 +5,12 @@
  */
 #pragma once
 /*
- * Controller input for the Nuvio Player: the DualSense through scePad, plus
+ * Controller input for Jelly5: the DualSense and optional remote-control
+ * port through scePad, plus
  * buttons injected by the payload's command channel ("key" commands), merged
  * into one stream of presses with auto-repeat for held directions.
  *
- * The pad is opened only while a stream plays: while the app holds it, the
- * browser dialog that shows Nuvio's page gets no input.
+ * The shell and player share this owner; both handles are closed at handoff.
  */
 #include <stdint.h>
 
@@ -49,8 +49,9 @@ typedef struct nuvio_input_state {
     float    l2, r2;     /* Jelly5: how far L2 and R2 are pressed, 0..1 */
 } nuvio_input_state;
 
-/* Opens the user's controller. Presses already down are ignored until they
- * are released, so the button that started playback does not act twice. */
+/* Opens the user's controller and optional remote-control port. A missing
+ * remote does not prevent controller input. Presses already down are ignored
+ * until released, so the button that started playback does not act twice. */
 void nuvio_input_open(int user_id);
 /* Jelly5: the DualSense's adaptive triggers on L2 and R2: on, a resistance that
  * stiffens the further they are pressed (scrubbing); off, free again. */

@@ -57,6 +57,12 @@ typedef struct ScePadVibration {
 #define STICK_OFF 60
 
 static int s_pad = -1;
+/* The public PS5 pad ABI has a separate remote-control port (16).
+ * HDMI Device Link routing here still needs a firmware/TV hardware test.
+ * See ps5-native-gamepad-input-research/include/ps5_pad.hpp. */
+enum { PAD_PORT_STANDARD = 0, PAD_PORT_REMOTE_CONTROL = 16 };
+static int s_remote_pad = -1;
+static uint32_t s_remote_ignore;
 static uint32_t s_last;
 static uint32_t s_ignore;        /* down at open; ignored until released */
 static uint32_t s_stick;         /* directions the left stick is holding */
@@ -80,14 +86,19 @@ void nuvio_input_open(int user_id)
     pad_data pad;
 
     if (s_pad < 0) {
-        s_pad = scePadOpen(user_id, 0, 0, NULL);
+        s_pad = scePadOpen(user_id, PAD_PORT_STANDARD, 0, NULL);
         if (s_pad >= 0)
             evo_bt("input: vibration mode 2 rc=%#x", (unsigned)scePadSetVibrationMode(s_pad, 2));
     }
     evo_bt("input: pad open -> %d", s_pad);
     memset(&pad, 0, sizeof pad);
     s_ignore = (s_pad >= 0 && scePadReadState(s_pad, &pad) == 0) ? pad.buttons : 0;
-    s_last = s_ignore;
+    if (s_remote_pad < 0)
+        s_remote_pad = scePadOpen(user_id, PAD_PORT_REMOTE_CONTROL, 0, NULL);
+    evo_bt("input: remote-control pad open -> %d", s_remote_pad);
+    memset(&pad, 0, sizeof pad);
+    s_remote_ignore = (s_remote_pad >= 0 && scePadReadState(s_remote_pad, &pad) == 0) ? pad.buttons : 0;
+    s_last = 0;
     s_stick = 0;
     s_dir_since = s_next_repeat = 0.0;
 }
@@ -226,6 +237,10 @@ void nuvio_input_close(void)
         scePadClose(s_pad);
     }
     s_pad = -1;
+    if (s_remote_pad >= 0)
+        scePadClose(s_remote_pad);
+    s_remote_pad = -1;
+    s_remote_ignore = 0;
     s_follow = 0;
     s_last = s_ignore = s_stick = 0;
 }
@@ -306,6 +321,23 @@ void nuvio_input_poll(nuvio_input_state *out)
     /* Buttons held when the pad was opened stay ignored until let go. */
     s_ignore &= now_buttons;
     now_buttons &= ~s_ignore;
+
+    /* Keep the launch-button suppression per device: a held remote OK must
+     * not suppress a fresh DualSense X (or the reverse). Remote input has no
+     * stick/trigger interpretation, rumble, light bar or adaptive effects. */
+    memset(&pad, 0, sizeof pad);
+    uint32_t remote_buttons = 0;
+    if (s_remote_pad >= 0 && scePadReadState(s_remote_pad, &pad) == 0) {
+        const uint32_t known = NUVIO_BTN_DPAD | NUVIO_BTN_CROSS | NUVIO_BTN_CIRCLE |
+                               NUVIO_BTN_SQUARE | NUVIO_BTN_TRIANGLE | NUVIO_BTN_OPTIONS |
+                               NUVIO_BTN_L1 | NUVIO_BTN_R1 | NUVIO_BTN_L2 | NUVIO_BTN_R2 |
+                               NUVIO_BTN_L3 | NUVIO_BTN_R3 | NUVIO_BTN_TOUCHPAD;
+        /* The system owns intercepted samples (e.g. its keyboard/dialogs). */
+        if (!(pad.buttons & 0x80000000u))
+            remote_buttons = pad.buttons & known;
+    }
+    s_remote_ignore &= remote_buttons;
+    now_buttons |= remote_buttons & ~s_remote_ignore;
 
     pthread_mutex_lock(&s_inject_lock);
     if (s_inject_hold && t >= s_inject_until)
