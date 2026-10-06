@@ -18,7 +18,6 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <math.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -75,38 +74,19 @@ static int load_font(int idx, const uint8_t *data, size_t size)
     return 0;
 }
 
-/* The app's sandbox has the system's folders under a random word of its own
- * ("/<word>/common/font/..."), not at /preinst. */
-const char *sceKernelGetFsSandboxRandomWord(void) __attribute__((weak));   /* NULL where the firmware lacks it */
-
 static void load_system_font(int idx)
 {
     font *f = &s_fonts[idx];
     struct stat st;
-    int fd = -1;
+    int fd;
     if (f->tried)
         return;
     f->tried = 1;
     if (!k_sys_paths[idx])
         return;
-    /* As the system has it, else through the sandbox's own view of it. */
-    char path[256];
-    snprintf(path, sizeof path, "%s", k_sys_paths[idx]);
-    int err = 0;
-    if (stat(path, &st) != 0 || st.st_size <= 0 || (fd = open(path, O_RDONLY)) < 0) {
-        err = errno;
-        const char *word = sceKernelGetFsSandboxRandomWord ? sceKernelGetFsSandboxRandomWord() : NULL;
-        const char *rest = strstr(k_sys_paths[idx], "/common/");
-        if (word && *word && rest) {
-            snprintf(path, sizeof path, "/%s%s", word, rest);
-            if (stat(path, &st) != 0 || st.st_size <= 0 || (fd = open(path, O_RDONLY)) < 0)
-                fd = -1;
-        }
-    }
-    if (fd < 0) {
+    if (stat(k_sys_paths[idx], &st) != 0 || st.st_size <= 0 || (fd = open(k_sys_paths[idx], O_RDONLY)) < 0) {
         /* Said once: without it, Japanese, Korean, Chinese or Thai text has no glyphs. */
-        evo_bt("text: system font %s not readable (errno %d; sandbox %s: errno %d)", k_sys_paths[idx], err, path,
-               errno);
+        evo_bt("text: system font %s not readable (errno %d)", k_sys_paths[idx], errno);
         return;
     }
     uint8_t *buf = (uint8_t *)malloc((size_t)st.st_size);
@@ -124,7 +104,7 @@ static void load_system_font(int idx)
         return;
     }
     f->owned = buf;
-    evo_bt("text: loaded %s", path);
+    evo_bt("text: loaded %s", k_sys_paths[idx]);
 }
 
 int ui_text_init(void)
