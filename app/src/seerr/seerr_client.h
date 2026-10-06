@@ -196,8 +196,9 @@ public:
     void set_url(const std::string &url);
     const std::string &url() const { return url_; }
     void set_timeout(int seconds) { timeout_ = seconds; }
-    /* TMDB's language for names and overviews ("fr", "en" ...); empty: Seerr's. */
-    void set_language(const std::string &lang) { language_ = lang; }
+    /* TMDB's language for names and overviews ("fr", "en" ...); empty: Seerr's.
+     * Safe while requests run (the interface's language changed). */
+    void set_language(const std::string &lang);
 
     /* The session as "name=value; ..." (Seerr's cookies), to keep between launches. */
     std::string cookies() const;
@@ -231,6 +232,8 @@ public:
     std::vector<Title> discover(Shelf shelf, int page = 1);
     bool movie(int tmdb_id, Detail *out);
     bool tv(int tmdb_id, Detail *out);
+    /* TMDB's genre names for films or series, by id (in the language set). */
+    std::map<int, std::string> genres(bool tv);
 
     /* Radarr (films) or Sonarr (series) servers, then one's profiles and folders. */
     std::vector<Server> servers(bool tv);

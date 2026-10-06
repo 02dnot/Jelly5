@@ -21,6 +21,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -214,6 +215,11 @@ int main(int argc, char **argv)
         if (poster.empty() && !list.empty())
             poster = list[0].poster;
     }
+
+    /* Genre names (the Discover tab's info line). */
+    const std::map<int, std::string> mg = c.genres(false), tg = c.genres(true);
+    check(!mg.empty() && !tg.empty(), "genres", std::to_string(mg.size()) + " for films, " + std::to_string(tg.size()) +
+                                                    " for series" + (mg.count(878) ? ", 878 = " + mg.at(878) : ""));
 
     /* Artwork through Seerr's cache (what the console shows, never TMDB itself). */
     if (!poster.empty()) {

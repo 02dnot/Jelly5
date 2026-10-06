@@ -386,6 +386,14 @@ const std::unordered_map<std::string, const char *> &french_table()
         {"Seerr-kontoen din kan ikke be om serier", "Votre compte Seerr ne peut pas demander de séries"},
         {"Seerr-kontoen din kan ikke be om filmer", "Votre compte Seerr ne peut pas demander de films"},
         {"Be om flere sesonger", "Demander d'autres saisons"},
+        /* Seerr : l'onglet Découvrir */
+        {"Oppdag", "Découvrir"},
+        {"Trender nå", "Tendances"},
+        {"Populære filmer", "Films populaires"},
+        {"Populære serier", "Séries populaires"},
+        {"Kommende filmer", "Films à venir"},
+        {"Kommende serier", "Séries à venir"},
+        {"Mine forespørsler", "Mes demandes"},
     };
     return t;
 }

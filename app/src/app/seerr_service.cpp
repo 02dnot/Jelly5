@@ -13,6 +13,7 @@
 #include <cstdlib>
 #include <ctime>
 #include <functional>
+#include <map>
 #include <mutex>
 #include <sys/stat.h>
 #include <thread>
@@ -43,6 +44,9 @@ unsigned s_epoch = 0;                   /* bumped when the account or the settin
 Snapshot s_snap;
 std::shared_ptr<seerr::Client> s_client;
 std::atomic<unsigned> s_gen{0};
+bool s_seen_ready = false;              /* signed in once since the account or settings changed */
+std::map<int, std::string> s_movie_genres, s_tv_genres;
+std::string s_genres_lang;              /* the language they are in */
 
 /* ---- seerr.json ------------------------------------------------------------------ */
 cJSON *load()
@@ -256,6 +260,7 @@ void finish(unsigned epoch, const std::shared_ptr<seerr::Client> &cl, bool ok, c
     s_snap.settings = ps;
     if (ok) {
         s_client = cl;
+        s_seen_ready = true;
         s_snap.state = State::Ready;
         s_snap.user = u;
         s_snap.why = Why::None;
@@ -391,6 +396,7 @@ void attach(jf::Client *client)
     s_server = server;
     s_account = account;
     s_stored = loaded;
+    s_seen_ready = false;
     const Stored st = s_stored;
     if (st.config.enabled && !st.config.url.empty()) {
         restart_locked();
@@ -410,6 +416,7 @@ void detach()
     s_server.clear();
     s_account.clear();
     s_stored = Stored();
+    s_seen_ready = false;
     s_client.reset();
     s_snap = Snapshot();
     s_gen++;
@@ -442,6 +449,7 @@ void set_config(const Config &c)
         c.internet == old.internet)
         return;
     evo_bt("seerr: %s, %s", c.enabled ? "on" : "off", seerr::Client::normalize(c.url).c_str());
+    s_seen_ready = false;
     if (c.enabled && !c.url.empty()) {
         restart_locked();
     } else {
@@ -464,6 +472,38 @@ bool ready()
 {
     std::lock_guard<std::mutex> g(s_lock);
     return s_snap.state == State::Ready && s_client;
+}
+
+bool available()
+{
+    std::lock_guard<std::mutex> g(s_lock);
+    return s_stored.config.enabled && s_snap.state != State::Off &&
+           (s_snap.state == State::Ready || s_seen_ready);
+}
+
+void set_language()
+{
+    std::lock_guard<std::mutex> g(s_lock);
+    if (s_client)
+        s_client->set_language(tmdb_language());
+}
+
+void load_genres()
+{
+    std::shared_ptr<seerr::Client> cl = client();
+    const std::string lang = tmdb_language();
+    {
+        std::lock_guard<std::mutex> g(s_lock);
+        if (!cl || (s_genres_lang == lang && !s_movie_genres.empty()))
+            return;
+    }
+    std::map<int, std::string> movie = cl->genres(false), tv = cl->genres(true);
+    std::lock_guard<std::mutex> g(s_lock);
+    if (movie.empty() && tv.empty())
+        return;
+    s_movie_genres = std::move(movie);
+    s_tv_genres = std::move(tv);
+    s_genres_lang = lang;
 }
 
 std::shared_ptr<seerr::Client> client()
@@ -549,6 +589,7 @@ void sign_out()
     s_epoch++;
     s_client.reset();
     write_session("", true);
+    s_seen_ready = false;   /* signed out on purpose: Seerr's tab goes */
     s_snap.state = State::SignedOut;
     s_snap.user = seerr::User();
     s_snap.why = Why::SignedOut;
@@ -621,6 +662,15 @@ jf::Item to_item(const seerr::Title &t)
     it.community_rating = t.vote;
     it.premiere_date = t.date;
     it.tmdb_id = std::to_string(t.id);
+    {
+        std::lock_guard<std::mutex> g(s_lock);
+        const std::map<int, std::string> &names = t.tv ? s_tv_genres : s_movie_genres;
+        for (int id : t.genre_ids) {
+            const auto n = names.find(id);
+            if (n != names.end())
+                it.genres.push_back(n->second);
+        }
+    }
     it.ext.tmdb_id = t.id;
     it.ext.status = (int)t.status;
     it.ext.jellyfin_id = t.jellyfin_id;

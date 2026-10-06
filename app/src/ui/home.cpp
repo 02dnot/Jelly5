@@ -156,7 +156,7 @@ Action Home::input(uint32_t p)
             apply(action.change);
         return action;
     }
-    if (p & NUVIO_BTN_OPTIONS) {
+    if ((p & NUVIO_BTN_OPTIONS) && !m_discover) {   /* Seerr's titles have no options of the library's */
         if (const jf::Item *f = focused_item())
             m_menu.open(*f, m_row >= 0 && m_model.rows[m_row].kind == HomeRow::Resume);
         return action;
@@ -214,6 +214,8 @@ Action Home::input(uint32_t p)
 
 std::string Home::card_url(const jf::Item &it) const
 {
+    if (it.external())
+        return it.ext.thumb;
     if (it.type == "Episode" && !it.primary_tag.empty())
         return m_client.image_url(it.id, "Primary", it.primary_tag, 640);
     if (!it.thumb_tag.empty())
@@ -225,7 +227,21 @@ std::string Home::card_url(const jf::Item &it) const
 
 std::string Home::backdrop_url(const jf::Item &it) const
 {
+    if (it.external())
+        return it.ext.backdrop;
     return m_client.image_url(it.backdrop_owner, "Backdrop", it.backdrop_tag, 1920);
+}
+
+void Home::draw_card_art(const jf::Item &it, const gfx::Rect &r, float radius, float a) const
+{
+    if (it.external()) {   /* Seerr's: its name on its colours, the picture over it, where it stands */
+        draw_title_card(r, it.name, it.ext.tmdb_id, radius, a);
+        art::draw(r, it.ext.thumb, "", 640, 360, radius, a, 0);
+        draw_status_chip(r.x + 12, r.y + 12, it.ext.status, a);
+        return;
+    }
+    art::draw(r, card_url(it), it.thumb_blurhash.empty() ? it.backdrop_blurhash : it.thumb_blurhash, 640, 360,
+              radius, a);
 }
 
 void Home::draw_backdrop(float dt)
@@ -358,6 +374,12 @@ void Home::draw_info(const jf::Item &it, float bottom, bool hero, float a)
             g += " \xC2\xB7 " + it.genres[1];
         x += gfx::text(x, meta_y, g, meta, alpha(kText2, a));
     }
+    if (it.external()) {   /* where a Seerr title stands, always said (also "not requested") */
+        const float sx = x > kPad ? x + 24 : x;
+        gfx::fill({sx, meta_y - 15, 12, 12}, alpha(seerr_status_color(it.ext.status), a), 6);
+        x = sx + 22 + gfx::text(sx + 22, meta_y, seerr_status_label(it.ext.status, true), {gfx::SemiBold, 22},
+                                alpha(kText, a));
+    }
     if (!it.official_rating.empty()) {
         x += 16;
         const gfx::TextStyle badge{gfx::Bold, 17};
@@ -458,8 +480,7 @@ void Home::draw_rows(float dt)
                 m_animating = true;
             const float k = 1.f + 0.1f * lift.value;
             const gfx::Rect cr{cx - kCardW * (k - 1) / 2, cy - kCardH * (k - 1) / 2, kCardW * k, kCardH * k};
-            art::draw(cr, card_url(it), it.thumb_blurhash.empty() ? it.backdrop_blurhash : it.thumb_blurhash,
-                      640, 360, kCardR * k, a);
+            draw_card_art(it, cr, kCardR * k, a);
             if (it.played_percent > 0 && it.played_percent < 100) {
                 gfx::fill({cr.x + 18, cr.y + cr.h - 22, cr.w - 36, 6}, alpha(0x47ffffffu, a), 3);
                 gfx::fill({cr.x + 18, cr.y + cr.h - 22, (cr.w - 36) * (float)(it.played_percent / 100), 6},
@@ -476,8 +497,7 @@ void Home::draw_rows(float dt)
             const float k = 1.f + 0.1f * lift.value;
             const gfx::Rect cr{cx - kCardW * (k - 1) / 2, cy - kCardH * (k - 1) / 2, kCardW * k, kCardH * k};
             gfx::shadow(cr, kCardR * k, 26, 0.3f * lift.value * a, 10 * lift.value);
-            art::draw(cr, card_url(it), it.thumb_blurhash.empty() ? it.backdrop_blurhash : it.thumb_blurhash,
-                      640, 360, kCardR * k, a);
+            draw_card_art(it, cr, kCardR * k, a);
             m_card = {cr, card_url(it), it.thumb_blurhash.empty() ? it.backdrop_blurhash : it.thumb_blurhash,
                       kCardR * k};
             m_has_card = true;

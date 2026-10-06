@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * The top navigation (concept: #topnav): wordmark, the tab pill
- * (Hjem · Filmer · Serier · Søk), clock and the viewer's avatar.
+ * (Hjem · Filmer · Serier · Oppdag · Søk), clock and the viewer's avatar.
  */
 #pragma once
 
@@ -18,8 +18,9 @@ namespace ui {
 class Nav {
 public:
     /* Settings is the avatar on the right, not a pill tab. Movies, Shows and Music
-     * show only when the user has such a library. */
-    enum Tab { Home = 0, Movies, Shows, Music, Search, Settings, Count };
+     * show only when the user has such a library; Discover (Seerr's) only while
+     * Seerr is on and signed in. */
+    enum Tab { Home = 0, Movies, Shows, Music, Discover, Search, Settings, Count };
 
     /* The pill tabs, in order (Home ... Search). */
     void set_tabs(std::vector<int> tabs) { m_tabs = std::move(tabs); }

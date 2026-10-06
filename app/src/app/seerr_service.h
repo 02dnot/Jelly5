@@ -76,6 +76,9 @@ Snapshot snapshot();
 /* Bumped on every change of snapshot(): the screens showing it redraw. */
 unsigned generation();
 bool ready();
+/* Seerr's tab shows: on, and signed in once this session (it stays through a
+ * reconnection rather than vanishing under the viewer). */
+bool available();
 /* The signed-in client (null unless Ready). Shared: a request still running
  * keeps its client when the settings change under it. */
 std::shared_ptr<seerr::Client> client();
@@ -93,6 +96,11 @@ void sign_in(const std::string &user, const std::string &password);
 void sign_out();
 /* Checks the address, the session and the pictures; the line ends up in snapshot().test. */
 void test();
+
+/* The interface's language changed: names and overviews follow. */
+void set_language();
+/* TMDB's genre names, for to_item (blocking: call from a worker; kept per language). */
+void load_genres();
 
 /* A TMDB picture as the console may load it: through Seerr's image cache. */
 std::string image_url(const std::string &path, const char *size);

@@ -173,6 +173,12 @@ std::string Client::normalize(const std::string &typed)
 
 void Client::set_url(const std::string &url) { url_ = normalize(url); }
 
+void Client::set_language(const std::string &lang)
+{
+    std::lock_guard<std::mutex> g(lock_);
+    language_ = lang;
+}
+
 std::string Client::cookies() const
 {
     std::lock_guard<std::mutex> g(lock_);
@@ -292,9 +298,14 @@ bool Client::post(const std::string &path, const std::string &json, std::string 
 
 std::string Client::with_language(const std::string &path) const
 {
-    if (language_.empty())
+    std::string lang;
+    {
+        std::lock_guard<std::mutex> g(lock_);
+        lang = language_;
+    }
+    if (lang.empty())
         return path;
-    return path + (path.find('?') == std::string::npos ? "?" : "&") + "language=" + url_escape(language_);
+    return path + (path.find('?') == std::string::npos ? "?" : "&") + "language=" + url_escape(lang);
 }
 
 bool Client::status(std::string *version)
@@ -543,6 +554,20 @@ bool Client::tv(int tmdb_id, Detail *out)
     }
     cJSON_Delete(j);
     return out->title.id > 0;
+}
+
+std::map<int, std::string> Client::genres(bool tv)
+{
+    std::map<int, std::string> out;
+    std::string body;
+    if (!get(with_language(tv ? "/genres/tv" : "/genres/movie"), &body))
+        return out;
+    cJSON *j = cJSON_Parse(body.c_str());
+    const cJSON *g;
+    cJSON_ArrayForEach(g, j)
+        out[int_of(g, "id")] = str_of(g, "name");
+    cJSON_Delete(j);
+    return out;
 }
 
 std::vector<Server> Client::servers(bool tv)
