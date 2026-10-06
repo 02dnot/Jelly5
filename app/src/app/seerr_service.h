@@ -62,9 +62,6 @@ struct Snapshot {
     std::string error;              /* why it is not Ready, for the log */
     bool testing = false;
     std::string test;               /* the last connection test, in the interface's language */
-    /* Internet mode: Seerr's image cache answered when it connected (else posters
-     * come straight from TMDB). Always true without Internet: nothing else is tried. */
-    bool image_cache = true;
 };
 
 /* After a Jellyfin sign-in: loads this account's settings and connects if Seerr is on. */
@@ -105,9 +102,7 @@ void set_language();
 /* TMDB's genre names, for to_item (blocking: call from a worker; kept per language). */
 void load_genres();
 
-/* A TMDB picture as the console may load it: through Seerr's image cache
- * (seerr::image_url_for: TMDB itself only in Internet mode, when that cache
- * did not answer). */
+/* A TMDB picture as the console may load it: through Seerr's image cache. */
 std::string image_url(const std::string &path, const char *size);
 
 /* A Seerr title as the app's screens draw it: a jf::Item with ext filled in

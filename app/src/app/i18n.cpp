@@ -220,7 +220,6 @@ const std::unordered_map<std::string, const char *> &english_table()
         {"Oppdag", "Discover"}, {"Trender nå", "Trending"}, {"Populære filmer", "Popular movies"},
         {"Populære serier", "Popular TV shows"}, {"Kommende filmer", "Upcoming movies"},
         {"Kommende serier", "Upcoming TV shows"}, {"Mine forespørsler", "My requests"},
-        {" – bildene hentes rett fra TMDB", " – pictures straight from TMDB"},
     };
     return t;
 }
