@@ -81,8 +81,9 @@ void note_status(int tmdb_id, bool tv, int status);
 /* Bumped by note_status: the lists that show statuses read them again. */
 unsigned changes();
 
-/* The titles Discover and search show, without those the administrator hides
- * (available, requested, blocklisted: Seerr's own pages' rules). */
+/* Discover's rows and a page's "Anbefalt"/"Mer som dette", without the titles
+ * the administrator hides (available, requested, blocklisted: Seerr's own
+ * rules). Search shows everything, as Seerr's does. */
 std::vector<seerr::Title> visible(std::vector<seerr::Title> titles);
 
 Config config();
@@ -111,6 +112,8 @@ void reconnect();
 void approve_quick_connect();
 /* A request found the session gone (Seerr: 401/403): sign in again. */
 void session_lost();
+/* Each frame: signs in again a minute after session_lost() gave up (cheap). */
+void poll();
 /* The Jellyfin password (user empty: the account's own name) or a local account. */
 void sign_in(const std::string &user, const std::string &password);
 void sign_out();

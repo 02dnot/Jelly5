@@ -47,6 +47,8 @@ Snapshot s_snap;
 std::shared_ptr<seerr::Client> s_client;
 std::atomic<unsigned> s_gen{0};
 bool s_seen_ready = false;              /* signed in once since the account or settings changed */
+double s_last_lost = -1e9;              /* now_ms() of the last lost session (session_lost) */
+double s_lost_retry_at = 0;             /* signed out by a second loss: sign in again from then (0: no) */
 std::map<int, std::string> s_movie_genres, s_tv_genres;
 std::string s_genres_lang;              /* the language they are in */
 
@@ -416,6 +418,22 @@ bool local_address(const std::string &url)
 
 } // namespace
 
+namespace {
+std::mutex s_noted_lock;
+struct Noted {
+    int status;
+    double at;   /* now_ms() */
+};
+std::map<std::string, Noted> s_noted;   /* "tv:123" -> status, for two minutes: Seerr is read again by then */
+std::atomic<unsigned> s_changes{0};
+void forget_noted()
+{
+    std::lock_guard<std::mutex> g(s_noted_lock);
+    s_noted.clear();
+}
+std::string noted_key(int tmdb_id, bool tv) { return (tv ? "tv:" : "movie:") + std::to_string(tmdb_id); }
+} // namespace
+
 void attach(jf::Client *client)
 {
     const std::string server = client->server(), account = client->server() + "|" + client->user_id();
@@ -426,6 +444,9 @@ void attach(jf::Client *client)
     s_account = account;
     s_stored = loaded;
     s_seen_ready = false;
+    s_last_lost = -1e9;
+    s_lost_retry_at = 0;
+    forget_noted();   /* another account's requests */
     const Stored st = s_stored;
     if (st.config.enabled && !st.config.url.empty()) {
         restart_locked();
@@ -448,6 +469,9 @@ void detach()
     s_account.clear();
     s_stored = Stored();
     s_seen_ready = false;
+    s_last_lost = -1e9;
+    s_lost_retry_at = 0;
+    forget_noted();
     s_client.reset();
     s_snap = Snapshot();
     s_gen++;
@@ -567,16 +591,6 @@ void reconnect()
     restart_locked();
 }
 
-namespace {
-std::mutex s_noted_lock;
-struct Noted {
-    int status;
-    double at;   /* now_ms() */
-};
-std::map<std::string, Noted> s_noted;   /* "tv:123" -> status, for two minutes: Seerr is read again by then */
-std::atomic<unsigned> s_changes{0};
-std::string noted_key(int tmdb_id, bool tv) { return (tv ? "tv:" : "movie:") + std::to_string(tmdb_id); }
-} // namespace
 
 std::vector<seerr::Title> visible(std::vector<seerr::Title> titles)
 {
@@ -595,7 +609,7 @@ std::vector<seerr::Title> visible(std::vector<seerr::Title> titles)
                                     /* As Seerr's page: only for those who manage the blocklist. */
                                     if (ps.hide_blocklisted && t.status == S::Blocklisted && u.has(seerr::kManageBlocklist))
                                         return true;
-                                    return ps.hide_requested && (t.status == S::Pending || t.status == S::Processing);
+                                    return ps.hide_requested && t.active_request;   /* as Seerr's own lists */
                                 }),
                  titles.end());
     return titles;
@@ -603,8 +617,11 @@ std::vector<seerr::Title> visible(std::vector<seerr::Title> titles)
 
 int status_of(const jf::Item &it)
 {
+    const int id = it.ext.tmdb_id ? it.ext.tmdb_id : it.ext.tmdb_ref;
+    if (!id)
+        return it.ext.status;
     std::lock_guard<std::mutex> g(s_noted_lock);
-    const auto n = s_noted.find(noted_key(it.ext.tmdb_id, it.type == "Series"));
+    const auto n = s_noted.find(noted_key(id, it.type == "Series"));
     return n != s_noted.end() && now_ms() - n->second.at < 120000 ? n->second.status : it.ext.status;
 }
 
@@ -640,10 +657,10 @@ void session_lost()
         return;   /* already on it */
     /* At most once a minute: a session that keeps ending must not sign in (and
      * approve a Quick Connect code) on every search. */
-    static double s_last_lost = -1e9;
     const double t = now_ms();
     if (t - s_last_lost < 60000) {
-        evo_bt("seerr: the session ended again within a minute; not signing in again yet");
+        evo_bt("seerr: the session ended again within a minute; signing in again in a minute");
+        s_lost_retry_at = s_last_lost + 60000;   /* poll() then */
         s_snap.state = State::SignedOut;
         s_snap.why = Why::SignedOut;   /* "Ikke pålogget – ✕": whatever the way of signing in */
         s_client.reset();
@@ -652,6 +669,20 @@ void session_lost()
     }
     s_last_lost = t;
     evo_bt("seerr: the session ended, signing in again");
+    write_session("", false);
+    restart_locked();
+}
+
+void poll()
+{
+    std::lock_guard<std::mutex> g(s_lock);
+    if (s_lost_retry_at <= 0 || now_ms() < s_lost_retry_at)
+        return;
+    s_lost_retry_at = 0;
+    if (s_account.empty() || s_snap.state != State::SignedOut || s_snap.why != Why::SignedOut)
+        return;   /* signed in (or out on purpose) meanwhile */
+    s_last_lost = now_ms();
+    evo_bt("seerr: signing in again after the lost sessions");
     write_session("", false);
     restart_locked();
 }
@@ -718,6 +749,7 @@ void sign_out()
     s_snap.testing = false;   /* a test of the last epoch never answers now */
     s_client.reset();
     write_session("", true);
+    s_lost_retry_at = 0;
     s_seen_ready = false;   /* signed out on purpose: Seerr's tab goes */
     s_snap.state = State::SignedOut;
     s_snap.user = seerr::User();

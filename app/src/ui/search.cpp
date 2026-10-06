@@ -160,6 +160,10 @@ void Search::more_seerr()
     {
         std::lock_guard<std::mutex> g(d->lock);
         const int library = (int)d->items.size(), shown = (int)d->seerr_shown.size();
+        if (d->seerr_more_failed) {   /* the last page failed: asked again in five seconds */
+            d->seerr_more_failed = false;
+            d->seerr_more_retry_at = m_now + 5.0;
+        }
         if (!m_in_results || m_result < library || m_result < library + shown - 8 || !d->seerr_more ||
             d->seerr_more_loading || d->seerr_pending || d->for_seerr != d->for_query || d->for_seerr.empty() ||
             m_now < d->seerr_more_retry_at)
@@ -175,10 +179,9 @@ void Search::more_seerr()
         d->seerr_more_loading = false;
         return;
     }
-    const double now = m_now;
-    const bool started = jelly5::spawn([d, sc, q, seq, page, now] {
+    const bool started = jelly5::spawn([d, sc, q, seq, page] {
         int pages = 0;
-        const std::vector<seerr::Title> found = seerr_service::visible(sc->search(q, page, &pages));
+        const std::vector<seerr::Title> found = sc->search(q, page, &pages);
         const int status = sc->last_status();
         std::lock_guard<std::mutex> g(d->lock);
         d->seerr_more_loading = false;
@@ -196,8 +199,8 @@ void Search::more_seerr()
             }
         }
         (void)added;
-        if (status < 200 || status >= 300) {   /* failed: asked again in five seconds */
-            d->seerr_more_retry_at = now + 5.0;
+        if (status < 200 || status >= 300) {   /* failed: the render thread sets when to ask again */
+            d->seerr_more_failed = true;
             return;
         }
         d->seerr_page = page;
@@ -225,11 +228,13 @@ void Search::start_search()
         d->seerr_failed = false;
         d->seerr_page = 1;
         d->seerr_more = true;
+        d->seerr_more_failed = false;
+        d->seerr_more_retry_at = 0;
     }
     if (sc) {
         const bool started = jelly5::spawn([d, sc, q, seq] {
             std::vector<jf::Item> found;
-            for (const seerr::Title &t : seerr_service::visible(sc->search(q)))
+            for (const seerr::Title &t : sc->search(q))
                 found.push_back(seerr_service::to_item(t));
             const int status = sc->last_status();
             if (status == 401 || status == 403)

@@ -59,6 +59,7 @@ void SeerrDetail::activate()
             if (ok) {
                 d->detail = std::move(det);
                 d->loaded = true;
+                d->loads++;
                 d->failed = false;
             } else if (!d->loaded) {
                 d->failed = true;
@@ -68,7 +69,8 @@ void SeerrDetail::activate()
             return;
         /* The rows under the page, once the details show (on this thread: no
          * second one to start, which can fail and abort). */
-        std::vector<seerr::Title> related[2] = {c->related(id, tv, false), c->related(id, tv, true)};
+        std::vector<seerr::Title> related[2] = {seerr_service::visible(c->related(id, tv, false)),
+                                                seerr_service::visible(c->related(id, tv, true))};
         std::lock_guard<std::mutex> g(d->lock);
         for (int i = 0; i < 2; i++)
             if (!related[i].empty())
@@ -131,6 +133,8 @@ void SeerrDetail::sync_button()
     }
     m_button = std::max(0, std::min(m_button, (int)b.size() - 1));
     m_button_id = (int)b[m_button];
+    if (m_button_id != CancelButton)
+        m_cancel_armed = false;   /* the button went: its prompt with it */
 }
 
 Action SeerrDetail::input(uint32_t p)
@@ -308,6 +312,10 @@ void SeerrDetail::draw(double now, float dt)
         m_failed = m_data->failed;
         if (m_loaded)
             m_detail = m_data->detail;
+        if (m_note_after_load && m_data->loads >= m_note_after_load && m_loaded) {
+            m_note_after_load = 0;
+            seerr_service::note_status(m_item.ext.tmdb_id, m_item.type == "Series", (int)m_detail.title.status);
+        }
         for (int i = 0; i < 2; i++)
             if (m_rows[i].size() != m_data->related[i].size()) {
                 m_rows[i].clear();
@@ -330,8 +338,10 @@ void SeerrDetail::draw(double now, float dt)
     }
     if (cancelled)
         m_cancelling = false;
-    if (cancelled > 0)
-        seerr_service::note_status(m_item.ext.tmdb_id, m_item.type == "Series", (int)seerr::Status::Unknown);
+    if (cancelled > 0) {   /* the title's status as Seerr has it now (others may still ask for it): after the reload */
+        std::lock_guard<std::mutex> g(m_data->lock);
+        m_note_after_load = m_data->loads + 1;
+    }
     if (cancelled) {   /* withdrawn (or not): say so, and read the page again */
         m_note = cancelled > 0 ? T("Forespørselen er trukket tilbake") : T("Kunne ikke trekke tilbake forespørselen");
         m_note_dot = cancelled > 0 ? 0xff30d158u : 0xffff9f0au;
@@ -487,7 +497,10 @@ void SeerrDetail::draw(double now, float dt)
         cy += 46;
     }
     std::string why;
-    if (!m_loaded && !m_failed)
+    if (snap.state != seerr_service::State::Ready && !m_loaded)   /* why it cannot load, first */
+        why = snap.state == seerr_service::State::Unreachable ? T("Seerr svarer ikke")
+                                                              : T("Ikke pålogget Seerr \xE2\x80\x93 se Innstillinger");
+    else if (!m_loaded && !m_failed)
         why = T("Henter \xE2\x80\xA6");   /* the details on their way (no buttons yet) */
     else if (m_failed)
         why = T("Kunne ikke hente detaljene fra Seerr");

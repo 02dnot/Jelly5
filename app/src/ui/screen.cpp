@@ -344,18 +344,17 @@ void draw_poster(jf::Client &c, const jf::Item &it, const gfx::Rect &base, float
                       alpha(kText2, opacity));
         }
         art::draw(r, it.ext.poster, "", 480, 720, 14 * k, opacity, 0);
-        using RS = seerr::RequestStatus;
-        if (it.ext.request == (int)RS::Declined)   /* "Mine forespørsler": the request's own fate */
-            draw_label_chip(r.x + 10, r.y + 10, T("Avslått"), 0xffff453au, opacity);
-        else if (it.ext.request == (int)RS::Failed)
-            draw_label_chip(r.x + 10, r.y + 10, T("Feilet"), 0xffff453au, opacity);
-        else
-            draw_status_chip(r.x + 10, r.y + 10, seerr_service::status_of(it), opacity);
     } else {
         art::draw(r, poster_url(c, it, 480), it.primary_blurhash, 480, 720, 14 * k, opacity);
-        if (it.ext.status > (int)seerr::Status::Unknown)   /* a library item on Seerr's tab: where it stands */
-            draw_status_chip(r.x + 10, r.y + 10, it.ext.status, opacity);
     }
+    /* Where it stands in Seerr (a library item on Seerr's tab too). */
+    using RS = seerr::RequestStatus;
+    if (it.ext.request == (int)RS::Declined)   /* "Mine forespørsler": the request's own fate */
+        draw_label_chip(r.x + 10, r.y + 10, T("Avslått"), 0xffff453au, opacity);
+    else if (it.ext.request == (int)RS::Failed)
+        draw_label_chip(r.x + 10, r.y + 10, T("Feilet"), 0xffff453au, opacity);
+    else if (it.external() || it.ext.tmdb_ref)
+        draw_status_chip(r.x + 10, r.y + 10, seerr_service::status_of(it), opacity);
     /* Watched: a check; a series with episodes left: how many. Both on a small piece
      * of glass (tint, sheen, lit rim - no blur: there are dozens on screen). */
     auto chip = [&](const gfx::Rect &b) {

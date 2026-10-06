@@ -406,6 +406,7 @@ const std::unordered_map<std::string, const char *> &italian_table()
         {"Kvoten din er brukt opp", "La tua quota è esaurita"},
         {"Kvoten din gir plass til %d sesonger til", "La tua quota consente ancora %d stagioni"},
         {"Seerr svarer ikke – ✕ for å prøve igjen", "Seerr non risponde – ✕ per riprovare"},
+        {"Ikke pålogget Seerr – ✕ for å logge på igjen", "Accesso a Seerr non effettuato – ✕ per accedere di nuovo"},
         {"Slettet", "Eliminato"},
         {"Trykk ✕ igjen for å logge ut", "Premi di nuovo ✕ per uscire"},
         {"Trykk ✕ igjen for å trekke tilbake forespørselen", "Premi di nuovo ✕ per ritirare la richiesta"},

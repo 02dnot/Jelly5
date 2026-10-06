@@ -117,6 +117,9 @@ Title title_of(const cJSON *o, bool tv)
     if (cJSON_IsObject(media)) {
         t.status = status_of(int_of(media, "status", 1));
         t.jellyfin_id = jellyfin_id_of(str_of(media, "jellyfinMediaId"));
+        const cJSON *active = cJSON_GetObjectItemCaseSensitive(media, "hasActiveRequest");
+        t.active_request = cJSON_IsBool(active) ? cJSON_IsTrue(active)   /* older Seerr: what the status says */
+                                                : t.status == Status::Pending || t.status == Status::Processing;
     }
     return t;
 }
@@ -228,9 +231,17 @@ bool Client::has_session() const
 
 Client::Last &Client::last_here()
 {
-    if (last_.size() > 64 && !last_.count(std::this_thread::get_id()))
-        last_.clear();   /* threads come and go: keep it small */
-    return last_[std::this_thread::get_id()];
+    const std::thread::id me = std::this_thread::get_id();
+    if (last_.size() >= 64 && !last_.count(me)) {   /* threads come and go: the longest unused goes */
+        auto oldest = last_.begin();
+        for (auto it = last_.begin(); it != last_.end(); ++it)
+            if (it->second.used < oldest->second.used)
+                oldest = it;
+        last_.erase(oldest);
+    }
+    Last &l = last_[me];
+    l.used = ++last_use_;
+    return l;
 }
 
 std::string Client::last_error() const

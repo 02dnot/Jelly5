@@ -244,7 +244,12 @@ void Detail::activate()
     std::shared_ptr<Data> d = m_data;
     jf::Client *c = &m_client;
     const jf::Item base = m_view.item;
-    std::thread([d, c, base] {
+    const bool seerr = base.type == "Series" && seerr_service::ready();
+    if (seerr) {   /* from now: a frame before the page has loaded must not look it up as well */
+        std::lock_guard<std::mutex> g(d->lock);
+        d->seerr_pending = true;
+    }
+    const bool started = jelly5::spawn([d, c, base, seerr] {
         jelly5_wait_reports(4000);   /* back from playing: the stop report first */
         Content fresh = fetch(*c, base);
         cache_put(cache_key(*c, base.id), fresh);
@@ -255,7 +260,15 @@ void Detail::activate()
         }
         if (item.type == "Series")   /* after the page: Seerr never holds it up */
             look_up_in_seerr(d, item);
-    }).detach();
+        else if (seerr) {
+            std::lock_guard<std::mutex> g(d->lock);
+            d->seerr_pending = false;
+        }
+    });
+    if (!started && seerr) {   /* no thread: the page keeps what it has */
+        std::lock_guard<std::mutex> g(d->lock);
+        d->seerr_pending = false;
+    }
 }
 
 /* The series in Seerr, by its TMDB id (or by its TVDB id, which Seerr's search
@@ -263,11 +276,11 @@ void Detail::activate()
 void Detail::look_up_in_seerr(const std::shared_ptr<Data> &d, const jf::Item &series)
 {
     std::shared_ptr<seerr::Client> sc = seerr_service::client();
-    if (!sc || (series.tmdb_id.empty() && series.tvdb_id.empty()))
-        return;
     {
         std::lock_guard<std::mutex> g(d->lock);
-        d->seerr_pending = true;
+        d->seerr_pending = sc && !(series.tmdb_id.empty() && series.tvdb_id.empty());
+        if (!d->seerr_pending)
+            return;   /* (pending ends on every way out) */
     }
     int tmdb = std::atoi(series.tmdb_id.c_str());
     if (tmdb <= 0)
@@ -425,20 +438,29 @@ Action Detail::input(uint32_t p)
         } else if (a.kind == Action::Changed) {
             if (m_menu_zone == Episodes) {
                 apply_local(a.change, false);
-            } else if (m_menu_zone == Seasons && m_season < (int)m_view.seasons.size()) {
+            } else if (m_menu_zone == Seasons) {
                 /* The whole season: Jellyfin marks every episode in it. Into the page's
-                 * data (each frame copies it): the view alone forgot it at once. */
+                 * data (each frame copies it): the view alone forgot it at once. By its
+                 * id: the data may have been reloaded since the menu opened. */
                 std::lock_guard<std::mutex> g(m_data->lock);
                 Content &c = m_data->c;
-                if (m_season < (int)c.seasons.size()) {
-                    jf::Item &season = c.seasons[m_season];
-                    season.played = a.change.played;
+                const auto season = std::find_if(c.seasons.begin(), c.seasons.end(),
+                                                 [&](const jf::Item &s) { return s.id == a.change.id; });
+                if (season != c.seasons.end()) {
+                    season->played = a.change.played;
+                    auto in_season = [&](const jf::Item &e) {
+                        return e.season_id == season->id || (e.season_id.empty() && e.parent_index == season->index);
+                    };
+                    auto mark = [&](jf::Item &e) {
+                        e.played = a.change.played;
+                        if (a.change.played)
+                            e.played_percent = 0, e.position_ticks = 0;
+                    };
                     for (jf::Item &e : c.all_episodes)
-                        if (e.season_id == season.id || (e.season_id.empty() && e.parent_index == season.index)) {
-                            e.played = a.change.played;
-                            if (a.change.played)
-                                e.played_percent = 0, e.position_ticks = 0;
-                        }
+                        if (in_season(e))
+                            mark(e);
+                    if (c.have_target && in_season(c.target))   /* "Fortsett"/"Spill av" names it too */
+                        mark(c.target);
                     m_view = c;
                     select_episodes();
                 }

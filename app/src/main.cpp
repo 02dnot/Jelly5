@@ -142,8 +142,9 @@ struct State {
 };
 State s_state;
 unsigned s_model_version = 0, s_home_version = 0;   /* model published / taken by Home */
-unsigned s_discover_version = 0, s_discover_taken = 0;   /* Seerr's tab: published / taken */
-unsigned s_discover_appended = 0;   /* a next page queued for its rows (a frame to take it) */
+std::atomic<unsigned> s_discover_version{0};   /* Seerr's tab: published (bumped off the render thread) */
+unsigned s_discover_taken = 0;                 /* ... and taken */
+std::atomic<unsigned> s_discover_appended{0};  /* a next page queued for its rows (a frame to take it) */
 std::atomic<unsigned> s_session{0};                 /* bumped on every account change */
 
 /* One client per session, configured before anyone uses it and never changed or
@@ -649,6 +650,7 @@ std::vector<jf::Item> discover_items(const std::vector<seerr::Title> &list)
         if (own != owned.end()) {   /* the library's item, still saying where it stands (available, partly) */
             jf::Item it = own->second;
             it.ext.status = (int)t.status;
+            it.ext.tmdb_ref = t.id;   /* the status register and "Mine forespørsler" find it by this */
             out.push_back(std::move(it));
         } else {
             out.push_back(seerr_service::to_item(t));
@@ -711,6 +713,94 @@ void load_more_discover(unsigned session, int shelf, int page)
     }
 }
 
+/* The viewer's own requests, newest first: a request names a title, its page
+ * has the rest (looked up side by side, kept in order). state: "tv:123" -> the
+ * newest request's state; status: the list's HTTP status (whether the session holds). */
+std::vector<seerr::Title> load_mine(seerr::Client &c, std::map<std::string, int> *state, int *status)
+{
+    const int uid = seerr_service::snapshot().user.id;
+    const std::vector<seerr::Request> reqs = c.requests(uid, 12);
+    *status = c.last_status();
+    std::vector<const seerr::Request *> unique;   /* a series asked for season by season: once */
+    std::set<std::string> seen;
+    for (const seerr::Request &rq : reqs) {
+        const std::string key = (rq.tv ? "tv:" : "movie:") + std::to_string(rq.tmdb_id);
+        if (seen.insert(key).second) {
+            unique.push_back(&rq);
+            (*state)[key] = (int)rq.status;   /* the newest request's (Seerr lists them newest first) */
+        }
+    }
+    std::vector<seerr::Detail> found(unique.size());
+    std::vector<std::function<void()>> jobs;
+    for (size_t i = 0; i < unique.size(); i++)
+        jobs.push_back([&, i] {
+            const seerr::Request &rq = *unique[i];
+            if (!(rq.tv ? c.tv(rq.tmdb_id, &found[i]) : c.movie(rq.tmdb_id, &found[i])))
+                found[i].title.id = 0;
+        });
+    jelly5::run_all(jobs);
+    std::vector<seerr::Title> out;
+    for (const seerr::Detail &d : found)
+        if (d.title.id > 0)
+            out.push_back(d.title);
+    return out;
+}
+
+/* "Mine forespørsler" as a row of the tab, each card with its request's state. */
+ui::HomeRow mine_row(const std::vector<seerr::Title> &mine, const std::map<std::string, int> &state)
+{
+    ui::HomeRow r;
+    r.title = T("Mine forespørsler");
+    r.kind = ui::HomeRow::Latest;
+    r.shelf = -1;
+    r.items = discover_items(mine);
+    for (jf::Item &it : r.items) {
+        const auto st = state.find((it.type == "Series" ? "tv:" : "movie:") +
+                                   std::to_string(it.external() ? it.ext.tmdb_id : it.ext.tmdb_ref));
+        if (st != state.end())
+            it.ext.request = st->second;
+    }
+    return r;
+}
+
+/* After a request or a withdrawal: only "Mine forespørsler" is read again (the
+ * other rows keep their pages; their chips follow the status register). */
+void refresh_mine(unsigned session)
+{
+    if (!seerr_service::available())
+        return;
+    jelly5::spawn([session] {
+        std::shared_ptr<seerr::Client> c = seerr_service::client();
+        if (!c)
+            return;
+        std::map<std::string, int> state;
+        int status = 0;
+        const std::vector<seerr::Title> mine = load_mine(*c, &state, &status);
+        if (status == 401 || status == 403) {
+            seerr_service::session_lost();
+            return;
+        }
+        if (status < 200 || status >= 300)
+            return;   /* the row stays as it was */
+        ui::HomeRow row = mine_row(mine, state);
+        std::lock_guard<std::mutex> g(s_state.lock);
+        if (session != s_session || s_state.discover.rows.empty())
+            return;   /* not loaded yet: the whole tab comes with it */
+        std::vector<ui::HomeRow> &rows = s_state.discover.rows;
+        auto at = std::find_if(rows.begin(), rows.end(), [](const ui::HomeRow &r) { return r.shelf == -1; });
+        if (at != rows.end()) {
+            if (mine.empty())
+                rows.erase(at);
+            else
+                *at = std::move(row);
+        } else if (!mine.empty()) {   /* after "Trender nå", as load_discover puts it */
+            const bool trending = rows.front().shelf == 0;
+            rows.insert(rows.begin() + (trending ? 1 : 0), std::move(row));
+        }
+        s_discover_version++;
+    });
+}
+
 void load_discover(unsigned session)
 {
     std::shared_ptr<seerr::Client> c = seerr_service::client();
@@ -740,20 +830,11 @@ void load_discover(unsigned session)
                 lists[i] = seerr_service::visible(c->discover(shelves[i]));
                 note();
             });
-        const int uid = seerr_service::snapshot().user.id;
-        jobs.push_back([&] {   /* a request names a title; its page has the rest (one after another) */
-            std::set<std::string> seen;   /* a series asked for season by season: once */
-            const std::vector<seerr::Request> reqs = c->requests(uid, 12);
-            note();
-            for (const seerr::Request &rq : reqs) {
-                const std::string key = (rq.tv ? "tv:" : "movie:") + std::to_string(rq.tmdb_id);
-                seerr::Detail d;
-                if (seen.count(key) || !(rq.tv ? c->tv(rq.tmdb_id, &d) : c->movie(rq.tmdb_id, &d)) || d.title.id <= 0)
-                    continue;
-                seen.insert(key);
-                mine.push_back(d.title);
-                mine_state[key] = (int)rq.status;   /* the newest request's (Seerr lists them newest first) */
-            }
+        jobs.push_back([&] {
+            int st = 0;
+            mine = load_mine(*c, &mine_state, &st);
+            if (st == 401 || st == 403)
+                lost = true;
         });
         jelly5::run_all(jobs);   /* side by side; a job without a thread runs here */
         if (lost)
@@ -771,14 +852,8 @@ void load_discover(unsigned session)
         m.rows.push_back(std::move(r));
     };
     row(T("Trender nå"), lists[0], 0);
-    row(T("Mine forespørsler"), mine, -1);   /* second, as Seerr's own page (only when there are any) */
-    if (!mine.empty() && m.rows.size() >= 1)
-        for (jf::Item &it : m.rows.back().items) {
-            const auto st = mine_state.find((it.type == "Series" ? "tv:" : "movie:") +
-                                            std::to_string(it.external() ? it.ext.tmdb_id : 0));
-            if (st != mine_state.end())
-                it.ext.request = st->second;
-        }
+    if (!mine.empty())   /* second, as Seerr's own page (only when there are any) */
+        m.rows.push_back(mine_row(mine, mine_state));
     row(T("Populære filmer"), lists[1], 1);
     row(T("Populære serier"), lists[2], 2);
     row(T("Kommende filmer"), lists[3], 3);
@@ -1060,6 +1135,12 @@ void reset_screens()
     s_state.discover_at = -1;
     s_state.discover_failed = false;
     s_state.discover_again = false;
+    /* The last account's loads may still be running: they find the session moved
+     * and drop what they bring; the new one need not wait for them. */
+    s_state.discover_loading = false;
+    s_state.discover_more_loading = false;
+    s_state.discover_more_retry_at = 0;
+    s_state.discover_appends.clear();
     s_discover_taken = ~0u;
 }
 
@@ -1197,7 +1278,10 @@ void shell_input(uint32_t p, jf::Item *play, bool *chose, bool *from_start, bool
         return;
     }
     if (s_tab == ui::Nav::Discover && s_stack.empty() && s_discover->empty() && (p & NUVIO_BTN_CROSS)) {
-        refresh_discover(0, true);   /* the empty tab: ✕ asks Seerr again */
+        if (seerr_service::snapshot().state == seerr_service::State::Ready)
+            refresh_discover(0, true);   /* the empty tab: ✕ asks Seerr again */
+        else
+            seerr_service::reconnect();  /* not signed in, or not answering: connect again (the rows follow) */
         return;
     }
     ui::Screen *in_screen = screen_for(s_tab);
@@ -1463,7 +1547,7 @@ bool draw_frame(double t, float dt)
     static unsigned seen_seerr_changes = 0;
     if (seerr_service::changes() != seen_seerr_changes) {
         seen_seerr_changes = seerr_service::changes();
-        refresh_discover(0, true);
+        refresh_mine(s_session);
     }
     /* Near the end of one of Seerr's rows: its next page. Outside the lock, which
      * load_more_discover takes itself (taking it twice aborted the app). */
@@ -1538,12 +1622,16 @@ bool draw_frame(double t, float dt)
                     failed = s_state.discover_failed && !s_state.discover_loading;
                 }
                 /* Seerr answered with nothing, or did not answer: either way ✕ asks again. */
-                const bool ready = seerr_service::snapshot().state == seerr_service::State::Ready;
-                const std::string text = !failed ? T("Henter \xE2\x80\xA6")
+                const seerr_service::State st = seerr_service::snapshot().state;
+                const bool ready = st == seerr_service::State::Ready;
+                const bool fetching = st == seerr_service::State::Connecting || (ready && !failed);
+                const std::string text = fetching ? T("Henter \xE2\x80\xA6")
                                          : ready ? T("Ingenting å vise akkurat nå \xE2\x80\x93 \xE2\x9C\x95 for å prøve igjen")
-                                                 : T("Seerr svarer ikke \xE2\x80\x93 \xE2\x9C\x95 for å prøve igjen");
-                gfx::text(gfx::W / 2, gfx::H / 2, text, {gfx::SemiBold, 34}, failed ? ui::kText2 : ui::kText3, 1);
-                discover_wait = !failed;
+                                         : st == seerr_service::State::SignedOut
+                                             ? T("Ikke pålogget Seerr \xE2\x80\x93 \xE2\x9C\x95 for å logge på igjen")
+                                             : T("Seerr svarer ikke \xE2\x80\x93 \xE2\x9C\x95 for å prøve igjen");
+                gfx::text(gfx::W / 2, gfx::H / 2, text, {gfx::SemiBold, 34}, fetching ? ui::kText3 : ui::kText2, 1);
+                discover_wait = fetching;
             }
             if (enter < 1.f)
                 gfx::pop_opacity();
@@ -1933,6 +2021,7 @@ int main()
         }
         /* Frames only while something moves; idle, the last frame stays up. */
         /* Seerr's state moves on its own (the settings show it). */
+        seerr_service::poll();
         const bool seerr_moved = seerr_gen != seerr_service::generation();
         seerr_gen = seerr_service::generation();
         if (seerr_moved && phase == Phase::Home) {   /* Seerr's tab comes and goes with it */
@@ -1940,7 +2029,14 @@ int main()
                 std::lock_guard<std::mutex> g(s_state.lock);
                 apply_views(s_state.views);
             }
-            refresh_discover(1e9);   /* the first time it is there */
+            bool failed;
+            {
+                std::lock_guard<std::mutex> g(s_state.lock);
+                failed = s_state.discover_failed;
+            }
+            /* The first time it is there, or again when it comes back to rows that failed. */
+            const bool again = failed && seerr_service::snapshot().state == seerr_service::State::Ready;
+            refresh_discover(again ? 0 : 1e9, again);
         }
         const bool changed = in.pressed || phase != last_phase || s_model_version != last_model ||
                              gate.kind != Gate::None || seerr_moved || s_discover_version != last_discover ||

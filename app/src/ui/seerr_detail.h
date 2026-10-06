@@ -41,6 +41,7 @@ private:
     struct Data {
         std::mutex lock;
         bool loaded = false, failed = false;
+        unsigned loads = 0;                      /* successful loads (a withdrawal waits for the next) */
         seerr::Detail detail;
         std::vector<seerr::Title> related[2];   /* recommendations, similar */
         int cancel_result = 0;                   /* a withdrawal: 1 done, -1 failed */
@@ -72,6 +73,7 @@ private:
     bool m_animating = false;
     /* "Trekk tilbake": the first ✕ arms it (until the focus moves), the second withdraws. */
     bool m_cancel_armed = false, m_cancelling = false;
+    unsigned m_note_after_load = 0;         /* withdrawn: note the status the next load brings (0: none) */
     /* Under the page: "Anbefalt" and "Lignende" (posters). m_row -1: the buttons. */
     std::vector<jf::Item> m_rows[2];
     int m_row = -1, m_cols[2] = {0, 0};

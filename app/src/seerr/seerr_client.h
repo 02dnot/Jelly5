@@ -95,6 +95,7 @@ struct Title {
     double vote = 0;                    /* TMDB's average, 0-10 */
     std::vector<int> genre_ids;
     Status status = Status::Unknown;
+    bool active_request = false;        /* a request pending or approved (mediaInfo.hasActiveRequest) */
     std::string jellyfin_id;            /* the media server's item, when it has the title */
 };
 
@@ -293,8 +294,10 @@ private:
         std::string error;
         bool unreachable = false;
         int status = 0;
+        unsigned long used = 0;         /* last_use_ when last touched */
     };
     std::map<std::thread::id, Last> last_;
+    unsigned long last_use_ = 0;
     Last &last_here();                  /* with lock_ held */
 };
 
