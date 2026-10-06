@@ -363,7 +363,7 @@ const std::unordered_map<std::string, const char *> &french_table()
         {"%d av %d forespørsler brukt (siste %d dager)", "%d demandes sur %d utilisées (%d derniers jours)"},
         {"Henter valg …", "Chargement des options …"},
         {"Sender …", "Envoi …"},
-        {"Be om «", "Demander «"},
+        {"Be om «%s»", "Demander « %s »"},
         {"Serie", "Série"},
         {"Film", "Film"},
         {"Alle sesonger", "Toutes les saisons"},

@@ -202,7 +202,7 @@ const std::unordered_map<std::string, const char *> &english_table()
         {"Godkjennes automatisk og sendes rett videre", "Approved automatically and sent straight on"},
         {"En administrator må godkjenne den", "An administrator must approve it"},
         {"%d av %d forespørsler brukt (siste %d dager)", "%d of %d requests used (last %d days)"},
-        {"Henter valg …", "Loading options …"}, {"Sender …", "Sending …"}, {"Be om «", "Request «"},
+        {"Henter valg …", "Loading options …"}, {"Sender …", "Sending …"}, {"Be om «%s»", "Request “%s”"},
         {"Serie", "Series"}, {"Film", "Movie"}, {"Alle sesonger", "All seasons"},
         {"Alle manglende sesonger", "All missing seasons"}, {"%d sesong", "%d season"}, {"%d sesonger", "%d seasons"},
         {"%d episoder", "%d episodes"}, {"Kvalitetsprofil", "Quality profile"}, {"Rotmappe", "Root folder"},

@@ -384,8 +384,9 @@ void RequestSheet::draw(float dt, bool *animating)
     glass_panel(r, 28, a);
 
     float y = r.y + 56 + 34;
-    gfx::text(r.x + 48, y, T("Be om \xC2\xAB") + m_detail.title.name + "\xC2\xBB", {gfx::Bold, 34, kW - 96},
-              alpha(kText, a));
+    char title[256];   /* each language its own quotation marks */
+    std::snprintf(title, sizeof title, T("Be om \xC2\xAB%s\xC2\xBB"), m_detail.title.name.c_str());
+    gfx::text(r.x + 48, y, title, {gfx::Bold, 34, kW - 96}, alpha(kText, a));
     y += 40;
     std::string sub = tv ? T("Serie") : T("Film");
     if (m_detail.title.year)
