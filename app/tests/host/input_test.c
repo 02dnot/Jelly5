@@ -1,5 +1,10 @@
-/* Synthetic tests of the production input owner; no console or server needed.
- * SPDX-License-Identifier: GPL-3.0-or-later */
+/*
+ * Jelly5 — Jellyfin for PS5
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ *
+ * Synthetic tests of the input (nuvio_input.c): the DualSense and the TV
+ * remote on fake pads; no console or server needed. Run by input.sh.
+ */
 #define _POSIX_C_SOURCE 200809L
 #include <assert.h>
 #include <stdio.h>
@@ -20,7 +25,7 @@ static int test_clock_gettime(clockid_t id, struct timespec *out)
     return 0;
 }
 #define clock_gettime test_clock_gettime
-#include "../src/nuvio_input.c"
+#include "../../src/nuvio_input.c"
 #undef clock_gettime
 
 enum { STANDARD_HANDLE = 10, REMOTE_HANDLE = 20 };

@@ -5,12 +5,13 @@
  */
 #pragma once
 /*
- * Controller input for Jelly5: the DualSense and optional remote-control
- * port through scePad, plus
+ * Controller input for the Nuvio Player: the DualSense through scePad, plus
  * buttons injected by the payload's command channel ("key" commands), merged
  * into one stream of presses with auto-repeat for held directions.
  *
- * The shell and player share this owner; both handles are closed at handoff.
+ * Jelly5: also the TV remote (HDMI Device Link), when the console has one, on
+ * the same stream. Its menus and the player share this input; both pads are
+ * closed at handoff.
  */
 #include <stdint.h>
 

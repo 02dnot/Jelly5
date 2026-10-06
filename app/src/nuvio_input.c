@@ -57,8 +57,10 @@ typedef struct ScePadVibration {
 #define STICK_OFF 60
 
 static int s_pad = -1;
-/* HDMI Device Link uses the system remote-control port (16), user 0xff.
- * ABI: ps5-native-gamepad-input-research/include/ps5_pad.hpp. */
+/* Jelly5: the TV remote through HDMI Device Link (CEC): the system user's
+ * remote-control port (user 0xff, port 16), as in PS5-SDL's remote backend
+ * (src/video/ps5/SDL_ps5remote.c) and kodi-ps5's ScePad.h. Its samples are
+ * the 120-byte ScePadData of the PS4 layout. */
 enum { PAD_PORT_STANDARD = 0, PAD_PORT_REMOTE_CONTROL = 16, PAD_REMOTE_SYSTEM_USER = 0xff };
 static int s_remote_pad = -1;
 static uint32_t s_remote_ignore;
