@@ -1387,6 +1387,8 @@ bool draw_frame(double t, float dt)
 {
     Phase phase;
     std::string message;
+    int more_shelf = 0, more_page = 0;
+    bool more = false;
     {
         std::lock_guard<std::mutex> g(s_state.lock);
         phase = s_state.phase;
@@ -1404,10 +1406,12 @@ bool draw_frame(double t, float dt)
             s_discover_taken = s_discover_version;
             s_discover->set_model(s_state.discover);
         }
-        int more_shelf, more_page;   /* near the end of one of Seerr's rows: its next page */
-        if (s_tab == ui::Nav::Discover && s_stack.empty() && s_discover->wants_more(&more_shelf, &more_page))
-            load_more_discover(s_session, more_shelf, more_page);
+        more = s_tab == ui::Nav::Discover && s_stack.empty() && s_discover->wants_more(&more_shelf, &more_page);
     }
+    /* Near the end of one of Seerr's rows: its next page. Outside the lock, which
+     * load_more_discover takes itself (taking it twice aborted the app). */
+    if (more)
+        load_more_discover(s_session, more_shelf, more_page);
     art::tick();
     gfx::begin_frame();
     bool animating = true;
