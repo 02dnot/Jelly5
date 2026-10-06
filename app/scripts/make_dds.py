@@ -7,8 +7,9 @@ when Jelly5 is selected and pic1.dds while it launches. Both must be a single
 3840x2160 BC7_UNORM DX10 DDS without mipmaps (as ProsperoTV's prepare-assets
 checks). PNG is ignored there.
 
-    python3 -m venv /tmp/dds && /tmp/dds/bin/pip install etcpak pillow
-    /tmp/dds/bin/python app/scripts/make_dds.py app/assets/brand/background-source.png
+    python3 -m venv /tmp/dds && /tmp/dds/bin/pip install numpy etcpak pillow
+    /tmp/dds/bin/python app/scripts/make_backdrop.py /tmp/backdrop.png   (the launch backdrop)
+    /tmp/dds/bin/python app/scripts/make_dds.py /tmp/backdrop.png
 """
 import struct
 import sys

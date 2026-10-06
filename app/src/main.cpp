@@ -1476,58 +1476,48 @@ void apply_views(const std::vector<jf::Item> &views)
 }
 
 /* ---- drawing (GPU, src/gfx) ------------------------------------------------------ */
-void draw_wordmark(float cx, float baseline, float size)
-{
-    ui::draw_brand(cx - ui::brand_width(size) / 2, baseline, size);
-}
-
-void draw_status(const std::string &title, const std::string &line, double t, const std::string &hint = "")
-{
-    gfx::fill({0, 0, gfx::W, gfx::H}, 0xff07070au);
-    draw_wordmark(gfx::W / 2, 470, 96);
-    gfx::text(gfx::W / 2, 580, title, {gfx::SemiBold, 38, 1400}, 0xfff5f5f7u, 1);
-    if (!line.empty())
-        gfx::text(gfx::W / 2, 636, line, {gfx::Medium, 28, 1400}, 0xadebebf5u, 1);
-    for (int i = 0; i < 3; i++) {   /* three dots pulsing in turn */
-        const float a = 0.3f + 0.7f * (0.5f + 0.5f * std::sin((float)t * 5.f - i * 0.9f));
-        gfx::fill({gfx::W / 2 - 40 + i * 32, 720, 14, 14}, ((uint32_t)(a * 255) << 24) | 0xf5f5f7u, 7);
-    }
-    if (!hint.empty())
-        ui::draw_pad_hints(gfx::W / 2, 992, {{ui::PadButton::Circle, hint}}, 1);
-}
-
-/* The start-up splash: the same picture the PS5 shows while it launches the app
- * (sce_sys/pic1.dds, from the same source), so the hand-over from the system to
- * the app does not jump; the mark fades in over it and breathes gently. */
-void draw_splash(double t, float a)
+/* The launch screen: starting up, a server that does not answer, nothing to show.
+ * The backdrop the PS5 shows while it launches the app (the same picture), the
+ * mark in the middle, and under it what is going on. busy: a thin line runs
+ * under the mark. The line and the text come a second after start, so a quick
+ * start shows only the mark. */
+void draw_launch(double t, float a, const std::string &title, const std::string &line, bool busy,
+                 const std::string &hint = "")
 {
     if (a <= 0.f)
         return;
-    static const gfx::Texture *bg = [] {
-        const gfx::Texture *tex = nullptr;
-        const ui_asset as = ui_asset_img_splash();
-        ui_image img;
-        if (as.data && ui_image_decode(as.data, as.size, 1920, 1080, &img) == 0) {
-            tex = gfx::texture_from_image(&img);
-            ui_image_free(&img);
-        }
-        return tex;
-    }();
     static double first = -1;
     if (first < 0)
         first = t;
+    const double age = t - first;
     gfx::push_opacity(a);
-    if (bg) {
+    if (const gfx::Texture *bg = ui::launch_backdrop())
         gfx::image({0, 0, gfx::W, gfx::H}, bg, 1.f, 0, true);
-    } else {
-        gfx::fill({0, 0, gfx::W, gfx::H}, 0xff07070au);
-        gfx::fill_vgradient({0, 0, gfx::W, gfx::H}, 0x26402a5cu, 0x14003c55u);
-    }
-    const float in = std::min(1.f, (float)(t - first) / 0.6f);   /* the mark fades in */
-    const float pulse = 0.5f + 0.5f * std::sin((float)t * 2.2f);
-    gfx::push_opacity(ui::smoothstep(in) * (0.85f + 0.15f * pulse));
-    ui::draw_brand(gfx::W / 2 - ui::brand_width(110) / 2, 578, 110, 1.f, true);
+    else
+        gfx::fill({0, 0, gfx::W, gfx::H}, 0xff07070cu);
+    gfx::push_opacity(ui::smoothstep(std::min(1.f, (float)age / 0.6f)));   /* the mark fades in */
+    ui::draw_brand(gfx::W / 2 - ui::brand_width(110) / 2, 560, 110);
     gfx::pop_opacity();
+    gfx::push_opacity(ui::smoothstep(std::max(0.f, std::min(1.f, (float)(age - 1.0) / 0.5f))));
+    float y = 650;
+    if (busy) {   /* a short light sliding along a faint track, eased at both ends */
+        const gfx::Rect track{gfx::W / 2 - 110, y, 220, 3};
+        gfx::fill(track, 0x24ffffffu, 1.5f);
+        const float p = ui::smoothstep((float)std::fmod(age, 1.6) / 1.6f), seg = 72;
+        gfx::push_scissor(track);
+        gfx::fill({track.x - seg + (track.w + seg) * p, y, seg, 3}, 0xd9ffffffu, 1.5f);
+        gfx::pop_scissor();
+        y += 60;
+    } else {
+        y += 10;
+    }
+    if (!title.empty())
+        gfx::text(gfx::W / 2, y, title, {gfx::SemiBold, 30, 1400}, ui::kText, 1);
+    if (!line.empty())
+        gfx::text(gfx::W / 2, y + 46, line, {gfx::Medium, 24, 1400}, ui::kText2, 1);
+    gfx::pop_opacity();
+    if (!hint.empty())
+        ui::draw_pad_hints(gfx::W / 2, 992, {{ui::PadButton::Circle, hint}}, 1);
     gfx::pop_opacity();
 }
 
@@ -1586,10 +1576,10 @@ bool draw_frame(double t, float dt)
     case Phase::Connecting:
     case Phase::Loading:
         s_splash.snap(1.f);
-        draw_splash(t, 1.f);
+        draw_launch(t, 1.f, message, "", true);
         break;
     case Phase::Failed:
-        draw_status(message, "", t, T("Bytt bruker eller server"));
+        draw_launch(t, 1.f, message, "", true, T("Bytt bruker eller server"));   /* (it tries again) */
         break;
     case Phase::Gate:
         s_splash.snap(0.f);
@@ -1602,7 +1592,7 @@ bool draw_frame(double t, float dt)
         break;
     case Phase::Home:
         if (s_tab == ui::Nav::Home && s_stack.empty() && s_home->empty()) {
-            draw_status(T("Ingenting å vise ennå"), T("Legg til filmer eller serier i Jellyfin."), t);
+            draw_launch(t, 1.f, T("Ingenting å vise ennå"), T("Legg til filmer eller serier i Jellyfin."), false);
         } else {
             ui::Screen *scr = screen_for(s_tab);
             const float enter = scr->enter();
@@ -1676,7 +1666,7 @@ bool draw_frame(double t, float dt)
         s_splash.to(0.f);
         if (s_splash.step(dt, 6.f))
             animating = true;
-        draw_splash(t, s_splash.value);
+        draw_launch(t, s_splash.value, "", "", true);   /* (the line fades with it) */
         break;
     }
     gfx::end_frame();

@@ -277,6 +277,60 @@ void draw_drift(const gfx::Rect &full, const gfx::Texture *t, float a, double ag
 
 float brand_width(float size) { return size * 880.f / 300.f; }
 
+const gfx::Texture *launch_backdrop()
+{
+    static const gfx::Texture *t = nullptr;
+    static bool tried = false;
+    if (tried)
+        return t;
+    tried = true;
+    /* 1920x1080 (the GPU's filtering is invisible on glows this broad), RGBA. */
+    constexpr int w = 1920, h = 1080;
+    struct Glow {
+        float r, g, b, cx, cy, radius, k;
+    };
+    static const Glow glows[] = {   /* as make_backdrop.py's GLOWS */
+        {38, 92, 255, 0.04f, 0.06f, 0.62f, 0.34f},
+        {128, 58, 236, 0.98f, 1.02f, 0.58f, 0.30f},
+    };
+    constexpr int n = sizeof glows / sizeof glows[0];
+    /* Separable: exp(-(dx² + dy²) / r²) = exp(-dx² / r²) · exp(-dy² / r²). */
+    std::vector<float> gx(n * w), gy(n * h);
+    for (int i = 0; i < n; i++) {
+        const Glow &g = glows[i];
+        for (int x = 0; x < w; x++) {
+            const float d = ((x + 0.5f) / w - g.cx) * ((float)w / h);
+            gx[i * w + x] = std::exp(-d * d / (g.radius * g.radius));
+        }
+        for (int y = 0; y < h; y++) {
+            const float d = (y + 0.5f) / h - g.cy;
+            gy[i * h + y] = g.k * std::exp(-d * d / (g.radius * g.radius));
+        }
+    }
+    ui_image img;
+    if (ui_image_alloc(&img, w, h) != 0)
+        return nullptr;
+    uint32_t seed = 0x9e3779b9u;
+    for (int y = 0; y < h; y++)
+        for (int x = 0; x < w; x++) {
+            float c[3] = {7, 7, 12};
+            for (int i = 0; i < n; i++) {
+                const float f = gy[i * h + y] * gx[i * w + x];
+                c[0] += f * glows[i].r, c[1] += f * glows[i].g, c[2] += f * glows[i].b;
+            }
+            uint32_t px = 0xff000000u;
+            for (int k = 0; k < 3; k++) {
+                seed ^= seed << 13, seed ^= seed >> 17, seed ^= seed << 5;   /* dither: ±half a step */
+                const float v = c[k] + (seed >> 8) * (1.f / 16777216.f) - 0.5f;
+                px |= (uint32_t)std::max(0.f, std::min(255.f, std::round(v))) << (8 * k);
+            }
+            img.px[y * w + x] = px;
+        }
+    t = gfx::texture_from_image(&img);
+    ui_image_free(&img);
+    return t;
+}
+
 /* The "Jelly5" wordmark (assets/brand/wordmark.png, 880x300, built into the app):
  * tall letters from y 6 to the baseline at y 231, so drawn as tall as the type size
  * it stands where "Jelly5" set in that size would. */

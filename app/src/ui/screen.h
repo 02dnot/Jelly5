@@ -182,6 +182,13 @@ private:
 
 std::string poster_url(jf::Client &c, const jf::Item &it, int width);
 
+/* The launch backdrop (start-up, a server that does not answer): near black with
+ * a blue and a violet glow, drawn here at full size (no picture to upscale) and
+ * dithered so it never bands. The PS5's own launch picture (sce_sys/pic1.dds) is
+ * the same, from scripts/make_backdrop.py: keep the numbers in step. Null when
+ * the GPU had no room. */
+const gfx::Texture *launch_backdrop();
+
 /* The brand: the mark (a rounded gradient square with a white J) and the
  * "Jelly5" wordmark, with its left edge at x and the text on baseline.
  * size is the wordmark's font size. Returns the total width. */
