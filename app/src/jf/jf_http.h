@@ -17,6 +17,7 @@ struct HttpResponse {
     int status = 0;          /* HTTP status; 0 when no response arrived */
     std::string body;
     std::string error;       /* transport error text, if any */
+    std::vector<std::string> cookies;   /* Set-Cookie values received ("name=value; Path=/ ...") */
     bool ok() const { return status >= 200 && status < 300; }
 };
 

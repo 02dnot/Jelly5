@@ -221,9 +221,12 @@ and sends a debug log over UDP to the machine that built it (`scripts/log.sh`).
 of that out.
 
 `app/tests/host/run.sh` runs the Jellyfin client against a real server on the
-build machine (`JF_URL`, `JF_USER` and `JF_PASS` in `.env.local`); it needs
-libcurl's headers (`libcurl4-openssl-dev` on Debian or Ubuntu, included with
-macOS).
+build machine (`JF_URL`, `JF_USER` and `JF_PASS` in `.env.local`), and
+`app/tests/host/seerr.sh` the Seerr client (`SEERR_URL` as well): it signs in
+with Quick Connect as the console does and reads search, discover, title pages,
+Radarr/Sonarr options and quotas; a request is only shown unless `--for-real`
+is given. Both need libcurl's headers (`libcurl4-openssl-dev` on Debian or
+Ubuntu, included with macOS).
 
 
 ## Credits

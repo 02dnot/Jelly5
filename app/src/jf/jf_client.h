@@ -178,6 +178,9 @@ public:
     bool quick_connect_start(QuickConnect *out);
     /* true once the code was approved (and the session is set). */
     bool quick_connect_poll(const QuickConnect &qc, bool *approved);
+    /* Approves another app's Quick Connect code for this session's user, as
+     * the phone does (Seerr signs in this way: app/seerr_service). */
+    bool quick_connect_authorize(const std::string &code);
     /* The token still works (GET /Users/Me). */
     bool validate();
     std::vector<PublicUser> public_users();

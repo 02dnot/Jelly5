@@ -345,6 +345,18 @@ bool Client::quick_connect_poll(const QuickConnect &qc, bool *approved)
     return true;
 }
 
+bool Client::quick_connect_authorize(const std::string &code)
+{
+    std::string body;
+    if (!post_json("/QuickConnect/Authorize?code=" + url_escape(code), "", &body))
+        return false;
+    if (body.find("true") == std::string::npos) {
+        set_error("Quick Connect: the server did not approve the code");
+        return false;
+    }
+    return true;
+}
+
 bool Client::validate()
 {
     std::string body;
