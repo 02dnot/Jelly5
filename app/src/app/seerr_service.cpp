@@ -256,13 +256,21 @@ template <class F> void publish(unsigned epoch, F change)
 
 /* A sign-in came to an end, one way or the other. */
 void finish(unsigned epoch, const std::shared_ptr<seerr::Client> &cl, bool ok, const seerr::User &u,
-            const std::string &version, const seerr::PublicSettings &ps, Why why, const std::string &error)
+            const std::string &version, const seerr::PublicSettings &ps, Why why, std::string error)
 {
     std::lock_guard<std::mutex> g(s_lock);
     if (epoch != s_epoch)
         return;
     s_snap.version = version;
     s_snap.settings = ps;
+    if (ok && !cl->has_session()) {
+        /* Signed in, but no session cookie kept: every later call would answer 401
+         * and sign in again (a new Quick Connect approval each time). */
+        ok = false;
+        why = Why::AutoFailed;
+        error = "no session cookie";
+        evo_bt("seerr: signed in, but Seerr's session cookie was not kept");
+    }
     if (ok) {
         s_client = cl;
         s_seen_ready = true;
@@ -365,6 +373,7 @@ void connect_worker(unsigned epoch)
 void restart_locked()
 {
     s_epoch++;
+    s_snap.testing = false;   /* a test of the last epoch never answers now */
     s_client.reset();
     s_snap = Snapshot();
     s_snap.state = State::Connecting;
@@ -415,6 +424,7 @@ void attach(jf::Client *client)
         restart_locked();
     } else {
         s_epoch++;
+        s_snap.testing = false;   /* a test of the last epoch never answers now */
         s_client.reset();
         s_snap = Snapshot();
         s_gen++;
@@ -425,6 +435,7 @@ void detach()
 {
     std::lock_guard<std::mutex> g(s_lock);
     s_epoch++;
+    s_snap.testing = false;   /* a test of the last epoch never answers now */
     s_jf = nullptr;
     s_server.clear();
     s_account.clear();
@@ -467,6 +478,7 @@ void set_config(const Config &c)
         restart_locked();
     } else {
         s_epoch++;
+        s_snap.testing = false;   /* a test of the last epoch never answers now */
         s_client.reset();
         s_snap = Snapshot();
         s_gen++;
@@ -598,6 +610,19 @@ void session_lost()
     std::lock_guard<std::mutex> g(s_lock);
     if (s_account.empty() || s_snap.state != State::Ready)
         return;   /* already on it */
+    /* At most once a minute: a session that keeps ending must not sign in (and
+     * approve a Quick Connect code) on every search. */
+    static double s_last_lost = -1e9;
+    const double t = now_ms();
+    if (t - s_last_lost < 60000) {
+        evo_bt("seerr: the session ended again within a minute; not signing in again yet");
+        s_snap.state = State::SignedOut;
+        s_snap.why = Why::AutoFailed;
+        s_client.reset();
+        s_gen++;
+        return;
+    }
+    s_last_lost = t;
     evo_bt("seerr: the session ended, signing in again");
     write_session("", false);
     restart_locked();
@@ -611,6 +636,7 @@ void sign_in(const std::string &user, const std::string &password)
     const Stored st = read_stored();
     const std::string name = !user.empty() ? user : s_jf ? s_jf->user_name() : std::string();
     s_epoch++;
+    s_snap.testing = false;   /* a test of the last epoch never answers now */
     s_client.reset();
     s_snap.state = State::Connecting;
     s_gen++;
@@ -647,6 +673,7 @@ void sign_out()
         return;
     std::shared_ptr<seerr::Client> cl = s_client;
     s_epoch++;
+    s_snap.testing = false;   /* a test of the last epoch never answers now */
     s_client.reset();
     write_session("", true);
     s_seen_ready = false;   /* signed out on purpose: Seerr's tab goes */
