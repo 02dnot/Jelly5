@@ -309,7 +309,7 @@ const std::unordered_map<std::string, const char *> &french_table()
         {"Nederlandsk", "Néerlandais"},
         {"Polsk", "Polonais"},
         {"Islandsk", "Islandais"},
-        /* Seerr : réglages et connexion */
+        /* Seerr: settings and sign-in */
         {"Jellyfin-passord", "Mot de passe Jellyfin"},
         {"Seerr-konto (e-post)", "Compte Seerr (e-mail)"},
         {"Automatisk (Quick Connect)", "Automatique (Quick Connect)"},
@@ -339,7 +339,7 @@ const std::unordered_map<std::string, const char *> &french_table()
         {"Seerr %s svarer, men du er ikke pålogget", "Seerr %s répond, mais vous n'êtes pas connecté"},
         {"OK – Seerr %s, pålogget som %s", "OK – Seerr %s, connecté en tant que %s"},
         {" – men bildene kommer ikke", " – mais les images n'arrivent pas"},
-        /* Seerr : statut d'un titre, recherche */
+        /* Seerr: where a title stands, search */
         {"Venter på godkjenning", "En attente d'approbation"},
         {"Venter", "En attente"},
         {"Forespurt", "Demandé"},
@@ -351,7 +351,7 @@ const std::unordered_map<std::string, const char *> &french_table()
         {"Seerr svarer ikke", "Seerr injoignable"},
         {"Ikke pålogget Seerr – se Innstillinger", "Non connecté à Seerr – voir Paramètres"},
         {"Ingenting mer på Seerr", "Rien de plus sur Seerr"},
-        /* Seerr : page d'un titre et demandes */
+        /* Seerr: a title's page and requests */
         {"Allerede forespurt", "Déjà demandé"},
         {"Kvoten for forespørsler er nådd", "Quota de demandes atteint"},
         {"Du har ikke lov til å be om dette", "Vous n'avez pas le droit de demander ce titre"},
@@ -386,7 +386,7 @@ const std::unordered_map<std::string, const char *> &french_table()
         {"Seerr-kontoen din kan ikke be om serier", "Votre compte Seerr ne peut pas demander de séries"},
         {"Seerr-kontoen din kan ikke be om filmer", "Votre compte Seerr ne peut pas demander de films"},
         {"Be om flere sesonger", "Demander d'autres saisons"},
-        /* Seerr : l'onglet Découvrir */
+        /* Seerr: the Discover tab */
         {"Oppdag", "Découvrir"},
         {"Trender nå", "Tendances"},
         {"Populære filmer", "Films populaires"},
