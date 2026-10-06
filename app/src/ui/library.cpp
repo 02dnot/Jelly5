@@ -589,27 +589,14 @@ void Library::draw(double now, float dt)
         if (ns == 0) {
             tw = gfx::text(kPad, hy, m_title, {gfx::Bold, 64}, alpha(kText, ha));
         } else {   /* the sources as a glass bar where the title would be, the drop on the picked one */
-            const gfx::TextStyle ss{gfx::Bold, 30};
-            float bw = 12;
+            std::vector<std::string> labels;
             for (int i = 0; i < ns; i++)
-                bw += gfx::text_width(m_sources[i].label, ss) + 64 + 6;
-            glass_panel({kPad - 6, hy - 50, bw, 76}, 38, ha, false);
+                labels.push_back(m_sources[i].label);
             const bool here = m_focused && m_in_pills && m_pill < ns;
-            for (int i = 0; i < ns; i++) {
-                const float w = gfx::text_width(m_sources[i].label, ss) + 64;
-                if (i == (here ? m_pill : m_source))
-                    m_src_drop.to({kPad + tw, hy - 44, w, 64}, i, 0, hy);
-                tw += w + 6;
-            }
-            m_src_drop.draw(dt, ha * (here ? 1.f : 0.4f), &m_animating);
-            tw = 0;
-            for (int i = 0; i < ns; i++) {
-                const float w = gfx::text_width(m_sources[i].label, ss) + 64;
-                const bool on = i == (here ? m_pill : m_source);
-                gfx::text(kPad + tw + w / 2, hy - 44 + 32 + 10, m_sources[i].label, ss, alpha(on ? kText : kText2, ha), 1);
-                tw += w + 6;
-            }
-            tw -= 6;
+            /* The pane reaches 6 px past the pills on each side, so they start on the title's column;
+             * tw: the pills' own width, as the title's. */
+            tw = pill_bar(kPad - 6, hy - 50, labels, here ? m_pill : m_source, here, m_src_drop, dt, ha, &m_animating,
+                          0, hy) - 2 * 6;
         }
         if (total >= 0) {
             char cnt[32];

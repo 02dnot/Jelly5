@@ -75,7 +75,7 @@ const char *auth_name(seerr_service::Auth a)
 
 const char *label_of(int row)
 {
-    const char *const labels[] = {T("Bytt bruker"),
+    const char *const labels[] = {T("Bytt bruker eller server"),
                                          T("Logg ut"),
                                          T("Maks kvalitet"),
                                          T("Foretrukket lydspråk"),

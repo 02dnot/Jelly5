@@ -104,6 +104,10 @@ std::shared_ptr<seerr::Client> client();
  * port (a development build's SEERR_URL, when it has one). */
 std::string suggested_url();
 
+/* The Jellyfin server at `from` answers at `to` now (accounts::remember moved
+ * its accounts): its Seerr settings and its accounts' sessions move with it. */
+void move_server(const std::string &from, const std::string &to);
+
 /* Connects again (and signs in by Quick Connect when that is the method). */
 void reconnect();
 /* The viewer approves Quick Connect for the Seerr address in the settings (the

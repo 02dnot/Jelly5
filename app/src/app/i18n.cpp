@@ -124,6 +124,7 @@ const std::unordered_map<std::string, const char *> &english_table()
         {"Åpne Jellyfin på telefonen eller PC-en, gå til Innstillinger → Quick Connect og skriv inn koden:",
          "Open Jellyfin on your phone or computer, go to Settings → Quick Connect and enter the code:"},
         {"○ avbryter", "○ cancels"}, {"Legg til", "Add"}, {"Hvem ser på?", "Who's watching?"},
+        {"+ Server", "+ Server"},
         {"Trykk △ igjen for å fjerne kontoen fra denne PS5-en", "Press △ again to remove the account from this PS5"},
         {"✕ velg   ·   △ fjern konto", "✕ choose   ·   △ remove account"},
         /* settings */
@@ -153,7 +154,7 @@ const std::unordered_map<std::string, const char *> &english_table()
          "You're in a group. Whatever anyone in it starts plays for everyone, in step."},
         {"Se det samme samtidig som andre på denne Jellyfin-serveren, i takt. Den som starter noe, starter det for alle.",
          "Watch the same thing as others on this Jellyfin server, in step. Whoever starts something starts it for everyone."},
-        {"Konto", "Account"}, {"Generelt", "General"}, {"BRUKERNAVN", "USERNAME"}, {"PASSORD", "PASSWORD"}, {"Avspilling", "Playback"}, {"Bytt bruker", "Switch User"}, {"Logg ut", "Sign Out"},
+        {"Konto", "Account"}, {"Generelt", "General"}, {"BRUKERNAVN", "USERNAME"}, {"PASSORD", "PASSWORD"}, {"Avspilling", "Playback"}, {"Logg ut", "Sign Out"},
         {"Maks kvalitet", "Maximum quality"}, {"Foretrukket lydspråk", "Preferred audio language"},
         {"Undertekstspråk", "Subtitle language"}, {"Undertekststørrelse", "Subtitle size"},
         {"Undertekstbakgrunn", "Subtitle background"}, {"Spill neste episode automatisk", "Play next episode automatically"},

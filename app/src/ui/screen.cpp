@@ -518,3 +518,76 @@ void Ambient::draw(float dt, float dim, bool *animating)
 }
 
 } // namespace ui
+
+namespace ui {
+
+namespace {
+constexpr float kPillPad = 6, kPillGap = 6;
+const gfx::TextStyle kPillText{gfx::Bold, 30};
+float pill_w(const std::string &label, float max_w)
+{
+    const float w = gfx::text_width(label, kPillText) + 64;
+    return max_w > 0 ? std::min(max_w, w) : w;
+}
+} // namespace
+
+float pill_bar_offset(const std::vector<std::string> &labels, int i, float max_w)
+{
+    float x = kPillPad;
+    for (int k = 0; k < i && k < (int)labels.size(); k++)
+        x += pill_w(labels[k], max_w) + kPillGap;
+    return x;
+}
+
+float pill_bar_center(const std::vector<std::string> &labels, int i, float max_w)
+{
+    return i < (int)labels.size() ? pill_bar_offset(labels, i, max_w) + pill_w(labels[i], max_w) / 2 : 0;
+}
+
+float row_scroll(Anim &a, float row_w, float room, float c, float dt, bool *animating)
+{
+    if (row_w <= room) {
+        a.snap(0);
+        return 0;
+    }
+    a.to(std::max(0.f, std::min(row_w - room, c - room / 2)));
+    if (a.step(dt, 12.f) && animating)
+        *animating = true;
+    return a.value;
+}
+
+float pill_bar_width(const std::vector<std::string> &labels, float max_w)
+{
+    return labels.empty() ? 0 : pill_bar_offset(labels, (int)labels.size(), max_w) - kPillGap + kPillPad;
+}
+
+float pill_bar(float x, float y, const std::vector<std::string> &labels, int on, bool focused, Drop &drop, float dt,
+               float opacity, bool *animating, float ox, float oy, float max_w)
+{
+    const float bw = pill_bar_width(labels, max_w);
+    glass_panel({x, y, bw, 76}, 38, opacity, false);   /* the pane, then the drop, then the labels */
+    const int n = (int)labels.size();
+    if (on >= 0 && on < n)
+        drop.to({x + pill_bar_offset(labels, on, max_w), y + kPillPad, pill_w(labels[on], max_w), 64}, on, ox, oy);
+    else
+        drop.hide();
+    drop.draw(dt, opacity * (focused ? 1.f : 0.4f), animating);
+    float px = x + kPillPad;
+    for (int i = 0; i < n; i++) {
+        const float w = pill_w(labels[i], max_w);
+        gfx::TextStyle ts = kPillText;
+        ts.max_w = w - 40;
+        gfx::text(px + w / 2, y + kPillPad + 42, labels[i], ts, alpha(i == on ? kText : kText2, opacity), 1);
+        px += w + kPillGap;
+    }
+    return bw;
+}
+
+std::string host_of(const std::string &url)
+{
+    const size_t s = url.find("//");
+    const std::string h = url.substr(s == std::string::npos ? 0 : s + 2);
+    return h.substr(0, h.find('/'));
+}
+
+} // namespace ui

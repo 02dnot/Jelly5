@@ -198,6 +198,23 @@ void draw_drift(const gfx::Rect &full, const gfx::Texture *t, float opacity, dou
  * (pills) that sit on other glass. */
 /* lift: 0 a pane, 1 the brighter glass drop that marks focus (the top bar's tab). */
 void glass_panel(const gfx::Rect &r, float radius, float opacity = 1.f, bool shadow = true, float lift = 0.f);
+/* A row of pills on one glass pane (the library's sources, the servers on "Hvem
+ * ser på?"): the pane's left edge x and top y, 76 tall; the drop on `on`, full
+ * while the row has focus and faint while it only marks the choice (-1: none).
+ * ox, oy: where the row's group is, for the drop (Drop::to). max_w caps a pill
+ * (its label ellipsised). Returns the pane's width. */
+float pill_bar(float x, float y, const std::vector<std::string> &labels, int on, bool focused, Drop &drop, float dt,
+               float opacity, bool *animating, float ox = 0, float oy = 0, float max_w = 0);
+/* The width pill_bar draws, and where its pill i starts and has its centre (from x). */
+float pill_bar_width(const std::vector<std::string> &labels, float max_w = 0);
+float pill_bar_offset(const std::vector<std::string> &labels, int i, float max_w = 0);
+float pill_bar_center(const std::vector<std::string> &labels, int i, float max_w = 0);
+/* A row of row_w in room: how far it has slid (eased) to keep the focused item,
+ * centred at c in the row, in the middle of the room; 0 while the row fits. */
+float row_scroll(Anim &a, float row_w, float room, float c, float dt, bool *animating);
+/* "jf.example.net:8096" from "https://jf.example.net:8096/path". */
+std::string host_of(const std::string &url);
+
 /* How far a scrolling list fades out at an edge (for gfx::pop_fade): `depth` where
  * more lies beyond it, easing in over the first 40 px scrolled; 0 at its end, so
  * the first and last rows stand whole. */

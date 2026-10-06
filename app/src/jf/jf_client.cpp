@@ -269,7 +269,7 @@ bool Client::post_json(const std::string &path, const std::string &json, std::st
     return true;
 }
 
-bool Client::public_info(std::string *name, std::string *version)
+bool Client::public_info(std::string *name, std::string *version, std::string *id)
 {
     std::string body;
     if (!get_json("/System/Info/Public", &body))
@@ -281,6 +281,8 @@ bool Client::public_info(std::string *name, std::string *version)
         *name = str_of(j, "ServerName");
     if (version)
         *version = str_of(j, "Version");
+    if (id)
+        *id = str_of(j, "Id");
     cJSON_Delete(j);
     return true;
 }
