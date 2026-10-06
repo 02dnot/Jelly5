@@ -142,7 +142,7 @@ int main(int argc, char **argv)
     else
         check(false, "public settings", c.last_error());
     seerr::User me;
-    check(!c.me(&me), "signed out before signing in (403)", c.last_error());
+    check(!c.me(&me), "signed out before signing in (401: no session cookie)", c.last_error());
 
     /* Sign in. */
     if (auth == "quickconnect" || auth == "jellyfin") {

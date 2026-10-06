@@ -15,6 +15,7 @@
 #include "app/i18n.h"
 #include "app/perf.h"
 #include "app/remote.h"
+#include "app/seerr_service.h"
 #include "app/syncplay.h"
 #include "app/settings.h"
 #include "platform/ime.h"
@@ -576,6 +577,8 @@ void use_account(jf::Client &c, unsigned session, accounts::Account a)
             }
             evo_bt("jelly5: signed in as %s on %s %s", c.user_name().c_str(), name.c_str(), version.c_str());
             load_home(c, session);
+            if (session == s_session)
+                seerr_service::attach(&c);   /* Seerr, when this account has it on */
             /* Controllable from Jellyfin's apps ("Spill på PS5") while this session lasts. */
             remote::start(&c, [session] { return session == s_session; });
             syncplay::attach(&c);
@@ -802,6 +805,7 @@ void open_gate(const GateRequest &r)
 void switch_to(const accounts::Account &a)
 {
     stop_music();
+    seerr_service::detach();
     if (syncplay::active())
         syncplay::leave();
     const unsigned session = ++s_session;
@@ -1011,12 +1015,14 @@ void shell_input(uint32_t p, jf::Item *play, bool *chose, bool *from_start, bool
     }
     case ui::Action::SwitchUser:
         stop_music();
+        seerr_service::detach();
         s_session++;
         open_gate({Gate::Profiles});
         set_phase(Phase::Gate);
         break;
     case ui::Action::SignOut: {
         stop_music();
+        seerr_service::detach();
         accounts::forget(s_client->server(), s_client->user_id());
         s_session++;
         s_client = new_client(s_client->server());   /* signed out; screens are remade on the next sign-in */
@@ -1495,6 +1501,7 @@ int main()
     int idle_frames = 0;
     unsigned frames = 0;
     unsigned lang_gen = i18n::generation();
+    unsigned seerr_gen = seerr_service::generation();
     bool waited = true;   /* the loop chose to wait since the last frame (nothing moved) */
     for (;;) {
         nuvio_input_state in;
@@ -1581,8 +1588,11 @@ int main()
             continue;
         }
         /* Frames only while something moves; idle, the last frame stays up. */
+        /* Seerr's state moves on its own (the settings show it). */
+        const bool seerr_moved = seerr_gen != seerr_service::generation();
+        seerr_gen = seerr_service::generation();
         const bool changed = in.pressed || phase != last_phase || s_model_version != last_model ||
-                             gate.kind != Gate::None;
+                             gate.kind != Gate::None || seerr_moved;
         if (changed || animating || idle_frames < 2) {
             const double now = now_s();
             const float dt = (float)std::min(0.1, now - last);

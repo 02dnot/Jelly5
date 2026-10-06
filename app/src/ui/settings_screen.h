@@ -4,9 +4,10 @@
  *
  * Settings, opened from the avatar in the top bar: account (switch user,
  * sign out), playback (quality cap, audio and subtitle language, subtitle
- * mode, autoplay, automatic intro skipping), the server, and about.
- * A list in the Apple TV style: value on the right, Left/Right or Cross
- * changes it.
+ * mode, autoplay, automatic intro skipping), Seerr (on, its address, how it
+ * signs in, the session, the network, a connection test), the server, and
+ * about. A list in the Apple TV style: value on the right, Left/Right or
+ * Cross changes it. Seerr's rows other than "on" show only when it is on.
  */
 #pragma once
 
@@ -23,9 +24,11 @@ public:
         SwitchUser, SignOut,
         Quality, AudioLang, SubMode, SubLang, SubSize, SubBackground, Autoplay, AutoSkip, AudioDelay, NightMode,
         ThemeMusic,
+        SeerrOn, SeerrUrl, SeerrAuth, SeerrAccount, SeerrNetwork, SeerrTest,
         AppLanguage, Refresh, Updates, Together, ServerInfo, About, RowCount
     };
     explicit SettingsScreen(jf::Client &client) : m_client(client) {}
+    ~SettingsScreen() override;   /* the keyboard's callback points here */
 
     void set_server_info(const std::string &name, const std::string &version)
     {
@@ -41,6 +44,11 @@ public:
 private:
     void change(Row r, int dir);
     std::string value(Row r) const;
+    bool shown(int r) const;
+    void seerr_account();            /* Cross on the Seerr account: sign in or out */
+
+    std::string m_seerr_email;       /* a local Seerr account: the e-mail, then the password */
+    bool m_want_password = false;
 
     jf::Client &m_client;
     int m_row = 0;

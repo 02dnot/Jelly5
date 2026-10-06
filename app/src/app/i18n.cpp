@@ -170,6 +170,24 @@ const std::unordered_map<std::string, const char *> &english_table()
         {"Italiensk", "Italian"}, {"Japansk", "Japanese"}, {"Koreansk", "Korean"}, {"Kinesisk", "Chinese"},
         {"Portugisisk", "Portuguese"}, {"Russisk", "Russian"}, {"Nederlandsk", "Dutch"}, {"Polsk", "Polish"},
         {"Islandsk", "Icelandic"},
+        /* Seerr: settings and sign-in */
+        {"Jellyfin-passord", "Jellyfin password"}, {"Seerr-konto (e-post)", "Seerr account (email)"},
+        {"Automatisk (Quick Connect)", "Automatic (Quick Connect)"}, {"Adresse", "Address"},
+        {"Pålogging", "Sign-in"}, {"Seerr-konto", "Seerr account"}, {"Nettverk", "Network"},
+        {"Test tilkoblingen", "Test the connection"}, {"Jellyfin-passord for ", "Jellyfin password for "},
+        {"E-post for Seerr-kontoen", "Seerr account email"}, {"Passord for Seerr-kontoen", "Seerr account password"},
+        {"Ikke angitt", "Not set"}, {"Internett", "Internet"}, {"Bare lokalt nettverk", "Local network only"},
+        {"✕ logg ut", "✕ sign out"}, {"Svarer ikke – prøver igjen", "Not answering – trying again"},
+        {"Automatisk pålogging mislyktes – velg passord", "Automatic sign-in failed – choose a password"},
+        {"Ikke pålogget – ✕ for å logge på", "Not signed in – ✕ to sign in"}, {"Tester …", "Testing …"},
+        {"✕ for å teste", "✕ to test"}, {"Seerr-adresse", "Seerr address"},
+        {"Seerr henter alt fra TMDB selv: uten Internett snakker PS5-en bare med Jellyfin og Seerr.",
+         "Seerr gets everything from TMDB itself: without Internet, the PS5 only talks to Jellyfin and Seerr."},
+        {"Seerr svarer ikke på ", "Seerr is not answering at "}, {"Ingen Seerr-server på ", "No Seerr server at "},
+        {" – bruk den lokale adressen", " – use its local address"},
+        {"Seerr %s svarer, men du er ikke pålogget", "Seerr %s answers, but you are not signed in"},
+        {"OK – Seerr %s, pålogget som %s", "OK – Seerr %s, signed in as %s"},
+        {" – men bildene kommer ikke", " – but its pictures don't come through"},
     };
     return t;
 }

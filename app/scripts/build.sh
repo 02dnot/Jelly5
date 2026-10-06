@@ -118,12 +118,13 @@ ok "converter + libc.prx"
 
 # --- Compile ---------------------------------------------------------------------
 log "compiling (${TCC})"
-# Jelly5 dev settings from ../.env.local: the Jellyfin server and where the
-# console sends its log (this machine, as the PS5 sees it).
+# Jelly5 dev settings from ../.env.local: the Jellyfin server, Seerr's address
+# (what its setting suggests) and where the console sends its log (this
+# machine, as the PS5 sees it).
 ENV_LOCAL="${NUVIO_ROOT}/.env.local"
-JF_URL=""; PS5_HOST=""
+JF_URL=""; PS5_HOST=""; SEERR_URL=""
 (( RELEASE )) && ENV_LOCAL=/dev/null   # nothing personal in a shared build
-[[ -f "${ENV_LOCAL}" ]] && eval "$(grep -E '^(JF_URL|PS5_HOST)=' "${ENV_LOCAL}")"
+[[ -f "${ENV_LOCAL}" ]] && eval "$(grep -E '^(JF_URL|PS5_HOST|SEERR_URL)=' "${ENV_LOCAL}")"
 LOG_HOST="${JELLY5_LOG_HOST:-}"
 (( RELEASE )) && LOG_HOST=""
 if [[ -z "${LOG_HOST}" && -n "${PS5_HOST}" ]]; then
@@ -137,8 +138,9 @@ if [[ -z "${LOG_HOST}" && -n "${PS5_HOST}" ]]; then
 fi
 JELLY5_DEFS="-DJELLY5_VERSION=\\\"$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["contentVersion"])' "${PARAM}")\\\""
 [[ -n "${JF_URL}" ]] && JELLY5_DEFS+=" -DJELLY5_SERVER=\\\"${JF_URL}\\\""
+[[ -n "${SEERR_URL}" ]] && JELLY5_DEFS+=" -DJELLY5_SEERR_URL=\\\"${SEERR_URL}\\\""
 [[ -n "${LOG_HOST}" ]] && JELLY5_DEFS+=" -DJELLY5_LOG_HOST=\\\"${LOG_HOST}\\\" -DJELLY5_LOG_PORT=${JELLY5_LOG_PORT:-5555}"
-ok "log -> ${LOG_HOST:-none}:${JELLY5_LOG_PORT:-5555}, server ${JF_URL:-default}"
+ok "log -> ${LOG_HOST:-none}:${JELLY5_LOG_PORT:-5555}, server ${JF_URL:-default}, Seerr ${SEERR_URL:-not set}"
 make -C "${APP_ROOT}" -j"$(nproc)" objects \
     CC="${TCC}" CXX="${TCXX}" TFLAGS="${TFLAGS[*]}" HB="${HB}" JELLY5_DEFS="${JELLY5_DEFS}" \
     > "${BUILD}/compile.log" 2>&1 || { tail -40 "${BUILD}/compile.log"; die "compile failed"; }
