@@ -728,4 +728,30 @@ std::string Client::tmdb_image_url(const std::string &path, const char *size)
     return std::string("https://image.tmdb.org/t/p/") + size + path;
 }
 
+bool Client::image_cache_works()
+{
+    std::string poster;
+    for (const Title &t : discover(Shelf::Trending))
+        if (poster.empty())
+            poster = t.poster;
+    if (poster.empty()) {
+        set_error("image cache: no poster to try it with");
+        return false;
+    }
+    const jf::HttpResponse r = jf::http_request("GET", image_url(poster, "w92"), {}, "", timeout_);
+    if (!r.ok() || r.body.empty()) {
+        set_error("image cache: " + std::to_string(r.status) + " " + r.error);
+        return false;
+    }
+    return true;
+}
+
+std::string image_url_for(const Client &c, const std::string &path, const char *size, bool internet,
+                          bool cache_works)
+{
+    if (internet && !cache_works)
+        return Client::tmdb_image_url(path, size);
+    return c.image_url(path, size);
+}
+
 } // namespace seerr

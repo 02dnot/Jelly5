@@ -183,7 +183,9 @@ Jelly5 talks to your Jellyfin server and, when you turn it on in its settings,
 your Seerr server, and nothing else. Seerr gets what it shows from TMDB itself:
 the console never contacts TMDB, YouTube or any other service, posters come
 through Seerr's own image cache, and a trailer is a QR code that your phone
-opens. Off, nothing is ever sent to Seerr. The one exception is opt-in: with
+opens. Off, nothing is ever sent to Seerr. Only with Seerr's *Network* set to
+*Internet* (experimental, off by default) may posters come straight from TMDB,
+when Seerr's image cache does not answer. The one exception is opt-in: with
 *Check for updates* turned on in its settings, it asks GitHub once a launch
 whether there is a newer release. It keeps its accounts, settings, Seerr
 session (never a password) and a 96 MB image cache in its own folder,

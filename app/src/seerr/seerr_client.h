@@ -187,6 +187,14 @@ struct RequestResult {
     int id = 0;                         /* the new request's */
 };
 
+class Client;
+
+/* Where the console loads a TMDB picture from. Without Internet (the default):
+ * Seerr's image cache, always, never TMDB. With Internet on the console and
+ * Seerr's cache not answering: TMDB itself. */
+std::string image_url_for(const Client &c, const std::string &path, const char *size, bool internet,
+                          bool cache_works);
+
 class Client {
 public:
     explicit Client(const std::string &url = std::string());
@@ -251,6 +259,9 @@ public:
     std::string image_url(const std::string &path, const char *size) const;
     /* Straight from TMDB (only with Internet on the console). */
     static std::string tmdb_image_url(const std::string &path, const char *size);
+    /* Whether Seerr's image cache answers: a poster from its trending titles,
+     * fetched through it (needs the session). */
+    bool image_cache_works();
 
 private:
     struct Reply {

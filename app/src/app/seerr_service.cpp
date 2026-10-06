@@ -334,6 +334,13 @@ void connect_worker(unsigned epoch)
                 return;
             continue;
         }
+        /* Internet mode: does Seerr's image cache answer? If not, posters come from TMDB. */
+        bool cache = true;
+        if (ok && st.config.internet) {
+            cache = cl->image_cache_works();
+            evo_bt("seerr: Internet mode, pictures %s", cache ? "through Seerr's cache" : "straight from TMDB");
+        }
+        publish(epoch, [cache](Snapshot &s) { s.image_cache = cache; });
         Why why = Why::NeedPassword;
         std::string error = "no session; the sign-in method needs a password";
         if (!ok && st.signed_out) {
@@ -634,7 +641,16 @@ void test()
             std::snprintf(buf, sizeof buf, T("OK \xE2\x80\x93 Seerr %s, pålogget som %s"), version.c_str(),
                           u.name.c_str());
             line = buf;
-            if (poster.empty() || !r.ok() || r.body.empty())
+            bool pictures = !poster.empty() && r.ok() && !r.body.empty();
+            if (!pictures && !poster.empty() && st.config.internet) {   /* Internet mode: TMDB itself */
+                const jf::HttpResponse t =
+                    jf::http_request("GET", seerr::Client::tmdb_image_url(poster, "w92"), {}, "", 8);
+                if (t.ok() && !t.body.empty()) {
+                    line += T(" \xE2\x80\x93 bildene hentes rett fra TMDB");
+                    pictures = true;
+                }
+            }
+            if (!pictures)
                 line += T(" \xE2\x80\x93 men bildene kommer ikke");
         }
         evo_bt("seerr: test: %s", line.c_str());
@@ -648,7 +664,9 @@ void test()
 std::string image_url(const std::string &path, const char *size)
 {
     std::lock_guard<std::mutex> g(s_lock);
-    return s_client ? s_client->image_url(path, size) : std::string();
+    if (!s_client)
+        return std::string();
+    return seerr::image_url_for(*s_client, path, size, s_stored.config.internet, s_snap.image_cache);
 }
 
 jf::Item to_item(const seerr::Title &t)

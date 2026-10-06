@@ -394,6 +394,7 @@ const std::unordered_map<std::string, const char *> &french_table()
         {"Kommende filmer", "Films à venir"},
         {"Kommende serier", "Séries à venir"},
         {"Mine forespørsler", "Mes demandes"},
+        {" – bildene hentes rett fra TMDB", " – images chargées directement depuis TMDB"},
     };
     return t;
 }
