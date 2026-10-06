@@ -7,6 +7,10 @@
  * ambient backdrop and an info panel; rows ease into place and remember
  * where they were left. Circle walks back: to the start of the row, then to
  * the hero.
+ *
+ * The same screen is Seerr's tab (discover): rows of Seerr's titles
+ * (jf::Item::ext), drawn as the library's with where each stands, no hero
+ * and no options sheet; the top bar shows while the first row has focus.
  */
 #pragma once
 
@@ -15,6 +19,7 @@
 #include "ui/item_menu.h"
 #include "ui/screen.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <map>
 #include <string>
@@ -37,7 +42,7 @@ struct HomeModel {
 
 class Home : public Screen {
 public:
-    explicit Home(jf::Client &client) : m_client(client) {}
+    explicit Home(jf::Client &client, bool discover = false) : m_client(client), m_discover(discover) {}
 
     void set_model(HomeModel model);
     bool empty() const { return m_model.hero.empty() && m_model.rows.empty(); }
@@ -48,7 +53,12 @@ public:
     Action input(uint32_t pressed) override;
     void draw(double now, float dt) override;
     bool animating() const override { return m_animating; }
-    float nav_alpha() const override { return m_hero_mode.value * (1.f - m_menu.visibility()); }
+    float nav_alpha() const override
+    {
+        if (m_discover)   /* no hero: the bar shows over the first row, fading as the rows move up */
+            return std::max(0.f, std::min(1.f, 1.f - m_rows_y.value));
+        return m_hero_mode.value * (1.f - m_menu.visibility());
+    }
     bool focused_card(Card *c) const override
     {
         if (m_has_card && m_row >= 0)
@@ -63,8 +73,10 @@ private:
     void draw_rows(float dt);
     std::string card_url(const jf::Item &it) const;
     std::string backdrop_url(const jf::Item &it) const;
+    void draw_card_art(const jf::Item &it, const gfx::Rect &r, float radius, float opacity) const;
 
     jf::Client &m_client;
+    bool m_discover = false;            /* Seerr's tab */
     HomeModel m_model;
 
     int m_row = -1;                     /* -1: the hero */

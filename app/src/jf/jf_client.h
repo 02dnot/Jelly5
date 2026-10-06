@@ -46,6 +46,19 @@ struct Item {
     std::string album_primary_tag, album_blurhash;
     std::string premiere_date;                /* ISO date; a person's birth date */
     std::vector<std::string> locations;       /* a person's birthplace */
+    std::string tmdb_id, tvdb_id;             /* ProviderIds (search and item ask for them) */
+
+    /* A title from Seerr rather than this server (search, Discover): its TMDB
+     * id, where it stands in Seerr (a seerr::Status), its art as absolute URLs
+     * (through Seerr's image cache; empty when there is none to be had), and
+     * the server's own item when it has the title. Empty for the server's items. */
+    struct External {
+        int tmdb_id = 0;
+        int status = 0;
+        std::string poster, backdrop, thumb;
+        std::string jellyfin_id;
+    } ext;
+    bool external() const { return ext.tmdb_id != 0; }
 };
 
 struct MediaStream {
@@ -178,6 +191,9 @@ public:
     bool quick_connect_start(QuickConnect *out);
     /* true once the code was approved (and the session is set). */
     bool quick_connect_poll(const QuickConnect &qc, bool *approved);
+    /* Approves another app's Quick Connect code for this session's user, as
+     * the phone does (Seerr signs in this way: app/seerr_service). */
+    bool quick_connect_authorize(const std::string &code);
     /* The token still works (GET /Users/Me). */
     bool validate();
     std::vector<PublicUser> public_users();

@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "ui/screen.h"
+#include "app/i18n.h"
+#include "seerr/seerr_client.h"
 
 #include "gfx/art.h"
 #include "ui_image.h"
@@ -41,6 +43,8 @@ void draw_check(float cx, float cy, float size, uint32_t color)
 
 std::string poster_url(jf::Client &c, const jf::Item &it, int width)
 {
+    if (it.external())   /* Seerr's: through its image cache, at one size */
+        return it.ext.poster;
     if (it.type == "Episode" && !it.series_primary_tag.empty())   /* its series' poster */
         return c.image_url(it.series_id, "Primary", it.series_primary_tag, width);
     return c.image_url(it.id, "Primary", it.primary_tag, width);
@@ -326,7 +330,13 @@ void draw_poster(jf::Client &c, const jf::Item &it, const gfx::Rect &base, float
     const gfx::Rect r{base.x - base.w * (k - 1) / 2, base.y - base.h * (k - 1) / 2, base.w * k, base.h * k};
     if (lift > 0.01f)
         gfx::shadow(r, 14 * k, 26, 0.3f * lift * opacity, 10 * lift);
-    art::draw(r, poster_url(c, it, 480), it.primary_blurhash, 480, 720, 14 * k, opacity);
+    if (it.external()) {   /* the name on its own colours, the picture fading in over it */
+        draw_title_card(r, it.name, it.ext.tmdb_id, 14 * k, opacity);
+        art::draw(r, it.ext.poster, "", 480, 720, 14 * k, opacity, 0);
+        draw_status_chip(r.x + 10, r.y + 10, it.ext.status, opacity);
+    } else {
+        art::draw(r, poster_url(c, it, 480), it.primary_blurhash, 480, 720, 14 * k, opacity);
+    }
     /* Watched: a check; a series with episodes left: how many. Both on a small piece
      * of glass (tint, sheen, lit rim - no blur: there are dozens on screen). */
     auto chip = [&](const gfx::Rect &b) {
@@ -359,6 +369,74 @@ void draw_poster(jf::Client &c, const jf::Item &it, const gfx::Rect &base, float
                                                                                               : std::string();
     if (!sub.empty())
         gfx::text(r.x, r.y + r.h + 60, sub, {gfx::Medium, 18, r.w}, alpha(kText3, opacity));
+}
+
+const char *seerr_status_label(int status, bool full)
+{
+    switch ((seerr::Status)status) {
+    case seerr::Status::Pending: return full ? T("Venter på godkjenning") : T("Venter");
+    case seerr::Status::Processing: return T("Forespurt");
+    case seerr::Status::PartiallyAvailable: return T("Delvis tilgjengelig");
+    case seerr::Status::Available: return T("Tilgjengelig");
+    case seerr::Status::Blocklisted: return T("Blokkert");
+    default: return full ? T("Ikke forespurt") : "";
+    }
+}
+
+uint32_t seerr_status_color(int status)
+{
+    switch ((seerr::Status)status) {
+    case seerr::Status::Pending: return 0xffff9f0au;            /* amber: waits for someone */
+    case seerr::Status::Processing: return 0xff8e8cffu;         /* violet, as Seerr's own */
+    case seerr::Status::PartiallyAvailable: return 0xff7fd8a4u;
+    case seerr::Status::Available: return 0xff30d158u;
+    case seerr::Status::Blocklisted: return 0xffff453au;
+    default: return kText3;
+    }
+}
+
+float draw_status_chip(float x, float y, int status, float a, float size)
+{
+    const char *label = seerr_status_label(status);
+    if (!*label)
+        return 0;
+    /* The poster chips' glass (a tint, a sheen, a lit rim; no blur), a dot of the status' colour. */
+    const gfx::TextStyle ts{gfx::SemiBold, size};
+    const float h = size * 2.f, d = size * 0.6f, pad = h * 0.42f;
+    const float w = pad + d + 8 + gfx::text_width(label, ts) + pad;
+    const gfx::Rect b{x, y, w, h};
+    gfx::fill(b, alpha(0x99101014u, a), h / 2);
+    gfx::fill_vgradient(b, alpha(0x3cffffffu, a), 0x00000000u, h / 2);
+    gfx::rim(b, h / 2, 0.8f * a);
+    gfx::fill({x + pad, y + h / 2 - d / 2, d, d}, alpha(seerr_status_color(status), a), d / 2);
+    gfx::text(x + pad + d + 8, y + h / 2 + size * 0.36f, label, ts, alpha(kText, a));
+    return w;
+}
+
+void draw_note(const std::string &text, float a, uint32_t dot)
+{
+    if (a <= 0.01f || text.empty())
+        return;
+    const gfx::TextStyle ts{gfx::SemiBold, 24};
+    const float w = gfx::text_width(text, ts) + 72;
+    const gfx::Rect r{gfx::W / 2 - w / 2, 96 - 20 * (1.f - a), w, 60};
+    glass_panel(r, 30, a, true);
+    gfx::fill({r.x + 26, r.y + 25, 10, 10}, alpha(dot, a), 5);
+    gfx::text(r.x + 48, r.y + 39, text, ts, alpha(kText, a));
+}
+
+void draw_title_card(const gfx::Rect &r, const std::string &title, int seed, float radius, float a)
+{
+    /* Dark, slightly coloured: a row of them reads as posters, not as holes. */
+    static const uint32_t kTop[] = {0xff3a2f5bu, 0xff23405au, 0xff47293au, 0xff1f4a43u, 0xff4a3a24u, 0xff2b3550u};
+    static const uint32_t kBottom[] = {0xff15121fu, 0xff0f1a24u, 0xff1a1117u, 0xff0d1d1au, 0xff1d170eu, 0xff11151fu};
+    const unsigned k = (unsigned)seed % 6u;
+    gfx::fill_vgradient(r, alpha(kTop[k], a), alpha(kBottom[k], a), radius);
+    gfx::rim(r, radius, 0.35f * a);
+    const float size = std::max(16.f, std::min(30.f, r.w / 9.f));
+    const float pad = std::max(14.f, r.w * 0.08f);
+    gfx::text(r.x + pad, r.y + r.h * 0.28f + size, title, {gfx::Bold, size, r.w - 2 * pad, 4, size * 1.22f},
+              alpha(kText, 0.9f * a));
 }
 
 void Ambient::set(const std::string &blurhash, double now)

@@ -15,6 +15,7 @@
 #include "app/i18n.h"
 #include "app/perf.h"
 #include "app/remote.h"
+#include "app/seerr_service.h"
 #include "app/syncplay.h"
 #include "app/settings.h"
 #include "platform/ime.h"
@@ -35,6 +36,7 @@
 #include "ui/profiles.h"
 #include "ui/screensaver.h"
 #include "ui/search.h"
+#include "ui/seerr_detail.h"
 #include "ui/settings_screen.h"
 #include "ui/syncplay_screen.h"
 #include "ui_image.h"
@@ -121,9 +123,15 @@ struct State {
     ui::HomeModel model;
     std::vector<jf::Item> views;        /* the user's libraries, in their order */
     GateRequest gate;                   /* a gate screen the main thread should open */
+    /* Seerr's tab: its rows, and how their loading goes. */
+    ui::HomeModel discover;
+    bool discover_loading = false, discover_failed = false;
+    bool discover_again = false;        /* asked for while loading (the language moved on): once more */
+    double discover_at = -1;            /* when it last loaded (now_s), -1 never */
 };
 State s_state;
 unsigned s_model_version = 0, s_home_version = 0;   /* model published / taken by Home */
+unsigned s_discover_version = 0, s_discover_taken = 0;   /* Seerr's tab: published / taken */
 std::atomic<unsigned> s_session{0};                 /* bumped on every account change */
 
 /* One client per session, configured before anyone uses it and never changed or
@@ -551,6 +559,106 @@ void load_extras(jf::Client &c, unsigned session)
     s_model_version++;
 }
 
+/* Seerr's tab: what is trending, popular and coming, and the viewer's own
+ * requests, all asked for side by side (off the main thread). */
+void load_discover(unsigned session)
+{
+    std::shared_ptr<seerr::Client> c = seerr_service::client();
+    {
+        std::lock_guard<std::mutex> g(s_state.lock);
+        if (session != s_session || s_state.discover_loading)
+            return;
+        s_state.discover_loading = true;
+        s_state.discover_failed = false;
+    }
+    using Shelf = seerr::Client::Shelf;
+    const Shelf shelves[] = {Shelf::Trending, Shelf::PopularMovies, Shelf::PopularTv, Shelf::UpcomingMovies,
+                             Shelf::UpcomingTv};
+    std::vector<seerr::Title> lists[5], mine;
+    if (c) {
+        seerr_service::load_genres();
+        std::vector<std::thread> jobs;
+        for (int i = 0; i < 5; i++)
+            jobs.emplace_back([&, i] { lists[i] = c->discover(shelves[i]); });
+        const int uid = seerr_service::snapshot().user.id;
+        jobs.emplace_back([&] {   /* a request names a title; its page has the rest */
+            const std::vector<seerr::Request> reqs = c->requests(uid, 12);
+            std::vector<seerr::Title> titles(reqs.size());
+            std::vector<std::thread> pages;
+            for (size_t i = 0; i < reqs.size(); i++)
+                pages.emplace_back([&, i] {
+                    seerr::Detail d;
+                    if (reqs[i].tv ? c->tv(reqs[i].tmdb_id, &d) : c->movie(reqs[i].tmdb_id, &d))
+                        titles[i] = d.title;
+                });
+            for (auto &p : pages)
+                p.join();
+            std::set<std::string> seen;   /* a series asked for season by season: once */
+            for (const seerr::Title &t : titles)
+                if (t.id > 0 && seen.insert((t.tv ? "tv:" : "movie:") + std::to_string(t.id)).second)
+                    mine.push_back(t);
+        });
+        for (auto &j : jobs)
+            j.join();
+        const int status = c->last_status();
+        if (status == 401 || status == 403)
+            seerr_service::session_lost();
+    }
+    ui::HomeModel m;
+    auto row = [&](const char *title, const std::vector<seerr::Title> &list) {
+        if (list.empty())
+            return;
+        ui::HomeRow r;
+        r.title = title;
+        r.kind = ui::HomeRow::Latest;
+        for (const seerr::Title &t : list)
+            r.items.push_back(seerr_service::to_item(t));
+        m.rows.push_back(std::move(r));
+    };
+    row(T("Trender nå"), lists[0]);
+    row(T("Populære filmer"), lists[1]);
+    row(T("Populære serier"), lists[2]);
+    row(T("Kommende filmer"), lists[3]);
+    row(T("Kommende serier"), lists[4]);
+    row(T("Mine forespørsler"), mine);
+    bool again;
+    {
+        std::lock_guard<std::mutex> g(s_state.lock);
+        s_state.discover_loading = false;
+        again = s_state.discover_again && session == s_session;
+        s_state.discover_again = false;
+        if (session != s_session)
+            return;
+        s_state.discover_failed = m.rows.empty();
+        s_state.discover_at = now_s();
+        if (!m.rows.empty()) {   /* a failed reload keeps what was there */
+            s_state.discover = std::move(m);
+            s_discover_version++;
+        }
+    }
+    if (again)   /* e.g. the language was cycled past another one while this loaded */
+        load_discover(session);
+}
+
+/* Loads Seerr's tab when it is due: never loaded this session, or older than
+ * max_age seconds (each time the tab opens), or forced (the language changed). */
+void refresh_discover(double max_age, bool force = false)
+{
+    if (!seerr_service::available())
+        return;
+    {
+        std::lock_guard<std::mutex> g(s_state.lock);
+        if (s_state.discover_loading) {
+            s_state.discover_again = s_state.discover_again || force;   /* what loads now may be stale */
+            return;
+        }
+        if (!force && s_state.discover_at >= 0 && now_s() - s_state.discover_at < max_age)
+            return;
+    }
+    const unsigned session = s_session;
+    std::thread([session] { load_discover(session); }).detach();
+}
+
 /* Signs in with a saved account (off the main thread): check the token, then
  * preferences, server info and the home rows. A rejected token asks for the
  * password again; an unreachable server is retried until the account changes. */
@@ -576,6 +684,8 @@ void use_account(jf::Client &c, unsigned session, accounts::Account a)
             }
             evo_bt("jelly5: signed in as %s on %s %s", c.user_name().c_str(), name.c_str(), version.c_str());
             load_home(c, session);
+            if (session == s_session)
+                seerr_service::attach(&c);   /* Seerr, when this account has it on */
             /* Controllable from Jellyfin's apps ("Spill på PS5") while this session lasts. */
             remote::start(&c, [session] { return session == s_session; });
             syncplay::attach(&c);
@@ -613,7 +723,7 @@ void *boot(void *)
 }
 
 /* ---- screens --------------------------------------------------------------------- */
-std::unique_ptr<ui::Home> s_home;
+std::unique_ptr<ui::Home> s_home, s_discover;   /* s_discover: Seerr's tab */
 std::unique_ptr<ui::Library> s_movies, s_shows, s_music;
 std::unique_ptr<ui::Search> s_search;
 std::unique_ptr<ui::SettingsScreen> s_settings;
@@ -772,6 +882,7 @@ void reset_screens()
     s_stack.clear();
     s_now_page = nullptr;
     s_home.reset(new ui::Home(*s_client));
+    s_discover.reset(new ui::Home(*s_client, true));
     s_movies.reset(new ui::Library(*s_client, T("Filmer"), "Movie"));
     s_shows.reset(new ui::Library(*s_client, T("Serier"), "Series"));
     s_music.reset(new ui::Library(*s_client, T("Musikk"), "MusicAlbum"));
@@ -783,6 +894,11 @@ void reset_screens()
     s_state.model = ui::HomeModel();
     s_state.views.clear();
     s_home_version = ~0u;
+    s_state.discover = ui::HomeModel();
+    s_state.discover_at = -1;
+    s_state.discover_failed = false;
+    s_state.discover_again = false;
+    s_discover_taken = ~0u;
 }
 
 /* Opens the gate screen a worker asked for (main thread). */
@@ -802,6 +918,7 @@ void open_gate(const GateRequest &r)
 void switch_to(const accounts::Account &a)
 {
     stop_music();
+    seerr_service::detach();
     if (syncplay::active())
         syncplay::leave();
     const unsigned session = ++s_session;
@@ -849,6 +966,7 @@ ui::Screen *screen_for(int tab)
     case ui::Nav::Movies: return s_movies.get();
     case ui::Nav::Shows: return s_shows.get();
     case ui::Nav::Music: return s_music.get();
+    case ui::Nav::Discover: return s_discover.get();
     case ui::Nav::Search: return s_search.get();
     case ui::Nav::Settings: return s_settings.get();
     default: return s_home.get();
@@ -862,6 +980,8 @@ void open_tab(int tab)
         std::lock_guard<std::mutex> g(s_state.lock);
         s_settings->set_server_info(s_state.server_name, s_state.server_version);
     }
+    if (tab == ui::Nav::Discover)
+        refresh_discover(300);   /* where titles stand moves: fresh after five minutes */
     screen_for(tab)->activate();
 }
 
@@ -950,12 +1070,23 @@ void shell_input(uint32_t p, jf::Item *play, bool *chose, bool *from_start, bool
         break;
     }
     case ui::Action::Open: {
+        /* A Seerr title opens Seerr's page when the server does not have it, or
+         * only some of it (the rest can be requested there); else the server's. */
+        const bool seerr_page = a.item.external() && (a.item.ext.jellyfin_id.empty() ||
+                                                      a.item.ext.status == (int)seerr::Status::PartiallyAvailable);
         ui::Screen::Card from;
         const bool have_from = screen_for(s_tab)->focused_card(&from);
         if (s_stack.size() >= 8)
             s_stack.erase(s_stack.begin());   /* "more like this" chains stay bounded */
         /* Seasons and episodes open their series' page. */
         jf::Item target = a.item;
+        if (target.external() && !seerr_page) {   /* a Seerr title the server has: the server's own page */
+            jf::Item own;
+            own.id = target.ext.jellyfin_id;
+            own.type = target.type;
+            own.name = target.name;
+            target = own;
+        }
         if ((target.type == "Season" || target.type == "Episode") && !target.series_id.empty()) {
             target = jf::Item();
             target.id = a.item.series_id;
@@ -968,7 +1099,9 @@ void shell_input(uint32_t p, jf::Item *play, bool *chose, bool *from_start, bool
             target.logo_owner = a.item.logo_owner;
             target.logo_tag = a.item.logo_tag;
         }
-        if (target.type == "SyncPlay")
+        if (seerr_page)
+            s_stack.emplace_back(new ui::SeerrDetail(a.item));
+        else if (target.type == "SyncPlay")
             s_stack.emplace_back(new ui::SyncPlayScreen(s_client->user_name()));
         else if (target.type == "Person")
             s_stack.emplace_back(new ui::Person(*s_client, target));
@@ -1011,12 +1144,14 @@ void shell_input(uint32_t p, jf::Item *play, bool *chose, bool *from_start, bool
     }
     case ui::Action::SwitchUser:
         stop_music();
+        seerr_service::detach();
         s_session++;
         open_gate({Gate::Profiles});
         set_phase(Phase::Gate);
         break;
     case ui::Action::SignOut: {
         stop_music();
+        seerr_service::detach();
         accounts::forget(s_client->server(), s_client->user_id());
         s_session++;
         s_client = new_client(s_client->server());   /* signed out; screens are remade on the next sign-in */
@@ -1057,6 +1192,8 @@ void apply_views(const std::vector<jf::Item> &views)
     if (!movies.empty()) { tabs.push_back(ui::Nav::Movies); s_movies->set_sources(movies); }
     if (!shows.empty()) { tabs.push_back(ui::Nav::Shows); s_shows->set_sources(shows); }
     if (!music.empty()) { tabs.push_back(ui::Nav::Music); s_music->set_sources(music); }
+    if (seerr_service::available())
+        tabs.push_back(ui::Nav::Discover);
     tabs.push_back(ui::Nav::Search);
     s_nav.set_tabs(tabs);
     /* A tab that went away (another account, a library removed): back home. */
@@ -1143,6 +1280,10 @@ bool draw_frame(double t, float dt)
                            tag.empty() ? "" : s_client->server() + "/Users/" + s_client->user_id() +
                                                   "/Images/Primary?tag=" + tag + "&fillWidth=440");
         }
+        if (s_discover_version != s_discover_taken) {
+            s_discover_taken = s_discover_version;
+            s_discover->set_model(s_state.discover);
+        }
     }
     art::tick();
     gfx::begin_frame();
@@ -1182,6 +1323,7 @@ bool draw_frame(double t, float dt)
                                                         : (s_tab == ui::Nav::Movies   ? (ui::Screen *)s_movies.get()
                                                            : s_tab == ui::Nav::Shows  ? (ui::Screen *)s_shows.get()
                                                            : s_tab == ui::Nav::Music  ? (ui::Screen *)s_music.get()
+                                                           : s_tab == ui::Nav::Discover ? (ui::Screen *)s_discover.get()
                                                            : s_tab == ui::Nav::Search ? (ui::Screen *)s_search.get()
                                                                                       : (ui::Screen *)s_home.get());
                 below->draw(t, dt);
@@ -1203,6 +1345,18 @@ bool draw_frame(double t, float dt)
             }
             scr->set_focused(!s_nav_focus || !s_stack.empty());
             scr->draw(t, dt);
+            if (s_tab == ui::Nav::Discover && s_stack.empty() && s_discover->empty()) {
+                /* Seerr's tab before its rows have come (or when they could not). */
+                bool failed;
+                {
+                    std::lock_guard<std::mutex> g(s_state.lock);
+                    failed = s_state.discover_failed && !s_state.discover_loading;
+                }
+                const std::string text = failed ? T("Seerr svarer ikke") : T("Henter \xE2\x80\xA6");
+                gfx::text(gfx::W / 2, gfx::H / 2, text, {gfx::SemiBold, 34}, failed ? ui::kText2 : ui::kText3, 1);
+                if (!failed)
+                    animating = true;
+            }
             if (enter < 1.f)
                 gfx::pop_opacity();
             animating = scr->animating();
@@ -1436,8 +1590,14 @@ void remote_idle(const remote::Command &rc)
 /* What is on screen, for the log's frame timing (development builds). */
 static const char *screen_label()
 {
-    if (!s_stack.empty())
-        return dynamic_cast<ui::Detail *>(s_stack.back().get()) ? "detail page" : "a page";
+    if (!s_stack.empty()) {
+        ui::Screen *s = s_stack.back().get();
+        if (dynamic_cast<ui::SeerrDetail *>(s))
+            return s->modal() ? "Seerr page (sheet)" : "Seerr page";
+        if (dynamic_cast<ui::Detail *>(s))
+            return s->modal() ? "detail page (sheet)" : "detail page";
+        return "a page";
+    }
     switch (s_tab) {
     case ui::Nav::Movies: case ui::Nav::Shows: case ui::Nav::Music: return "a library";
     case ui::Nav::Search: return "search";
@@ -1491,10 +1651,11 @@ int main()
     double last = t0;
     bool animating = true;
     Phase last_phase = Phase::Connecting;
-    unsigned last_model = ~0u;
+    unsigned last_model = ~0u, last_discover = ~0u;
     int idle_frames = 0;
     unsigned frames = 0;
     unsigned lang_gen = i18n::generation();
+    unsigned seerr_gen = seerr_service::generation();
     bool waited = true;   /* the loop chose to wait since the last frame (nothing moved) */
     for (;;) {
         nuvio_input_state in;
@@ -1561,6 +1722,8 @@ int main()
                     load_home(*c, session, true);
                     load_extras(*c, session);
                 }).detach();
+                seerr_service::set_language();   /* Seerr's titles and rows in the new language */
+                refresh_discover(0, true);
             }
         }
         if (!chose && !s_music_on && phase == Phase::Home && s_home_version == s_model_version) {
@@ -1581,8 +1744,18 @@ int main()
             continue;
         }
         /* Frames only while something moves; idle, the last frame stays up. */
+        /* Seerr's state moves on its own (the settings show it). */
+        const bool seerr_moved = seerr_gen != seerr_service::generation();
+        seerr_gen = seerr_service::generation();
+        if (seerr_moved && phase == Phase::Home) {   /* Seerr's tab comes and goes with it */
+            {
+                std::lock_guard<std::mutex> g(s_state.lock);
+                apply_views(s_state.views);
+            }
+            refresh_discover(1e9);   /* the first time it is there */
+        }
         const bool changed = in.pressed || phase != last_phase || s_model_version != last_model ||
-                             gate.kind != Gate::None;
+                             gate.kind != Gate::None || seerr_moved || s_discover_version != last_discover;
         if (changed || animating || idle_frames < 2) {
             const double now = now_s();
             const float dt = (float)std::min(0.1, now - last);
@@ -1606,6 +1779,7 @@ int main()
             idle_frames = (changed || animating) ? 0 : idle_frames + 1;
             last_phase = phase;
             last_model = s_model_version;
+            last_discover = s_discover_version;
             if ((++frames % 120) == 0)
                 gfx::collect();
         } else {

@@ -13,6 +13,8 @@ extern "C" {
 #include <libavformat/avio.h>
 #include <libavutil/dict.h>
 #include <libavutil/error.h>
+#include <libavutil/mem.h>
+#include <libavutil/opt.h>
 }
 
 namespace jf {
@@ -75,6 +77,21 @@ HttpResponse http_request(const std::string &method, const std::string &url,
         av_strerror(rc, err, sizeof err);
         res.error = err;
         return res;
+    }
+    /* The cookies the server set: FFmpeg's http protocol keeps them, one
+     * Set-Cookie value per line, in its "cookies" option (as hls.c reads them). */
+    uint8_t *cookies = nullptr;
+    if (av_opt_get(io, "cookies", AV_OPT_SEARCH_CHILDREN, &cookies) >= 0 && cookies) {
+        const std::string all = (const char *)cookies;
+        av_free(cookies);
+        for (size_t from = 0; from < all.size();) {
+            size_t to = all.find('\n', from);
+            if (to == std::string::npos)
+                to = all.size();
+            if (to > from)
+                res.cookies.push_back(all.substr(from, to - from));
+            from = to + 1;
+        }
     }
     unsigned char buf[16384];
     int n;

@@ -8,6 +8,7 @@
 #include "ui/detail.h"
 #include "jelly5_playback.h"
 #include "app/i18n.h"
+#include "app/seerr_service.h"
 
 #include "gfx/art.h"
 #include "nuvio_input.h"
@@ -15,6 +16,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <future>
 #include <list>
 #include <map>
@@ -245,9 +247,44 @@ void Detail::activate()
         jelly5_wait_reports(4000);   /* back from playing: the stop report first */
         Content fresh = fetch(*c, base);
         cache_put(cache_key(*c, base.id), fresh);
-        std::lock_guard<std::mutex> g(d->lock);
-        d->c = std::move(fresh);
+        const jf::Item item = fresh.item;
+        {
+            std::lock_guard<std::mutex> g(d->lock);
+            d->c = std::move(fresh);
+        }
+        if (item.type == "Series")   /* after the page: Seerr never holds it up */
+            look_up_in_seerr(d, item);
     }).detach();
+}
+
+/* The series in Seerr, by its TMDB id (or by its TVDB id, which Seerr's search
+ * takes as "tvdb:<id>"). Nothing when Seerr is off or not signed in. */
+void Detail::look_up_in_seerr(const std::shared_ptr<Data> &d, const jf::Item &series)
+{
+    std::shared_ptr<seerr::Client> sc = seerr_service::client();
+    if (!sc || (series.tmdb_id.empty() && series.tvdb_id.empty()))
+        return;
+    {
+        std::lock_guard<std::mutex> g(d->lock);
+        d->seerr_pending = true;
+    }
+    int tmdb = std::atoi(series.tmdb_id.c_str());
+    if (tmdb <= 0)
+        for (const seerr::Title &t : sc->search("tvdb:" + series.tvdb_id))
+            if (t.tv) {
+                tmdb = t.id;
+                break;
+            }
+    seerr::Detail sd;
+    const bool ok = tmdb > 0 && sc->tv(tmdb, &sd);
+    if (!ok && (sc->last_status() == 401 || sc->last_status() == 403))
+        seerr_service::session_lost();
+    std::lock_guard<std::mutex> g(d->lock);
+    d->seerr_pending = false;
+    if (ok) {
+        d->seerr = std::move(sd);
+        d->have_seerr = true;
+    }
 }
 
 void Detail::select_episodes()
@@ -305,6 +342,11 @@ std::vector<Detail::Button> Detail::buttons() const
         b.push_back(RestartButton);
     if (m_view.have_trailer)
         b.push_back(TrailerButton);
+    if (m_have_seerr && m_view.item.type == "Series") {   /* seasons Seerr can still get */
+        const seerr_service::Snapshot s = seerr_service::snapshot();
+        if (s.state == seerr_service::State::Ready && RequestSheet::offers(m_seerr, s.user, s.settings))
+            b.push_back(RequestButton);
+    }
     if (m_view.item.type != "BoxSet")
         b.push_back(WatchedButton);
     b.push_back(FavouriteButton);
@@ -349,6 +391,10 @@ void Detail::apply_local(const UserDataChange &ch, bool whole)
 Action Detail::input(uint32_t p)
 {
     Action a;
+    if (m_sheet.active()) {
+        m_sheet.input(p);
+        return a;
+    }
     const std::vector<Zone> zs = zones();
     const auto zi = std::find(zs.begin(), zs.end(), m_zone) - zs.begin();
     const int nb = (int)buttons().size();
@@ -429,6 +475,9 @@ Action Detail::input(uint32_t p)
             } else if (btn == TrailerButton) {
                 a.kind = Action::PlayFromStart;
                 a.item = m_view.trailer;
+            } else if (btn == RequestButton) {
+                const seerr_service::Snapshot s = seerr_service::snapshot();
+                m_sheet.open(m_seerr, s.user, s.settings);
             } else if (m_view.have_target) {
                 a.kind = btn == RestartButton ? Action::PlayFromStart : Action::Play;
                 a.item = m_view.target;
@@ -556,14 +605,14 @@ void Detail::draw_top(float y0, float dt)
     const float by = y0 + 668;
     const std::vector<Button> bs = buttons();
     /* Glass buttons: the panes, then the focus drop over them, then their labels. */
-    if (m_zone != Buttons)
+    if (m_zone != Buttons || m_sheet.active())
         m_btn_drop.hide();
     for (int pass = 0; pass < 2; pass++) {
     if (pass == 1)
         m_btn_drop.draw(dt, 1.f, &m_animating, 16);
     float bx = kPad;
     for (size_t i = 0; i < bs.size(); i++) {
-        const bool focus = m_zone == Buttons && (int)i == std::min(m_button, (int)bs.size() - 1);
+        const bool focus = m_zone == Buttons && !m_sheet.active() && (int)i == std::min(m_button, (int)bs.size() - 1);
         const gfx::TextStyle st{gfx::Bold, 26};
         std::string label, sub;
         float pct = -1;
@@ -586,6 +635,8 @@ void Detail::draw_top(float y0, float dt)
             w = gfx::text_width(T("Fra start"), st) + 64;
         if (bs[i] == TrailerButton)
             w = gfx::text_width("Trailer", st) + 64;
+        if (bs[i] == RequestButton)
+            w = gfx::text_width(T("Be om flere sesonger"), st) + 64 + 34;
         if (bs[i] == PlayButton)
             w = 40 + 30 + 14 + gfx::text_width(label, st) + (pct >= 0 ? 14 + 90 + 14 + gfx::text_width(sub, {gfx::Medium, 24}) : 0) + 40;
         const float k = 1.f;
@@ -614,6 +665,10 @@ void Detail::draw_top(float y0, float dt)
             gfx::text(r.x + r.w / 2, cy + 9, T("Fra start"), st, fg, 1);
         } else if (bs[i] == TrailerButton) {
             gfx::text(r.x + r.w / 2, cy + 9, "Trailer", st, fg, 1);
+        } else if (bs[i] == RequestButton) {   /* a plus, then the label */
+            gfx::fill({r.x + 32, cy - 1.75f, 20, 3.5f}, fg, 1.5f);
+            gfx::fill({r.x + 40.25f, cy - 10, 3.5f, 20}, fg, 1.5f);
+            gfx::text(r.x + 32 + 34, cy + 9, T("Be om flere sesonger"), st, fg);
         } else if (bs[i] == WatchedButton) {
             /* A check from small squares along its two strokes. */
             const bool seen = m_view.item.played;
@@ -881,9 +936,23 @@ void Detail::draw(double now, float dt)
     m_enter.to(1.f);
     if (m_enter.step(dt, 14.f))
         m_animating = true;
+    bool seerr_pending;
     {
         std::lock_guard<std::mutex> g(m_data->lock);
         m_view = m_data->c;
+        m_seerr = m_data->seerr;
+        m_have_seerr = m_data->have_seerr;
+        seerr_pending = m_data->seerr_pending;
+    }
+    if (seerr_pending)
+        m_animating = true;   /* the request button shows as soon as Seerr answers */
+    seerr::RequestResult done;
+    if (m_sheet.take_done(&done)) {   /* say how it went, and ask Seerr again (seasons moved) */
+        m_note = request_note(done);
+        m_note_at = now;
+        std::shared_ptr<Data> d = m_data;
+        const jf::Item series = m_view.item;
+        std::thread([d, series] { look_up_in_seerr(d, series); }).detach();
     }
     const jf::Item &it = m_view.item;
 
@@ -935,6 +1004,11 @@ void Detail::draw(double now, float dt)
     draw_top(-m_page.value, dt);
     draw_sections(dt);
     gfx::pop_opacity();
+    m_note_a.to(now - m_note_at < 4.0 ? 1.f : 0.f);
+    if (m_note_a.step(dt, 10.f) || m_note_a.target > 0)
+        m_animating = true;
+    draw_note(m_note, m_note_a.value);
+    m_sheet.draw(dt, &m_animating);
     if (art::animating())
         m_animating = true;
 }

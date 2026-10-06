@@ -39,7 +39,8 @@ constexpr int kTimeout = 15;
 constexpr const char *kVersion = "0.0.1";
 constexpr const char *kFields = "Overview,Genres";            /* rows: what the UI shows */
 constexpr const char *kItemFields =
-    "Overview,Genres,MediaStreams,Taglines,People,Studios,ChildCount,ProductionLocations,SpecialFeatureCount";
+    "Overview,Genres,MediaStreams,Taglines,People,Studios,ChildCount,ProductionLocations,SpecialFeatureCount,"
+    "ProviderIds";   /* a series' TMDB/TVDB ids: Seerr finds it by them */
 
 std::string str_of(const cJSON *o, const char *key)
 {
@@ -175,6 +176,8 @@ Item item_of(const cJSON *o)
     cJSON_ArrayForEach(g, cJSON_GetObjectItemCaseSensitive(o, "ProductionLocations"))
         if (cJSON_IsString(g))
             it.locations.push_back(g->valuestring);
+    it.tmdb_id = str_of(cJSON_GetObjectItemCaseSensitive(o, "ProviderIds"), "Tmdb");
+    it.tvdb_id = str_of(cJSON_GetObjectItemCaseSensitive(o, "ProviderIds"), "Tvdb");
     return it;
 }
 
@@ -342,6 +345,18 @@ bool Client::quick_connect_poll(const QuickConnect &qc, bool *approved)
     j = cJSON_Parse(body.c_str());
     *approved = j && take_auth(j, this);
     cJSON_Delete(j);
+    return true;
+}
+
+bool Client::quick_connect_authorize(const std::string &code)
+{
+    std::string body;
+    if (!post_json("/QuickConnect/Authorize?code=" + url_escape(code), "", &body))
+        return false;
+    if (body.find("true") == std::string::npos) {
+        set_error("Quick Connect: the server did not approve the code");
+        return false;
+    }
     return true;
 }
 
@@ -538,7 +553,7 @@ std::vector<Item> Client::search(const std::string &term, const std::string &typ
     std::string body;
     if (!get_json("/Items?userId=" + user_id_ + "&searchTerm=" + url_escape(term) + "&IncludeItemTypes=" + types +
                       "&Recursive=true&EnableTotalRecordCount=false&Limit=" + std::to_string(limit) +
-                      "&fields=" + kFields, &body))
+                      "&fields=" + kFields + ",ProviderIds", &body))   /* TMDB ids: Seerr's results match them */
         return {};
     return items_of(body);
 }

@@ -20,8 +20,9 @@ panel's own resolution: large backdrops, rows that slide and lift, blur and
 glass, artwork that fades in over its BlurHash. Video goes through the console's
 own hardware decoder.
 
-It speaks only Jellyfin. There is no extra backend and no account other than
-your Jellyfin server.
+It speaks Jellyfin, and Seerr for requests if you have it. There is no extra
+backend and no account other than your Jellyfin server (Seerr signs in through
+it).
 
 ## Features
 
@@ -55,6 +56,14 @@ your Jellyfin server.
 - Albums, artists, playlists and Instant Mix
 - Background playback while you browse, a mini player and a full *Now playing* view with time-synced lyrics (word by word when the lyrics have it)
 - A queue on *Now playing* (△): see what's next, jump to a track, shuffle, and repeat all or one; □ stops the music
+
+**Requests with Seerr** (optional)
+- [Seerr](https://github.com/seerr-team/seerr)'s films and series in Search, under the library's, with where each stands (available, partly available, requested, pending)
+- Request a film, or a series season by season, from its page; with Seerr's *advanced requests* permission also the Radarr/Sonarr server, quality profile and root folder
+- *Request more seasons* on the page of a series you have only part of
+- A *Discover* tab: trending, popular and upcoming films and series, and your own requests
+- Trailers as a QR code your phone opens
+- Signs in by itself (Quick Connect, approved by your Jellyfin account); the console only ever talks to Seerr on your network
 
 **PS5 touches**
 - Adaptive triggers: L2/R2 scrub against a resistance, faster the harder you press
@@ -92,6 +101,8 @@ your Jellyfin server.
   on port 1337, with an FTP client such as FileZilla, Cyberduck or WinSCP).
 - A **Jellyfin server** (tested with 12.1) that the PS5 can reach, on the same
   network or over the internet.
+- Optionally, **Seerr** 3.4 or newer (tested with 3.5) with Jellyfin as its
+  media server, for requests (see *Seerr* below).
 
 ### Install
 
@@ -123,6 +134,32 @@ be added from the profile picker.
 The zip also holds `PPSA99505.ffpfsc`, the same app as a PFS image, for
 loaders that mount images. The folder route above is the tested one.
 
+### Seerr (optional)
+
+With [Seerr](https://github.com/seerr-team/seerr) (the successor of Overseerr
+and Jellyseerr), Jelly5 finds what your library doesn't have and requests it.
+Seerr gets everything from TMDB itself, so the console only talks to Seerr, on
+your network: it works without Internet on the PS5.
+
+What Seerr needs: Jellyfin as its media server, your Jellyfin user imported in
+Seerr (or *Enable New Jellyfin Sign-In* on), and permission to request. For the
+automatic sign-in, Seerr 3.4 or newer and Quick Connect enabled in Jellyfin.
+
+In Jelly5, open *Settings* (your picture at the top right), then *Seerr*:
+
+| Setting | |
+| --- | --- |
+| **Seerr** | On or off. Off, nothing is ever sent to Seerr. |
+| **Address** | Seerr's address as the console reaches it. It starts as your Jellyfin server's host on port 5055 (`http://192.168.1.20:5055`, say). A public domain that only works from outside your home will not work from the PS5. |
+| **Sign-in** | *Automatic (Quick Connect)*: Seerr starts a Quick Connect, the Jellyfin account in use approves it, nothing to type. *Jellyfin password* or *Seerr account (email)*: typed once with the PS5 keyboard. Only Seerr's session is kept, never a password. |
+| **Seerr account** | Who is signed in; ✕ signs out, or in again. Each Jellyfin account on the console has its own. |
+| **Network** | *Local network only* (the default): the console talks to Jellyfin and Seerr and nothing else. *Internet* (experimental): for a PS5 that has Internet; Seerr's address may be public (HTTPS), and posters come straight from TMDB when Seerr's image cache does not answer. |
+| **Test the connection** | Checks the address, the session and the pictures. |
+
+Once signed in, Seerr's results show under the library's in Search, the
+*Discover* tab appears, and a title's page offers *Request*. Requests to
+separate 4K Radarr/Sonarr instances are not offered.
+
 ### Update
 
 1. **Close Jelly5 completely** first: PS button, then close it from the
@@ -150,6 +187,9 @@ sees it); nothing else on the console is touched.
 | Your server is not in the list | Type its address. Discovery needs UDP port 7359 to reach the server (in Docker: publish `7359/udp`, and *Enable auto discovery* on in Jellyfin's networking settings). |
 | A title won't play or stutters | Press **L3** while it plays and include that info in an issue. Over Wi-Fi, lower *Maximum quality* in Jelly5's settings. |
 | The receiver shows PCM, not Dolby Atmos | Expected: the PS5 gives apps no bitstream passthrough (see *Known limits*). |
+| Seerr: "Not answering" | The address must be one the console reaches on your network (Seerr's local address, port 5055 by default). Check it with *Test the connection*. |
+| Seerr: "Automatic sign-in failed" | Seerr is older than 3.4, Quick Connect is off in Jellyfin, or your Jellyfin user is not in Seerr. Choose *Jellyfin password* under *Sign-in*, or import the user in Seerr. |
+| Seerr: no pictures | Seerr fetches them from TMDB: the Seerr server itself needs Internet. |
 
 ## Controls
 
@@ -179,11 +219,18 @@ These come from the platform, not from Jelly5:
 
 ## Privacy
 
-Jelly5 talks to your Jellyfin server and nothing else. The one exception is
-opt-in: with *Check for updates* turned on in its settings, it asks GitHub once a
-launch whether there is a newer release. It keeps its accounts, settings and a
-96 MB image cache in its own folder, `/download0/jelly5`, and writes nowhere
-else on the console. Release builds send no logs anywhere.
+Jelly5 talks to your Jellyfin server and, when you turn it on in its settings,
+your Seerr server, and nothing else. Seerr gets what it shows from TMDB itself:
+the console never contacts TMDB, YouTube or any other service, posters come
+through Seerr's own image cache, and a trailer is a QR code that your phone
+opens. Off, nothing is ever sent to Seerr. Only with Seerr's *Network* set to
+*Internet* (experimental, off by default) may posters come straight from TMDB,
+when Seerr's image cache does not answer. The one exception is opt-in: with
+*Check for updates* turned on in its settings, it asks GitHub once a launch
+whether there is a newer release. It keeps its accounts, settings, Seerr
+session (never a password) and a 96 MB image cache in its own folder,
+`/download0/jelly5`, and writes nowhere else on the console. Release builds
+send no logs anywhere.
 
 ## Reporting problems
 
@@ -221,9 +268,12 @@ and sends a debug log over UDP to the machine that built it (`scripts/log.sh`).
 of that out.
 
 `app/tests/host/run.sh` runs the Jellyfin client against a real server on the
-build machine (`JF_URL`, `JF_USER` and `JF_PASS` in `.env.local`); it needs
-libcurl's headers (`libcurl4-openssl-dev` on Debian or Ubuntu, included with
-macOS).
+build machine (`JF_URL`, `JF_USER` and `JF_PASS` in `.env.local`), and
+`app/tests/host/seerr.sh` the Seerr client (`SEERR_URL` as well): it signs in
+with Quick Connect as the console does and reads search, discover, title pages,
+Radarr/Sonarr options and quotas; a request is only shown unless `--for-real`
+is given. Both need libcurl's headers (`libcurl4-openssl-dev` on Debian or
+Ubuntu, included with macOS).
 
 
 ## Credits
