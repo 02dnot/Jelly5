@@ -16,10 +16,14 @@ public:
     explicit Frames(const char *name) : m_name(name) {}
     /* draw_ms: the frame's drawing and presenting; at: when it was presented (s). */
     void note(double draw_ms, double at, const char *extra = nullptr);
+    /* The loop chose to wait since the last frame (nothing moved): the next
+     * frame's distance from it is not a gap. */
+    void pause() { m_paused = true; }
 
 private:
     const char *m_name;
     double m_window = 0, m_last = 0;
+    bool m_paused = false;
     int m_n = 0, m_late = 0;
     double m_sum = 0, m_max = 0, m_gap_max = 0;
     float m_draws[2048];

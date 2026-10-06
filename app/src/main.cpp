@@ -1432,6 +1432,21 @@ void remote_idle(const remote::Command &rc)
 
 } // namespace
 
+#ifdef JELLY5_LOG_HOST
+/* What is on screen, for the log's frame timing (development builds). */
+static const char *screen_label()
+{
+    if (!s_stack.empty())
+        return dynamic_cast<ui::Detail *>(s_stack.back().get()) ? "detail page" : "a page";
+    switch (s_tab) {
+    case ui::Nav::Movies: case ui::Nav::Shows: case ui::Nav::Music: return "a library";
+    case ui::Nav::Search: return "search";
+    case ui::Nav::Settings: return "settings";
+    default: return "home";
+    }
+}
+#endif
+
 /* Imports the console left NULL (see scripts/build.sh). */
 extern "C" __attribute__((weak)) int nuvio_import_count(void) { return 0; }
 extern "C" __attribute__((weak)) const char *nuvio_import_null(int) { return nullptr; }
@@ -1480,6 +1495,7 @@ int main()
     int idle_frames = 0;
     unsigned frames = 0;
     unsigned lang_gen = i18n::generation();
+    bool waited = true;   /* the loop chose to wait since the last frame (nothing moved) */
     for (;;) {
         nuvio_input_state in;
         nuvio_input_poll(&in);
@@ -1552,6 +1568,7 @@ int main()
             if (remote::take(&rc)) {
                 remote_idle(rc);
                 last = now_s();
+                waited = true;
                 continue;
             }
         }
@@ -1560,6 +1577,7 @@ int main()
             s_queue.clear();
             play(chosen, from_start, shuffle, queue.empty() ? nullptr : &queue, s_queue_start);
             last = now_s();
+            waited = true;
             continue;
         }
         /* Frames only while something moves; idle, the last frame stays up. */
@@ -1572,9 +1590,19 @@ int main()
             animating = draw_frame(now - t0, dt);
 #ifdef JELLY5_LOG_HOST   /* development builds: frame timing in the log */
             static perf::Frames ui_perf("ui");
+            static double last_drawn = 0;
             const double drawn = now_s();
+            /* A pause the loop chose (nothing moved, waiting for a button) is not a
+             * gap; a frame that was wanted at once and came late is, and says where. */
+            if (waited)
+                ui_perf.pause();
+            else if (last_drawn > 0 && drawn - last_drawn > 0.1)
+                evo_bt("perf ui: %.0f ms between frames (this one drew in %.1f ms) on %s",
+                       (drawn - last_drawn) * 1000.0, (drawn - now) * 1000.0, screen_label());
             ui_perf.note((drawn - now) * 1000.0, drawn);
+            last_drawn = drawn;
 #endif
+            waited = false;
             idle_frames = (changed || animating) ? 0 : idle_frames + 1;
             last_phase = phase;
             last_model = s_model_version;
@@ -1583,6 +1611,7 @@ int main()
         } else {
             usleep(8000);
             last = now_s();
+            waited = true;
         }
         if (s_saver.on())
             usleep(25000);   /* the screensaver drifts slowly: ~30 frames a second is plenty */

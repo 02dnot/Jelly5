@@ -14,7 +14,7 @@ namespace perf {
 void Frames::note(double draw_ms, double at, const char *extra)
 {
     const double period = evo_agc_runtime_is_120hz() ? 1000.0 / 119.88 : 1000.0 / 59.94;
-    if (m_last > 0) {
+    if (m_last > 0 && !m_paused) {
         const double gap = (at - m_last) * 1000.0;
         if (gap < 250.0) {   /* frames in a run (an idle pause is not a dropped frame) */
             m_gap_max = std::max(m_gap_max, gap);
@@ -23,6 +23,7 @@ void Frames::note(double draw_ms, double at, const char *extra)
         }
     }
     m_last = at;
+    m_paused = false;
     if (m_window == 0)
         m_window = at;
     if (m_n < 2048)
