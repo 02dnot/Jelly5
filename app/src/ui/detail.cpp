@@ -441,17 +441,26 @@ Action Detail::input(uint32_t p)
         apply_local(a.change, false);
     } else if ((p & NUVIO_BTN_OPTIONS) && m_zone == Seasons && m_season < (int)m_view.seasons.size()) {
         /* The whole season: Jellyfin marks every episode in it. */
-        jf::Item &season = m_view.seasons[m_season];
+        const jf::Item &season = m_view.seasons[m_season];
         a.change.id = season.id;
         a.change.played_set = true;
         a.change.played = !season.played;
         a.kind = Action::Changed;
         a.item = season;
-        season.played = a.change.played;
-        for (jf::Item &e : m_eps) {
-            e.played = a.change.played;
-            if (a.change.played)
-                e.played_percent = 0, e.position_ticks = 0;
+        /* Into the page's data (each frame copies it): the view alone forgot it at once. */
+        std::lock_guard<std::mutex> g(m_data->lock);
+        Content &c = m_data->c;
+        if (m_season < (int)c.seasons.size()) {
+            jf::Item &s = c.seasons[m_season];
+            s.played = a.change.played;
+            for (jf::Item &e : c.all_episodes)
+                if (e.season_id == s.id || (e.season_id.empty() && e.parent_index == s.index)) {
+                    e.played = a.change.played;
+                    if (a.change.played)
+                        e.played_percent = 0, e.position_ticks = 0;
+                }
+            m_view = c;
+            select_episodes();
         }
     } else if (p & NUVIO_BTN_CROSS) {
         switch (m_zone) {
