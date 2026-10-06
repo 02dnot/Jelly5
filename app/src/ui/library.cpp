@@ -187,9 +187,11 @@ Action Library::input(uint32_t p)
 {
     Action a;
     int count;
+    bool more;   /* pages still to come: the last row loaded is not the end */
     {
         std::lock_guard<std::mutex> g(m_data->lock);
         count = (int)m_data->items.size();
+        more = m_data->total < 0 ? m_data->loading : count < m_data->total;
     }
     if (m_filter_open) {
         filter_input(p);
@@ -261,8 +263,8 @@ Action Library::input(uint32_t p)
             m_index += kCols;
         else if (row + 1 <= (count - 1) / kCols)
             m_index = count - 1;   /* last, partial row */
-        else
-            m_bump = true;
+        else if (!more)
+            m_bump = true;         /* the library's end (not while its next page comes) */
     } else if (p & NUVIO_BTN_UP) {
         if (row > 0)
             m_index -= kCols;
