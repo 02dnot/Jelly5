@@ -111,6 +111,7 @@ private:
     bool m_have_seerr = false;
     RequestSheet m_sheet;
     std::string m_note;                 /* how a request went, shown for a few seconds */
+    uint32_t m_note_dot = 0xff30d158u;      /* its dot: green done, amber failed, grey neither */
     double m_note_at = -100;
     Anim m_note_a;
 };

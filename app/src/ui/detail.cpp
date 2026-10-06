@@ -981,6 +981,7 @@ void Detail::draw(double now, float dt)
     seerr::RequestResult done;
     if (m_sheet.take_done(&done)) {   /* say how it went, and ask Seerr again (seasons moved) */
         m_note = request_note(done);
+        m_note_dot = request_note_dot(done);
         m_note_at = now;
         std::shared_ptr<Data> d = m_data;
         const jf::Item series = m_view.item;
@@ -1039,7 +1040,7 @@ void Detail::draw(double now, float dt)
     m_note_a.to(now - m_note_at < 4.0 ? 1.f : 0.f);
     if (m_note_a.step(dt, 10.f) || m_note_a.target > 0)
         m_animating = true;
-    draw_note(m_note, m_note_a.value);
+    draw_note(m_note, m_note_a.value, m_note_dot);
     m_sheet.draw(dt, &m_animating);
     if (art::animating())
         m_animating = true;

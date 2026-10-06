@@ -26,6 +26,8 @@ namespace ui {
 
 /* What the page says once a request went through (approved, waiting, nothing to ask for). */
 std::string request_note(const seerr::RequestResult &r);
+/* The dot for that note: green when it went through, grey when there was nothing to ask for. */
+uint32_t request_note_dot(const seerr::RequestResult &r);
 
 class RequestSheet {
 public:
@@ -75,6 +77,7 @@ private:
     bool m_defaults_set = false, m_touched = false;   /* the advanced choices were changed */
     int m_focus = 0, m_button = 0;          /* row; on the buttons: 0 send, 1 cancel */
     std::string m_error;                    /* how the last try went, when it did not */
+    bool m_retry = false;                   /* that try can go again as it is (Seerr away, signed out ...) */
     bool m_open = false, m_done = false;
     seerr::RequestResult m_result;
     Anim m_alpha, m_scroll;

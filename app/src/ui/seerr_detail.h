@@ -65,6 +65,7 @@ private:
     bool m_qr_ok = false;
     Anim m_qr_a;
     std::string m_note;                     /* how a request went, shown for a few seconds */
+    uint32_t m_note_dot = 0xff30d158u;      /* its dot: green done, amber failed, grey neither */
     double m_note_at = -100, m_now = 0, m_opened = -1;
     Anim m_enter, m_content, m_note_a;
     Drop m_drop;

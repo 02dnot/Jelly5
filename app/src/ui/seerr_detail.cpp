@@ -223,6 +223,7 @@ Action SeerrDetail::input(uint32_t p)
             std::shared_ptr<Data> d = m_data;
             m_cancelling = true;
             m_note = T("Trekker tilbake \xE2\x80\xA6");
+            m_note_dot = kText3;
             m_note_at = m_now;
             const bool started = jelly5::spawn([c, ids, d] {   /* d, not this: the page may close meanwhile */
                 bool ok = true;
@@ -318,6 +319,7 @@ void SeerrDetail::draw(double now, float dt)
     seerr::RequestResult done;
     if (m_sheet.take_done(&done)) {
         m_note = request_note(done);
+        m_note_dot = request_note_dot(done);
         m_note_at = now;
         activate();
     }
@@ -332,6 +334,7 @@ void SeerrDetail::draw(double now, float dt)
         seerr_service::note_status(m_item.ext.tmdb_id, m_item.type == "Series", (int)seerr::Status::Unknown);
     if (cancelled) {   /* withdrawn (or not): say so, and read the page again */
         m_note = cancelled > 0 ? T("Forespørselen er trukket tilbake") : T("Kunne ikke trekke tilbake forespørselen");
+        m_note_dot = cancelled > 0 ? 0xff30d158u : 0xffff9f0au;
         m_note_at = now;
         activate();
     }
@@ -575,7 +578,7 @@ void SeerrDetail::draw(double now, float dt)
     m_note_a.to(now - m_note_at < 4.0 ? 1.f : 0.f);
     if (m_note_a.step(dt, 10.f) || m_note_a.target > 0)
         m_animating = true;
-    draw_note(m_note, m_note_a.value);
+    draw_note(m_note, m_note_a.value, m_note_dot);
 
     m_sheet.draw(dt, &m_animating);
     draw_qr(dt);

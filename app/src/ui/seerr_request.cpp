@@ -59,6 +59,11 @@ std::string request_note(const seerr::RequestResult &r)
                                      : T("Ingenting å be om: alt er der eller forespurt allerede");
 }
 
+uint32_t request_note_dot(const seerr::RequestResult &r)
+{
+    return r.outcome == seerr::RequestResult::NothingToRequest ? kText3 : 0xff30d158u;
+}
+
 bool RequestSheet::offers(const seerr::Detail &d, const seerr::User &user, const seerr::PublicSettings &ps)
 {
     const seerr::Title &t = d.title;
@@ -185,6 +190,7 @@ void RequestSheet::send()
                 o.seasons.push_back(m_detail.seasons[i].number);
         if (o.seasons.empty()) {
             m_error = T("Velg minst én sesong");
+            m_retry = false;
             return;
         }
         /* Always the seasons themselves, as Seerr's own page sends them: its "all"
@@ -212,10 +218,12 @@ void RequestSheet::send()
             if (o.tv && (int)o.seasons.size() > q.remaining) {
                 std::snprintf(b, sizeof b, T("Kvoten din gir plass til %d sesonger til"), std::max(0, q.remaining));
                 m_error = b;
+                m_retry = false;
                 return;
             }
             if (!o.tv && (q.restricted || q.remaining <= 0)) {
                 m_error = T("Kvoten din er brukt opp");
+                m_retry = false;
                 return;
             }
         }
@@ -223,6 +231,7 @@ void RequestSheet::send()
     std::shared_ptr<seerr::Client> c = seerr_service::client();
     if (!c) {
         m_error = T("Seerr svarer ikke");
+        m_retry = true;
         return;
     }
     m_error.clear();
@@ -244,6 +253,7 @@ void RequestSheet::send()
         std::lock_guard<std::mutex> g(sh->lock);
         sh->sending = false;
         m_error = T("Kunne ikke sende forespørselen");
+        m_retry = true;
     }
 }
 
@@ -305,6 +315,7 @@ void RequestSheet::input(uint32_t p)
             m_folder = cycle(m_folder, (int)s->folders.size());
         }
         m_touched = true;
+        m_error.clear();   /* a new choice: the last try's message goes */
     } else if (p & NUVIO_BTN_CROSS) {
         if (row.kind == AllSeasons) {
             bool all = true;
@@ -313,8 +324,10 @@ void RequestSheet::input(uint32_t p)
                     all = false;
             for (size_t i = 0; i < m_picked.size(); i++)
                 m_picked[i] = !all && requestable(m_detail.seasons[i], m_settings);
+            m_error.clear();
         } else if (row.kind == OneSeason) {
             m_picked[row.season] = !m_picked[row.season];
+            m_error.clear();
         } else if (row.kind == Buttons) {
             if (m_button == 0) {
                 send();
@@ -366,6 +379,9 @@ void RequestSheet::draw(float dt, bool *animating)
                 m_alpha.to(0.f);
             } else {
                 m_error = message(r);
+                /* Again as it is only when it may go through then (not over the quota,
+                 * not allowed, asked for already). */
+                m_retry = r.outcome == R::Unreachable || r.outcome == R::SignedOut || r.outcome == R::Failed;
             }
         }
     }
@@ -538,7 +554,7 @@ void RequestSheet::draw(float dt, bool *animating)
 
     /* The buttons: Request (or Try again) and Cancel; the drop when the focus is here. */
     const bool on_buttons = m_rows[m_focus].kind == Buttons;
-    const std::string send_label = m_error.empty() ? T("Be om") : T("Prøv igjen");
+    const std::string send_label = !m_error.empty() && m_retry ? T("Prøv igjen") : T("Be om");
     const gfx::TextStyle bt{gfx::Bold, 26};
     const float bw0 = gfx::text_width(send_label, bt) + 96, bw1 = gfx::text_width(T("Avbryt"), bt) + 80;
     const gfx::Rect b0{r.x + 48, y, bw0, 76}, b1{r.x + 48 + bw0 + 20, y, bw1, 76};
