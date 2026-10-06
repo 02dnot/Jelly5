@@ -204,7 +204,7 @@ void SeerrDetail::draw(double now, float dt)
     gfx::fill(full, kBg);
     std::string backdrop = m_item.ext.backdrop;
     if (backdrop.empty() && m_loaded)
-        backdrop = seerr_service::image_url(t.backdrop, "w1280");
+        backdrop = seerr_service::image_url(t.backdrop, "original");   /* the screen is 4K: w1280 was three times enlarged */
     if (backdrop.empty() || art::failed(backdrop))
         draw_title_card(full, "", m_item.ext.tmdb_id, 0, 0.6f);   /* its colours, at least */
     else
