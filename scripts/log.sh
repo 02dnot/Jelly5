@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Jelly5 — show the console's log live (the app sends it as UDP to this Mac).
+# Jelly5 — show the console's log live (the app sends it as UDP to this machine).
 #   scripts/log.sh            listen on 5555, also append to build/console.log
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

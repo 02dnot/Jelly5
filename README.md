@@ -192,20 +192,38 @@ happened. For playback problems, the L3 playback info for the title helps a lot.
 
 ## Building
 
-Jelly5 builds natively on macOS (Apple silicon) with the
+Jelly5 builds natively on macOS (Apple silicon or Intel) and on Linux with the
 [PS5 payload SDK](https://github.com/ps5-payload-dev/sdk) and pacbrew.
+`scripts/setup-toolchain.sh` downloads both (pinned by checksum) into the
+git-ignored `toolchain/` folder. What it needs first:
+
+- **macOS**: Homebrew's LLVM, with `brew install llvm lld coreutils bash`
+  (the system's bash 3.2 is too old for the build script).
+- **Linux**: the distribution's LLVM. On Debian or Ubuntu:
+  `sudo apt install build-essential clang lld llvm curl unzip zip python3-venv`.
+  clang, lld and llvm must be the same version (tested with LLVM 21 on Ubuntu
+  26.04); set `LLVM_CONFIG` (for example `llvm-config-21`) to pick one when
+  several are installed.
 
 ```sh
-scripts/setup-toolchain.sh                  # once: SDK, pacbrew sysroot, host tools
+scripts/setup-toolchain.sh                  # once: SDK, pacbrew sysroot, host zlib
 cd app
 eval "$(../scripts/setup-toolchain.sh --env)"
-"$(brew --prefix)/bin/bash" scripts/build.sh --release   # → build/app/Jelly5-<version>.zip
+scripts/build.sh --release                  # → build/app/Jelly5-<version>.zip
 ```
+
+On macOS, run the build with Homebrew's bash: `"$(brew --prefix)/bin/bash" scripts/build.sh`.
 
 A plain `scripts/build.sh` is the development build. It reads the git-ignored
 `.env.local` (`JF_URL`, `PS5_HOST`, …), uses `JF_URL` as the default server,
-and sends a debug log over UDP to your Mac (`scripts/log.sh`). `scripts/deploy.py`
-uploads it to the console over FTP. `--release` leaves all of that out.
+and sends a debug log over UDP to the machine that built it (`scripts/log.sh`).
+`scripts/deploy.py` uploads it to the console over FTP. `--release` leaves all
+of that out.
+
+`app/tests/host/run.sh` runs the Jellyfin client against a real server on the
+build machine (`JF_URL`, `JF_USER` and `JF_PASS` in `.env.local`); it needs
+libcurl's headers (`libcurl4-openssl-dev` on Debian or Ubuntu, included with
+macOS).
 
 
 ## Credits
