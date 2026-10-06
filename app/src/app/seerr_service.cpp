@@ -698,7 +698,7 @@ jf::Item to_item(const seerr::Title &t)
     /* Sizes as the server's art is asked for: posters 480 wide, cards 640, backdrops the screen. */
     it.ext.poster = image_url(t.poster, "w500");
     it.ext.thumb = image_url(t.backdrop, "w780");
-    it.ext.backdrop = image_url(t.backdrop, "original");   /* full screen at 4K: w1280 was soft */
+    it.ext.backdrop = image_url(t.backdrop, "w1280");   /* behind the rows, changing as they are browsed: light (the page loads the original) */
     return it;
 }
 

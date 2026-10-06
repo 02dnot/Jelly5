@@ -297,9 +297,13 @@ void SeerrDetail::draw(double now, float dt)
     /* Backdrop and scrims, as the library's page. */
     const gfx::Rect full{0, 0, gfx::W, gfx::H};
     gfx::fill(full, kBg);
-    std::string backdrop = m_item.ext.backdrop;
-    if (backdrop.empty() && m_loaded)
-        backdrop = seerr_service::image_url(t.backdrop, "original");   /* the screen is 4K: w1280 was three times enlarged */
+    /* The page's own backdrop at full size (the screen is 4K; w1280 was three times
+     * enlarged); the row's lighter one until the details come. */
+    std::string backdrop = m_loaded && !t.backdrop.empty() ? seerr_service::image_url(t.backdrop, "original")
+                                                           : m_item.ext.backdrop;
+    if (m_loaded && (art::failed(backdrop) || !art::get(backdrop, 1920, 1080)) && !m_item.ext.backdrop.empty() &&
+        art::get(m_item.ext.backdrop, 1920, 1080))
+        backdrop = m_item.ext.backdrop;   /* the full one still on its way: keep showing the row's */
     if (backdrop.empty() || art::failed(backdrop))
         draw_title_card(full, "", m_item.ext.tmdb_id, 0, 0.6f);   /* its colours, at least */
     else
