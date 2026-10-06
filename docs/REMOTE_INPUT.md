@@ -1,57 +1,65 @@
 # Remote-control input contribution
 
-Jelly5 previously opened only the standard `scePad` port (0). The proposed
-input owner additionally opens the current user's remote-control port (16),
-reads its button state, and merges recognised buttons into the same shell and
-player navigation stream. Port 16 is documented by the public PS5 input
-[ABI reference](https://github.com/blackbearreloaded/ps5-native-gamepad-input-research/blob/main/include/ps5_pad.hpp).
+Jelly5's shared shell/player input owner opens the standard DualSense port (0)
+and the optional remote-control port (16) for system user `0xff`. The public
+PS5 input [ABI reference](https://github.com/blackbearreloaded/ps5-native-gamepad-input-research/blob/main/include/ps5_pad.hpp)
+documents the remote port.
 
-The remote is optional: an open/read failure leaves DualSense navigation
-available. Each input source suppresses its own buttons held at entry; remote
-OK therefore cannot suppress a fresh DualSense X. Directional repeats and
-single-press confirmation use the existing policy after merging. Only the
+The TV remote reports arrows in the normal button mask. Its additional Sony
+remote-key byte at offset `0x6c` carries OK and Back:
+
+| Sony remote code | Jelly5 input |
+| --- | --- |
+| 0 | No additional key held |
+| 13 / `0x0d` | Cross: select, play/pause |
+| 15 / `0x0f` | Circle: back, leave the player |
+
+These are the Sony pad codes, rather than the HDMI CEC wire values. The public
+[PS5-SDL remote backend](https://github.com/ps5-payload-dev/SDL/blob/ee4c47dc0d617b3bc8f35108f9956baf228a1322/src/video/ps5/SDL_ps5remote.c#L163)
+reads that same byte and uses the same OK/Back mapping. Like SDL, this decoder
+does not require a nonzero unique-data length. It reads this field only from
+the remote handle; ordinary DualSense device data is not interpreted as a
+remote key. Unknown key codes and system-intercepted input are ignored.
+
+A buffered remote read preserves taps that finish between frame snapshots.
+Equal sample timestamps can carry real press/release transitions; a zero
+timestamp does not roll back the watermark. Snapshot-only releases rearm a
+button without treating a constantly empty snapshot as a new queue-only tap.
+A held confirmation does not auto-repeat, and a controller or command-channel
+hold prevents an additional remote tap from duplicating the same action.
+
+The remote remains optional: an open/read failure leaves DualSense navigation
+available. Each source suppresses its own buttons held at entry. Only the
 standard handle receives vibration, light-bar and trigger effects. Both owned
-handles are closed at the existing shell/player handoff.
-
-This is an **unverified HDMI-CEC integration candidate**. The user reports that
-their TV remote operates the PS5 system menu but does nothing in released
-Jelly5. Opening port 16 is supported by the public ABI; it does not establish
-that every firmware/TV routes CEC input there. No system processes, HDMI
-settings or controller privileges are patched. Dedicated media key encodings
-are not guessed: only recognised pad button bits are merged.
+handles close at the existing shell/player handoff. The change does not patch
+system processes, HDMI settings, or controller privileges.
 
 ## Validation
 
-Run the actual input-owner regression on Linux or macOS with an ASan/UBSan
-compiler:
+Run the production input-owner regression with an ASan/UBSan compiler:
 
 ```sh
 CC=clang bash app/tests/test-input.sh
 ```
 
-It checks remote arrows/OK/back, repeat timing, nonrepeating OK, simultaneous
-sources holding one button, entry suppression in both directions, unknown
-flags, failed reads, unavailable devices, injected taps, idempotent close and
-controller-only output effects. It needs no server, credentials or console.
+It checks the actual Sony OK/Back bytes through snapshots and buffered reads,
+held keys, launch suppression, simultaneous inputs, short taps, timestamp
+edge cases, failures, unknown/intercepted input, and controller-only effects.
+The suite needs no server, credentials or console.
 
-For this candidate, the ASan/UBSan regression passed, the production input
-module compiled with `-Wall -Wextra -Werror` for the PS5 target, and all 85 app
-objects compiled using the existing Linux SDK/PacBrew toolchain. C++ compilation
-used `-frtti` for the upstream `dynamic_cast`. These compilation results do not
-establish a working HDMI-CEC route on hardware.
+Hardware capture on the test PS5 confirmed arrows and, in a labelled
+Right -> OK -> Back sequence, Sony codes `0x0d` and `0x0f` with `0` releases.
+Console acceptance passed for opening the selected tile, Back navigation, held
+OK activating once, playback pause/resume and return to the shell, followed by
+DualSense input. Host regressions and cross-compilation supplement that check.
 
-Before claiming HDMI-CEC support, test the built app on PS5:
+Console checks for the completed candidate:
 
-1. Enable HDMI Device Link and the TV's CEC setting; confirm navigation works
-   in the PS5 system menu with the same remote.
-2. In Jelly5, test arrows, OK and Back; hold an arrow and hold OK. OK must
-   activate once. Test with the DualSense off and with both devices active.
-3. Start a video, navigate player controls and return to the shell. Repeat
-   play/stop and confirm both devices work after each handoff.
-4. Test any dedicated Play/Pause/seek keys separately; report their behaviour
-   rather than assuming their CEC commands map to pad buttons.
-5. Confirm normal DualSense controls still work when the remote port is
-   unavailable. No supported controller feature should depend on CEC.
-
-The proposed change has not been installed on the user's PS5. A host mock or
-cross-compilation cannot replace this hardware acceptance.
+1. Enable HDMI Device Link and the TV's CEC setting; confirm the same remote
+   operates the PS5 system menu.
+2. In Jelly5, test arrows, OK, Back, a held arrow and held OK. OK must activate
+   once. Check with DualSense off and with both devices active.
+3. Start a video, pause/resume, seek with arrows and return to the shell.
+   Confirm both devices work after repeated shell/player handoffs.
+4. Check dedicated media keys separately. This change adds navigation keys;
+   it does not assign unverified Play/Pause/seek key codes.

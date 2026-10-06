@@ -60,9 +60,41 @@ static int s_pad = -1;
 /* The public PS5 pad ABI has a separate remote-control port (16).
  * HDMI Device Link routing here still needs a firmware/TV hardware test.
  * See ps5-native-gamepad-input-research/include/ps5_pad.hpp. */
-enum { PAD_PORT_STANDARD = 0, PAD_PORT_REMOTE_CONTROL = 16 };
+enum { PAD_PORT_STANDARD = 0, PAD_PORT_REMOTE_CONTROL = 16, PAD_REMOTE_SYSTEM_USER = 0xff };
 static int s_remote_pad = -1;
 static uint32_t s_remote_ignore;
+int scePadRead(int handle, void *samples, int count);
+typedef struct { unsigned char data[120]; } cec_sample;
+_Static_assert(sizeof(cec_sample) == 120, "PS5 pad batch ABI stride");
+static uint32_t s_remote_queue_previous;
+static uint64_t s_remote_queue_timestamp;
+static uint32_t s_remote_snapshot_previous;
+static uint32_t remote_button_bits(uint32_t buttons)
+{
+    const uint32_t known = NUVIO_BTN_DPAD | NUVIO_BTN_CROSS | NUVIO_BTN_CIRCLE |
+                          NUVIO_BTN_SQUARE | NUVIO_BTN_TRIANGLE | NUVIO_BTN_OPTIONS |
+                          NUVIO_BTN_L1 | NUVIO_BTN_R1 | NUVIO_BTN_L2 | NUVIO_BTN_R2 |
+                          NUVIO_BTN_L3 | NUVIO_BTN_R3 | NUVIO_BTN_TOUCHPAD;
+    return buttons & 0x80000000u ? 0 : buttons & known;
+}
+static uint32_t remote_input_bits(const void *data)
+{
+    const unsigned char *bytes = data;
+    uint32_t raw;
+    memcpy(&raw, bytes, sizeof raw);
+    if (raw & 0x80000000u)
+        return 0; /* The system owns intercepted input, including remote keys. */
+    uint32_t buttons = remote_button_bits(raw);
+    /* PS5-SDL's remote backend reads its Sony remote key at byte 0x6c:
+     * SDL_ps5remote.c / PS5_REMOTE_KEY_OFFSET, not the HDMI wire key values.
+     * Captured on hardware: 13 = OK, 15 = Back, 0 = released. SDL does not
+     * require a unique-data length here; some drivers leave that length zero. */
+    switch (bytes[0x6c]) {
+    case 13: buttons |= NUVIO_BTN_CROSS; break;
+    case 15: buttons |= NUVIO_BTN_CIRCLE; break;
+    }
+    return buttons;
+}
 static uint32_t s_last;
 static uint32_t s_ignore;        /* down at open; ignored until released */
 static uint32_t s_stick;         /* directions the left stick is holding */
@@ -94,10 +126,13 @@ void nuvio_input_open(int user_id)
     memset(&pad, 0, sizeof pad);
     s_ignore = (s_pad >= 0 && scePadReadState(s_pad, &pad) == 0) ? pad.buttons : 0;
     if (s_remote_pad < 0)
-        s_remote_pad = scePadOpen(user_id, PAD_PORT_REMOTE_CONTROL, 0, NULL);
+        s_remote_pad = scePadOpen(PAD_REMOTE_SYSTEM_USER, PAD_PORT_REMOTE_CONTROL, 0, NULL);
     evo_bt("input: remote-control pad open -> %d", s_remote_pad);
     memset(&pad, 0, sizeof pad);
-    s_remote_ignore = (s_remote_pad >= 0 && scePadReadState(s_remote_pad, &pad) == 0) ? pad.buttons : 0;
+    s_remote_ignore = (s_remote_pad >= 0 && scePadReadState(s_remote_pad, &pad) == 0) ? remote_input_bits(&pad) : 0;
+    s_remote_queue_previous = remote_button_bits(s_remote_ignore);
+    s_remote_snapshot_previous = s_remote_queue_previous;
+    memcpy(&s_remote_queue_timestamp, (const unsigned char *)&pad + 0x50, sizeof s_remote_queue_timestamp);
     s_last = 0;
     s_stick = 0;
     s_dir_since = s_next_repeat = 0.0;
@@ -241,6 +276,9 @@ void nuvio_input_close(void)
         scePadClose(s_remote_pad);
     s_remote_pad = -1;
     s_remote_ignore = 0;
+    s_remote_queue_previous = 0;
+    s_remote_queue_timestamp = 0;
+    s_remote_snapshot_previous = 0;
     s_follow = 0;
     s_last = s_ignore = s_stick = 0;
 }
@@ -327,21 +365,50 @@ void nuvio_input_poll(nuvio_input_state *out)
      * stick/trigger interpretation, rumble, light bar or adaptive effects. */
     memset(&pad, 0, sizeof pad);
     uint32_t remote_buttons = 0;
-    if (s_remote_pad >= 0 && scePadReadState(s_remote_pad, &pad) == 0) {
-        const uint32_t known = NUVIO_BTN_DPAD | NUVIO_BTN_CROSS | NUVIO_BTN_CIRCLE |
-                               NUVIO_BTN_SQUARE | NUVIO_BTN_TRIANGLE | NUVIO_BTN_OPTIONS |
-                               NUVIO_BTN_L1 | NUVIO_BTN_R1 | NUVIO_BTN_L2 | NUVIO_BTN_R2 |
-                               NUVIO_BTN_L3 | NUVIO_BTN_R3 | NUVIO_BTN_TOUCHPAD;
+    uint32_t queued_presses = 0;
+    if (s_remote_pad >= 0) {
+        _Alignas(8) cec_sample samples[64];
+        memset(samples, 0, sizeof samples);
+        int count = scePadRead(s_remote_pad, samples, 64);
+        if (count > 0 && count <= 64) {
+            for (int i = 0; i < count; ++i) {
+                uint64_t timestamp;
+                uint32_t buttons;
+                memcpy(&timestamp, samples[i].data + 0x50, sizeof timestamp);
+                if (timestamp && timestamp < s_remote_queue_timestamp)
+                    continue;
+                if (timestamp > s_remote_queue_timestamp)
+                    s_remote_queue_timestamp = timestamp;
+                buttons = remote_input_bits(samples[i].data);
+                s_remote_ignore &= buttons;
+                buttons &= ~s_remote_ignore;
+                queued_presses |= buttons & ~s_remote_queue_previous;
+                s_remote_queue_previous = buttons;
+            }
+        }
+    }
+    int remote_read_rc = s_remote_pad >= 0 ? scePadReadState(s_remote_pad, &pad) : s_remote_pad;
+    if (s_remote_pad >= 0 && remote_read_rc == 0) {
         /* The system owns intercepted samples (e.g. its keyboard/dialogs). */
-        if (!(pad.buttons & 0x80000000u))
-            remote_buttons = pad.buttons & known;
+        remote_buttons = remote_input_bits(&pad);
     }
     s_remote_ignore &= remote_buttons;
+    if (remote_read_rc == 0) {
+        /* Snapshot-only releases rearm a button; an unchanged empty snapshot
+         * must not rearm a hold seen only by the buffered read. */
+        s_remote_queue_previous &= ~(s_remote_snapshot_previous & ~remote_buttons);
+        s_remote_queue_previous |= remote_buttons & ~s_remote_ignore;
+        s_remote_snapshot_previous = remote_buttons;
+    }
+    /* A release/repress from this remote can happen between held snapshots.
+     * A controller holding the same button still prevents a duplicate action. */
+    queued_presses &= ~now_buttons;
     now_buttons |= remote_buttons & ~s_remote_ignore;
 
     pthread_mutex_lock(&s_inject_lock);
     if (s_inject_hold && t >= s_inject_until)
         s_inject_hold = 0;
+    out->pressed |= queued_presses & ~s_inject_hold;
     now_buttons |= s_inject_hold;
     {
         /* A tap is down for exactly one poll; one already down is re-pressed. */
