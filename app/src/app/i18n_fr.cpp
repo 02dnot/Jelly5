@@ -326,6 +326,7 @@ const std::unordered_map<std::string, const char *> &french_table()
         {"Bare lokalt nettverk", "Réseau local uniquement"},
         {"✕ logg ut", "✕ se déconnecter"},
         {"Svarer ikke – prøver igjen", "Injoignable – nouvel essai en cours"},
+        {"✕ godkjenn Quick Connect for denne adressen", "✕ approuver Quick Connect pour cette adresse"},
         {"Automatisk pålogging mislyktes – velg passord", "La connexion automatique a échoué – choisissez un mot de passe"},
         {"Ikke pålogget – ✕ for å logge på", "Non connecté – ✕ pour se connecter"},
         {"Tester …", "Test en cours …"},

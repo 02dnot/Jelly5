@@ -234,6 +234,10 @@ std::string Home::backdrop_url(const jf::Item &it) const
 
 void Home::draw_card_art(const jf::Item &it, const gfx::Rect &r, float radius, float a) const
 {
+    if (m_discover) {   /* posters (the lift is in r already) */
+        draw_poster(m_client, it, r, 0.f, a);
+        return;
+    }
     if (it.external()) {   /* Seerr's: its name on its colours, the picture over it, where it stands */
         draw_title_card(r, it.name, it.ext.tmdb_id, radius, a);
         art::draw(r, it.ext.thumb, "", 640, 360, radius, a, 0);
@@ -443,10 +447,13 @@ void Home::draw_rows(float dt)
         m_animating = true;
     const float top = kRowsTopFocus + (kRowsTopHero - kRowsTopFocus) * m_hero_mode.value;
 
+    /* Seerr's tab shows posters, as Seerr does: the backdrop is the background
+     * only, never the card as well (Seerr has one of each per title). */
+    const float cw = m_discover ? 236 : kCardW, ch = m_discover ? 354 : kCardH, rowh = m_discover ? 500 : kRowH;
     for (size_t r = 0; r < m_model.rows.size(); r++) {
         const HomeRow &row = m_model.rows[r];
         const float rel = (float)r - m_rows_y.value;
-        const float ry = top + rel * kRowH;
+        const float ry = top + rel * rowh;
         float a = 1.f;
         if (rel < 0)
             a = std::max(0.f, 1.f + rel * 1.6f);   /* rows above fade out */
@@ -457,16 +464,16 @@ void Home::draw_rows(float dt)
         /* Horizontal: the focused card sits at the left edge, until the row ends. */
         const int col = m_cols[r];
         const float max_scroll =
-            std::max(0.f, (float)row.items.size() * (kCardW + kCardGap) - kCardGap - (gfx::W - 2 * kPad));
-        m_scroll[r].to(std::min(max_scroll, (float)col * (kCardW + kCardGap)));
+            std::max(0.f, (float)row.items.size() * (cw + kCardGap) - kCardGap - (gfx::W - 2 * kPad));
+        m_scroll[r].to(std::min(max_scroll, (float)col * (cw + kCardGap)));
         if (m_scroll[r].step(dt, 12.f))
             m_animating = true;
 
         const float cy = ry + 52;
         int focus_i = -1;
         for (size_t i = 0; i < row.items.size(); i++) {
-            const float cx = kPad + (float)i * (kCardW + kCardGap) - m_scroll[r].value;
-            if (cx > gfx::W + 20 || cx + kCardW < -60)
+            const float cx = kPad + (float)i * (cw + kCardGap) - m_scroll[r].value;
+            if (cx > gfx::W + 20 || cx + cw < -60)
                 continue;
             const jf::Item &it = row.items[i];
             const bool focused = m_focused && (int)r == m_row && (int)i == col;
@@ -479,7 +486,7 @@ void Home::draw_rows(float dt)
             if (lift.step(dt, 14.f))
                 m_animating = true;
             const float k = 1.f + 0.1f * lift.value;
-            const gfx::Rect cr{cx - kCardW * (k - 1) / 2, cy - kCardH * (k - 1) / 2, kCardW * k, kCardH * k};
+            const gfx::Rect cr{cx - cw * (k - 1) / 2, cy - ch * (k - 1) / 2, cw * k, ch * k};
             draw_card_art(it, cr, kCardR * k, a);
             if (it.played_percent > 0 && it.played_percent < 100) {
                 gfx::fill({cr.x + 18, cr.y + cr.h - 22, cr.w - 36, 6}, alpha(0x47ffffffu, a), 3);
@@ -489,17 +496,21 @@ void Home::draw_rows(float dt)
         }
         if (focus_i >= 0) {
             const jf::Item &it = row.items[focus_i];
-            const float cx = kPad + (float)focus_i * (kCardW + kCardGap) - m_scroll[r].value;
+            const float cx = kPad + (float)focus_i * (cw + kCardGap) - m_scroll[r].value;
             Anim &lift = m_lift[it.id + "@" + std::to_string(r)];
             lift.to(1.f);
             if (lift.step(dt, 14.f))
                 m_animating = true;
             const float k = 1.f + 0.1f * lift.value;
-            const gfx::Rect cr{cx - kCardW * (k - 1) / 2, cy - kCardH * (k - 1) / 2, kCardW * k, kCardH * k};
+            const gfx::Rect cr{cx - cw * (k - 1) / 2, cy - ch * (k - 1) / 2, cw * k, ch * k};
             gfx::shadow(cr, kCardR * k, 26, 0.3f * lift.value * a, 10 * lift.value);
             draw_card_art(it, cr, kCardR * k, a);
-            m_card = {cr, card_url(it), it.thumb_blurhash.empty() ? it.backdrop_blurhash : it.thumb_blurhash,
-                      kCardR * k};
+            if (m_discover)
+                m_card = {cr, it.external() ? it.ext.poster : poster_url(m_client, it, 480), it.primary_blurhash,
+                          kCardR * k};
+            else
+                m_card = {cr, card_url(it), it.thumb_blurhash.empty() ? it.backdrop_blurhash : it.thumb_blurhash,
+                          kCardR * k};
             m_has_card = true;
             if (it.played_percent > 0 && it.played_percent < 100) {
                 gfx::fill({cr.x + 18, cr.y + cr.h - 22, cr.w - 36, 6}, alpha(0x47ffffffu, a), 3);

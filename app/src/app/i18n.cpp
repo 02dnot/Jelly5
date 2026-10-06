@@ -178,7 +178,7 @@ const std::unordered_map<std::string, const char *> &english_table()
         {"E-post for Seerr-kontoen", "Seerr account email"}, {"Passord for Seerr-kontoen", "Seerr account password"},
         {"Ikke angitt", "Not set"}, {"Internett", "Internet"}, {"Bare lokalt nettverk", "Local network only"},
         {"✕ logg ut", "✕ sign out"}, {"Svarer ikke – prøver igjen", "Not answering – trying again"},
-        {"Automatisk pålogging mislyktes – velg passord", "Automatic sign-in failed – choose a password"},
+        {"✕ godkjenn Quick Connect for denne adressen", "✕ approve Quick Connect for this address"}, {"Automatisk pålogging mislyktes – velg passord", "Automatic sign-in failed – choose a password"},
         {"Ikke pålogget – ✕ for å logge på", "Not signed in – ✕ to sign in"}, {"Tester …", "Testing …"},
         {"✕ for å teste", "✕ to test"}, {"Seerr-adresse", "Seerr address"},
         {"Seerr henter alt fra TMDB selv: uten Internett snakker PS5-en bare med Jellyfin og Seerr.",
