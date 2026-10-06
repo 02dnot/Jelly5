@@ -208,6 +208,12 @@ bool Client::last_unreachable() const
     return unreachable_;
 }
 
+int Client::last_status() const
+{
+    std::lock_guard<std::mutex> g(lock_);
+    return status_;
+}
+
 void Client::set_error(std::string e)
 {
     std::lock_guard<std::mutex> g(lock_);
@@ -233,6 +239,7 @@ Client::Reply Client::call(const char *method, const std::string &path, const st
     {
         std::lock_guard<std::mutex> g(lock_);
         unreachable_ = r.status == 0;
+        status_ = r.status;
         for (const std::string &c : r.cookies) {
             const size_t eq = c.find('=');
             if (eq == std::string::npos || eq == 0)

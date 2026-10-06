@@ -97,4 +97,8 @@ void test();
 /* A TMDB picture as the console may load it: through Seerr's image cache. */
 std::string image_url(const std::string &path, const char *size);
 
+/* A Seerr title as the app's screens draw it: a jf::Item with ext filled in
+ * (its id "seerr:movie:<tmdb>" or "seerr:tv:<tmdb>", never a server's). */
+jf::Item to_item(const seerr::Title &t);
+
 } // namespace seerr_service

@@ -339,6 +339,18 @@ const std::unordered_map<std::string, const char *> &french_table()
         {"Seerr %s svarer, men du er ikke pålogget", "Seerr %s répond, mais vous n'êtes pas connecté"},
         {"OK – Seerr %s, pålogget som %s", "OK – Seerr %s, connecté en tant que %s"},
         {" – men bildene kommer ikke", " – mais les images n'arrivent pas"},
+        /* Seerr : statut d'un titre, recherche */
+        {"Venter på godkjenning", "En attente d'approbation"},
+        {"Venter", "En attente"},
+        {"Forespurt", "Demandé"},
+        {"Delvis tilgjengelig", "Partiellement disponible"},
+        {"Tilgjengelig", "Disponible"},
+        {"Blokkert", "Bloqué"},
+        {"Ikke forespurt", "Non demandé"},
+        {"Fra Seerr", "Sur Seerr"},
+        {"Seerr svarer ikke", "Seerr injoignable"},
+        {"Ikke pålogget Seerr – se Innstillinger", "Non connecté à Seerr – voir Paramètres"},
+        {"Ingenting mer på Seerr", "Rien de plus sur Seerr"},
     };
     return t;
 }

@@ -954,12 +954,21 @@ void shell_input(uint32_t p, jf::Item *play, bool *chose, bool *from_start, bool
         break;
     }
     case ui::Action::Open: {
+        if (a.item.external() && a.item.ext.jellyfin_id.empty())
+            break;   /* a Seerr title the server does not have: its Seerr page (next step) */
         ui::Screen::Card from;
         const bool have_from = screen_for(s_tab)->focused_card(&from);
         if (s_stack.size() >= 8)
             s_stack.erase(s_stack.begin());   /* "more like this" chains stay bounded */
         /* Seasons and episodes open their series' page. */
         jf::Item target = a.item;
+        if (target.external()) {   /* a Seerr title the server has: the server's own page */
+            jf::Item own;
+            own.id = target.ext.jellyfin_id;
+            own.type = target.type;
+            own.name = target.name;
+            target = own;
+        }
         if ((target.type == "Season" || target.type == "Episode") && !target.series_id.empty()) {
             target = jf::Item();
             target.id = a.item.series_id;

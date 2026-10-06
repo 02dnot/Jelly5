@@ -549,4 +549,25 @@ std::string image_url(const std::string &path, const char *size)
     return s_client ? s_client->image_url(path, size) : std::string();
 }
 
+jf::Item to_item(const seerr::Title &t)
+{
+    jf::Item it;
+    it.id = std::string("seerr:") + (t.tv ? "tv:" : "movie:") + std::to_string(t.id);
+    it.name = t.name;
+    it.type = t.tv ? "Series" : "Movie";
+    it.overview = t.overview;
+    it.year = t.year;
+    it.community_rating = t.vote;
+    it.premiere_date = t.date;
+    it.tmdb_id = std::to_string(t.id);
+    it.ext.tmdb_id = t.id;
+    it.ext.status = (int)t.status;
+    it.ext.jellyfin_id = t.jellyfin_id;
+    /* Sizes as the server's art is asked for: posters 480 wide, cards 640, backdrops the screen. */
+    it.ext.poster = image_url(t.poster, "w500");
+    it.ext.thumb = image_url(t.backdrop, "w780");
+    it.ext.backdrop = image_url(t.backdrop, "w1280");
+    return it;
+}
+
 } // namespace seerr_service

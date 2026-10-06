@@ -203,6 +203,9 @@ public:
     std::string last_error() const;
     /* The last request got no answer at all (wrong address, server down, timeout). */
     bool last_unreachable() const;
+    /* The last request's HTTP status (0: no answer). 401 or 403 on a page that
+     * needs a session: it has ended (seerr_service::session_lost). */
+    int last_status() const;
 
     /* No sign-in needed. */
     bool status(std::string *version);
@@ -261,6 +264,7 @@ private:
     std::map<std::string, std::string> cookies_;
     std::string error_;
     bool unreachable_ = false;
+    int status_ = 0;
 };
 
 } // namespace seerr

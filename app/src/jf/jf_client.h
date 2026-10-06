@@ -46,6 +46,19 @@ struct Item {
     std::string album_primary_tag, album_blurhash;
     std::string premiere_date;                /* ISO date; a person's birth date */
     std::vector<std::string> locations;       /* a person's birthplace */
+    std::string tmdb_id;                      /* ProviderIds.Tmdb (search asks for it) */
+
+    /* A title from Seerr rather than this server (search, Discover): its TMDB
+     * id, where it stands in Seerr (a seerr::Status), its art as absolute URLs
+     * (through Seerr's image cache; empty when there is none to be had), and
+     * the server's own item when it has the title. Empty for the server's items. */
+    struct External {
+        int tmdb_id = 0;
+        int status = 0;
+        std::string poster, backdrop, thumb;
+        std::string jellyfin_id;
+    } ext;
+    bool external() const { return ext.tmdb_id != 0; }
 };
 
 struct MediaStream {

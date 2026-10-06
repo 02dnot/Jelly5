@@ -142,8 +142,19 @@ private:
 void draw_check(float cx, float cy, float size, uint32_t color);
 
 /* A 2:3 poster with blurhash placeholder, focus lift and shadow, and its title
- * under it (an album's artist, an episode's series below that). */
+ * under it (an album's artist, an episode's series below that). A Seerr title
+ * (jf::Item::ext) has its status chip, and its name on a card of its own
+ * colours while its picture loads or when there is none. */
 void draw_poster(jf::Client &c, const jf::Item &it, const gfx::Rect &r, float lift, float opacity);
+
+/* Where a Seerr title stands (a seerr::Status), in words: short for a chip
+ * (empty when not requested), full for its page. And the colour of its dot. */
+const char *seerr_status_label(int status, bool full = false);
+uint32_t seerr_status_color(int status);
+/* The status chip, its top left at (x, y); size is the type's. Returns the width (0: none). */
+float draw_status_chip(float x, float y, int status, float opacity, float size = 15.f);
+/* A card for a title without a picture: colours picked by seed, the name on it. */
+void draw_title_card(const gfx::Rect &r, const std::string &title, int seed, float radius, float opacity);
 
 /* The ambient background: the focused title's backdrop as a blur (its
  * BlurHash, upscaled), dimmed, cross-faded as focus moves. */

@@ -188,6 +188,12 @@ const std::unordered_map<std::string, const char *> &english_table()
         {"Seerr %s svarer, men du er ikke pålogget", "Seerr %s answers, but you are not signed in"},
         {"OK – Seerr %s, pålogget som %s", "OK – Seerr %s, signed in as %s"},
         {" – men bildene kommer ikke", " – but its pictures don't come through"},
+        /* Seerr: where a title stands, search */
+        {"Venter på godkjenning", "Pending approval"}, {"Venter", "Pending"}, {"Forespurt", "Requested"},
+        {"Delvis tilgjengelig", "Partly available"}, {"Tilgjengelig", "Available"}, {"Blokkert", "Blocklisted"},
+        {"Ikke forespurt", "Not requested"}, {"Fra Seerr", "From Seerr"}, {"Seerr svarer ikke", "Seerr is not answering"},
+        {"Ikke pålogget Seerr – se Innstillinger", "Not signed in to Seerr – see Settings"},
+        {"Ingenting mer på Seerr", "Nothing more on Seerr"},
     };
     return t;
 }

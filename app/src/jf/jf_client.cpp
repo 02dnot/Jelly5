@@ -175,6 +175,7 @@ Item item_of(const cJSON *o)
     cJSON_ArrayForEach(g, cJSON_GetObjectItemCaseSensitive(o, "ProductionLocations"))
         if (cJSON_IsString(g))
             it.locations.push_back(g->valuestring);
+    it.tmdb_id = str_of(cJSON_GetObjectItemCaseSensitive(o, "ProviderIds"), "Tmdb");
     return it;
 }
 
@@ -550,7 +551,7 @@ std::vector<Item> Client::search(const std::string &term, const std::string &typ
     std::string body;
     if (!get_json("/Items?userId=" + user_id_ + "&searchTerm=" + url_escape(term) + "&IncludeItemTypes=" + types +
                       "&Recursive=true&EnableTotalRecordCount=false&Limit=" + std::to_string(limit) +
-                      "&fields=" + kFields, &body))
+                      "&fields=" + kFields + ",ProviderIds", &body))   /* TMDB ids: Seerr's results match them */
         return {};
     return items_of(body);
 }
