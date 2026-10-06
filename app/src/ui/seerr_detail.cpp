@@ -517,10 +517,14 @@ void SeerrDetail::draw(double now, float dt)
         for (const seerr::Season &s : m_detail.seasons) {
             if (s.number == 0 && s.status == seerr::Status::Unknown && !s.requested)
                 continue;   /* specials nobody asked for */
-            char b[48];
-            std::snprintf(b, sizeof b, T("Sesong %d"), s.number);
+            char num[48];
+            std::snprintf(num, sizeof num, T("Sesong %d"), s.number);
             const int st_of = s.status == seerr::Status::Unknown && s.requested ? (int)seerr::Status::Processing
                                                                                  : (int)s.status;
+            /* Not by colour alone: the status in words, but for "there" and "not asked for". */
+            std::string b = num;
+            if (st_of != (int)seerr::Status::Available && st_of != (int)seerr::Status::Unknown)
+                b += std::string(" \xC2\xB7 ") + seerr_status_label(st_of);
             const float w = 18 + 10 + 10 + gfx::text_width(b, cs) + 18;
             if (sx + w > gfx::W - kPad) {
                 sx = kPad;

@@ -639,7 +639,13 @@ std::vector<jf::Item> discover_items(const std::vector<seerr::Title> &list)
     std::vector<jf::Item> out;
     for (const seerr::Title &t : list) {
         auto own = t.jellyfin_id.empty() ? owned.end() : owned.find(id_key(t.jellyfin_id));
-        out.push_back(own != owned.end() ? own->second : seerr_service::to_item(t));
+        if (own != owned.end()) {   /* the library's item, still saying where it stands (available, partly) */
+            jf::Item it = own->second;
+            it.ext.status = (int)t.status;
+            out.push_back(std::move(it));
+        } else {
+            out.push_back(seerr_service::to_item(t));
+        }
     }
     return out;
 }
@@ -710,6 +716,7 @@ void load_discover(unsigned session)
     const Shelf shelves[] = {Shelf::Trending, Shelf::PopularMovies, Shelf::PopularTv, Shelf::UpcomingMovies,
                              Shelf::UpcomingTv};
     std::vector<seerr::Title> lists[5], mine;
+    std::map<std::string, int> mine_state;   /* "tv:123" -> its request's state */
     if (c) {
         seerr_service::load_genres();
         std::atomic<bool> lost{false};   /* a 401/403 on any of them (each reads its own call's status) */
@@ -736,6 +743,7 @@ void load_discover(unsigned session)
                     continue;
                 seen.insert(key);
                 mine.push_back(d.title);
+                mine_state[key] = (int)rq.status;   /* the newest request's (Seerr lists them newest first) */
             }
         });
         jelly5::run_all(jobs);   /* side by side; a job without a thread runs here */
@@ -754,11 +762,18 @@ void load_discover(unsigned session)
         m.rows.push_back(std::move(r));
     };
     row(T("Trender nå"), lists[0], 0);
+    row(T("Mine forespørsler"), mine, -1);   /* second, as Seerr's own page (only when there are any) */
+    if (!mine.empty() && m.rows.size() >= 1)
+        for (jf::Item &it : m.rows.back().items) {
+            const auto st = mine_state.find((it.type == "Series" ? "tv:" : "movie:") +
+                                            std::to_string(it.external() ? it.ext.tmdb_id : 0));
+            if (st != mine_state.end())
+                it.ext.request = st->second;
+        }
     row(T("Populære filmer"), lists[1], 1);
     row(T("Populære serier"), lists[2], 2);
     row(T("Kommende filmer"), lists[3], 3);
     row(T("Kommende serier"), lists[4], 4);
-    row(T("Mine forespørsler"), mine, -1);
     bool again;
     {
         std::lock_guard<std::mutex> g(s_state.lock);
