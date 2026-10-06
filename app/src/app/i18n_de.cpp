@@ -391,6 +391,11 @@ const std::unordered_map<std::string, const char *> &german_table()
         {"✕ logg ut", "✕ abmelden"},
         {"Anbefalt", "Empfohlen"},
         {"Lignende", "Ähnlich"},
+        {"Trekk tilbake forespørselen", "Anfrage zurückziehen"},
+        {"Trykk igjen for å trekke tilbake", "Zum Zurückziehen erneut drücken"},
+        {"Trekker tilbake …", "Wird zurückgezogen …"},
+        {"Forespørselen er trukket tilbake", "Die Anfrage wurde zurückgezogen"},
+        {"Kunne ikke trekke tilbake forespørselen", "Die Anfrage konnte nicht zurückgezogen werden"},
     };
     return t;
 }

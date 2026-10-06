@@ -37,15 +37,17 @@ public:
     bool modal() const override { return m_sheet.active() || m_qr_open; }
 
 private:
-    enum Button { RequestButton, LibraryButton, TrailerButton };
+    enum Button { RequestButton, LibraryButton, TrailerButton, CancelButton };
     struct Data {
         std::mutex lock;
         bool loaded = false, failed = false;
         seerr::Detail detail;
         std::vector<seerr::Title> related[2];   /* recommendations, similar */
+        int cancel_result = 0;                   /* a withdrawal: 1 done, -1 failed */
     };
     std::vector<Button> buttons() const;
     bool can_request() const;
+    int my_waiting_request() const;   /* the viewer's request still waiting for approval, or 0 */
     void draw_qr(float dt);
 
     jf::Client &m_client;                   /* for the posters of titles the library has */
@@ -65,6 +67,7 @@ private:
     Anim m_enter, m_content, m_note_a;
     Drop m_drop;
     bool m_animating = false;
+    double m_cancel_armed = -100;          /* first press on "Trekk tilbake": the second withdraws */
     /* Under the page: "Anbefalt" and "Lignende" (posters). m_row -1: the buttons. */
     std::vector<jf::Item> m_rows[2];
     int m_row = -1, m_cols[2] = {0, 0};

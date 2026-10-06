@@ -397,6 +397,11 @@ const std::unordered_map<std::string, const char *> &french_table()
         {"Mine forespørsler", "Mes demandes"},
         {"Anbefalt", "Recommandés"},
         {"Lignende", "Similaires"},
+        {"Trekk tilbake forespørselen", "Retirer la demande"},
+        {"Trykk igjen for å trekke tilbake", "Appuyez à nouveau pour la retirer"},
+        {"Trekker tilbake …", "Retrait …"},
+        {"Forespørselen er trukket tilbake", "La demande a été retirée"},
+        {"Kunne ikke trekke tilbake forespørselen", "Impossible de retirer la demande"},
     };
     return t;
 }

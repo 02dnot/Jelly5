@@ -113,6 +113,12 @@ struct Detail {
     std::vector<Video> videos;
     int tvdb_id = 0;                    /* series */
     bool anime = false;                 /* TMDB's "anime" keyword: Sonarr's anime defaults apply */
+    /* Requests for it still waiting for approval: theirs, and who asked (a user
+     * may withdraw their own: Client::cancel_request). */
+    struct Waiting {
+        int id = 0, user = 0;
+    };
+    std::vector<Waiting> waiting;
     /* The video to offer as the trailer, as Seerr's own page picks it (its
      * largest trailer; else any video it has), or null. */
     const Video *trailer() const;
@@ -246,6 +252,8 @@ public:
     /* The body request() sends (shown as is by the host test's dry run). */
     static std::string request_json(const RequestOptions &o);
     RequestResult request(const RequestOptions &o);
+    /* Withdraws a request still waiting for approval (DELETE /request/{id}). */
+    bool cancel_request(int request_id);
 
     /* Through Seerr's image cache: /imageproxy/tmdb/... is always served (the
      * "cache images" setting only changes Seerr's own web pages) and needs no

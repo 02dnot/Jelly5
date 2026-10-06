@@ -519,6 +519,15 @@ static void detail_fields(const cJSON *j, bool tv, Detail *out)
     cJSON_ArrayForEach(v, cJSON_GetObjectItemCaseSensitive(j, "keywords"))
         if (int_of(v, "id") == kAnimeKeyword)
             out->anime = true;
+    cJSON_ArrayForEach(v, cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(j, "mediaInfo"), "requests"))
+        if (int_of(v, "status") == (int)RequestStatus::Pending && int_of(v, "id") > 0)
+            out->waiting.push_back({int_of(v, "id"), int_of(cJSON_GetObjectItemCaseSensitive(v, "requestedBy"), "id")});
+}
+
+bool Client::cancel_request(int request_id)
+{
+    const Reply r = call("DELETE", "/request/" + std::to_string(request_id), std::string());
+    return r.status >= 200 && r.status < 300;
 }
 
 bool Client::movie(int tmdb_id, Detail *out)

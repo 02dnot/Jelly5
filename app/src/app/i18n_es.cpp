@@ -391,6 +391,11 @@ const std::unordered_map<std::string, const char *> &spanish_table()
         {"✕ logg ut", "✕ cerrar sesión"},
         {"Anbefalt", "Recomendados"},
         {"Lignende", "Similares"},
+        {"Trekk tilbake forespørselen", "Retirar la solicitud"},
+        {"Trykk igjen for å trekke tilbake", "Pulsa de nuevo para retirarla"},
+        {"Trekker tilbake …", "Retirando …"},
+        {"Forespørselen er trukket tilbake", "La solicitud se ha retirado"},
+        {"Kunne ikke trekke tilbake forespørselen", "No se pudo retirar la solicitud"},
     };
     return t;
 }

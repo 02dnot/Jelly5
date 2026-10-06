@@ -79,11 +79,26 @@ bool SeerrDetail::can_request() const
     return m_loaded && s.state == seerr_service::State::Ready && RequestSheet::offers(m_detail, s.user, s.settings);
 }
 
+int SeerrDetail::my_waiting_request() const
+{
+    if (!m_loaded)
+        return 0;
+    const seerr_service::Snapshot s = seerr_service::snapshot();
+    if (s.state != seerr_service::State::Ready)
+        return 0;
+    for (const seerr::Detail::Waiting &w : m_detail.waiting)
+        if (w.user == s.user.id)
+            return w.id;
+    return 0;
+}
+
 std::vector<SeerrDetail::Button> SeerrDetail::buttons() const
 {
     std::vector<Button> b;
     if (can_request())
         b.push_back(RequestButton);
+    if (my_waiting_request())
+        b.push_back(CancelButton);
     const std::string &jid = m_loaded && !m_detail.title.jellyfin_id.empty() ? m_detail.title.jellyfin_id
                                                                              : m_item.ext.jellyfin_id;
     if (!jid.empty())
@@ -165,6 +180,26 @@ Action SeerrDetail::input(uint32_t p)
             a.item.name = m_item.name;
             break;
         }
+        case CancelButton: {   /* withdraw the viewer's request: a second press confirms */
+            if (m_now - m_cancel_armed > 3.0) {
+                m_cancel_armed = m_now;
+                break;
+            }
+            m_cancel_armed = -100;
+            const int id = my_waiting_request();
+            std::shared_ptr<seerr::Client> c = seerr_service::client();
+            if (!id || !c)
+                break;
+            std::shared_ptr<Data> d = m_data;
+            m_note = T("Trekker tilbake \xE2\x80\xA6");
+            m_note_at = m_now;
+            std::thread([c, id, d] {   /* d, not this: the page may close meanwhile */
+                const bool ok = c->cancel_request(id);
+                std::lock_guard<std::mutex> g(d->lock);
+                d->cancel_result = ok ? 1 : -1;
+            }).detach();
+            break;
+        }
         case TrailerButton: {   /* a QR code of the link: the phone plays it */
             m_qr_url = m_detail.trailer_url(s.settings.youtube_url);
             m_qr.assign(qrcodegen_BUFFER_LEN_MAX, 0);
@@ -237,6 +272,16 @@ void SeerrDetail::draw(double now, float dt)
     seerr::RequestResult done;
     if (m_sheet.take_done(&done)) {
         m_note = request_note(done);
+        m_note_at = now;
+        activate();
+    }
+    int cancelled = 0;
+    {
+        std::lock_guard<std::mutex> g(m_data->lock);
+        std::swap(cancelled, m_data->cancel_result);
+    }
+    if (cancelled) {   /* withdrawn (or not): say so, and read the page again */
+        m_note = cancelled > 0 ? T("Forespørselen er trukket tilbake") : T("Kunne ikke trekke tilbake forespørselen");
         m_note_at = now;
         activate();
     }
@@ -342,8 +387,12 @@ void SeerrDetail::draw(double now, float dt)
     if (bs.empty() || sheet || !m_focused || m_row >= 0)
         m_drop.hide();
     const gfx::TextStyle st{gfx::Bold, 26};
-    auto label_of = [](Button b) -> std::string {
-        return b == RequestButton ? T("Be om") : b == LibraryButton ? T("Se i biblioteket") : T("Trailer");
+    auto label_of = [this](Button b) -> std::string {
+        return b == RequestButton  ? T("Be om")
+               : b == LibraryButton ? T("Se i biblioteket")
+               : b == CancelButton  ? (m_now - m_cancel_armed < 3.0 ? T("Trykk igjen for å trekke tilbake")
+                                                                    : T("Trekk tilbake forespørselen"))
+                                    : T("Trailer");
     };
     for (int pass = 0; pass < 2; pass++) {
         if (pass == 1)

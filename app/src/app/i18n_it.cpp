@@ -391,6 +391,11 @@ const std::unordered_map<std::string, const char *> &italian_table()
         {"✕ logg ut", "✕ esci"},
         {"Anbefalt", "Consigliati"},
         {"Lignende", "Simili"},
+        {"Trekk tilbake forespørselen", "Ritira la richiesta"},
+        {"Trykk igjen for å trekke tilbake", "Premi di nuovo per ritirarla"},
+        {"Trekker tilbake …", "Ritiro in corso …"},
+        {"Forespørselen er trukket tilbake", "La richiesta è stata ritirata"},
+        {"Kunne ikke trekke tilbake forespørselen", "Impossibile ritirare la richiesta"},
     };
     return t;
 }
