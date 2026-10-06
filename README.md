@@ -208,6 +208,10 @@ sees it); nothing else on the console is touched.
 | Touchpad | *Now playing*, while music plays | The controls |
 | L3 | | Playback info |
 
+With HDMI Device Link enabled on the PS5 and CEC enabled on the TV, the TV
+remote's arrows, OK and Back use the same controls: OK acts as ✕ and Back as ○.
+The DualSense remains available alongside the remote.
+
 ## Known limits
 
 These come from the platform, not from Jelly5:
