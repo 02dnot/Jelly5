@@ -17,6 +17,7 @@
 
 #include "seerr/seerr_client.h"
 #include "ui/screen.h"
+#include "ui/item_menu.h"
 #include "ui/seerr_request.h"
 
 #include <memory>
@@ -55,11 +56,11 @@ public:
     bool animating() const override { return m_animating; }
     float nav_alpha() const override { return 0.f; }
     float enter() const override { return m_enter.value; }
-    bool modal() const override { return m_sheet.active(); }
+    bool modal() const override { return m_sheet.active() || m_menu.active(); }
 
 private:
     enum Zone { Buttons, Seasons, Episodes, Extras, Cast, Similar, ZoneCount };
-    enum Button { PlayButton, RestartButton, TrailerButton, WatchedButton, FavouriteButton, RequestButton };
+    enum Button { PlayButton, RestartButton, TrailerButton, WatchedButton, FavouriteButton };
 
     struct Data {
         std::mutex lock;
@@ -78,6 +79,7 @@ private:
     std::vector<Zone> zones() const;
     std::vector<Button> buttons() const;
     void sync_button();
+    bool can_ask_seerr() const;   /* Seerr has seasons of this series to ask for (a menu entry) */
     float zone_top(Zone z) const;     /* page y of a section */
 
     void draw_top(float y0, float dt);
@@ -110,6 +112,8 @@ private:
     seerr::Detail m_seerr;              /* this frame's copy */
     bool m_have_seerr = false;
     RequestSheet m_sheet;
+    ItemMenu m_menu;                    /* Options: the focused season's or episode's menu (PS5's way) */
+    int m_menu_zone = -1;               /* the zone it was opened in */
     std::string m_note;                 /* how a request went, shown for a few seconds */
     uint32_t m_note_dot = 0xff30d158u;      /* its dot: green done, amber failed, grey neither */
     double m_note_at = -100;

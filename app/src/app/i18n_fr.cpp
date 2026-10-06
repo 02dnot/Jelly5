@@ -415,6 +415,7 @@ const std::unordered_map<std::string, const char *> &french_table()
         {"Slettet", "Supprimé"},
         {"Trykk ✕ igjen for å logge ut", "Appuyez à nouveau sur ✕ pour vous déconnecter"},
         {"Trykk ✕ igjen for å trekke tilbake forespørselen", "Appuyez à nouveau sur ✕ pour retirer la demande"},
+        {"Valg", "Options"},
     };
     return t;
 }

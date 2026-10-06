@@ -409,6 +409,7 @@ const std::unordered_map<std::string, const char *> &italian_table()
         {"Slettet", "Eliminato"},
         {"Trykk ✕ igjen for å logge ut", "Premi di nuovo ✕ per uscire"},
         {"Trykk ✕ igjen for å trekke tilbake forespørselen", "Premi di nuovo ✕ per ritirare la richiesta"},
+        {"Valg", "Opzioni"},
     };
     return t;
 }
