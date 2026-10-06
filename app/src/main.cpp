@@ -65,6 +65,7 @@
 #include <mutex>
 #include <pthread.h>
 #include <signal.h>
+#include <ucontext.h>
 #include <string>
 #include <sys/stat.h>
 #include <thread>
@@ -194,9 +195,33 @@ void av_log_to_boot_log(void *, int level, const char *fmt, va_list vl)
         evo_bt("ffmpeg[%d]: %s", level, line);
 }
 
-void crash_handler(int sig, siginfo_t *si, void *)
+/* The app's start, as the linker lays it out (for the crash report's offsets).
+ * Its code is the first segment, about 24 MB: offsets under 32 MB are code. */
+extern "C" char __ehdr_start[] __attribute__((weak));
+constexpr uintptr_t kCodeSpan = 32u << 20;
+
+void crash_handler(int sig, siginfo_t *si, void *ctx)
 {
     evo_bt("jelly5: CRASH signal=%d addr=%p", sig, si ? si->si_addr : nullptr);
+    /* Where: the faulting instruction and the code addresses on the stack, as
+     * offsets into the app (llvm-symbolizer --obj=build/llvm-pie.elf 0x...). An
+     * abort's own address is inside abort(); its callers are on the stack. */
+    const uintptr_t lo = (uintptr_t)__ehdr_start, hi = lo + kCodeSpan;
+    if (ctx && lo && hi > lo) {
+        const ucontext_t *uc = (const ucontext_t *)ctx;
+        const uintptr_t rip = (uintptr_t)uc->uc_mcontext.mc_rip;
+        char line[512];
+        int n = std::snprintf(line, sizeof line, "jelly5: crash at %s%#lx; stack:", rip >= lo && rip < hi ? "+" : "",
+                              (unsigned long)(rip >= lo && rip < hi ? rip - lo : rip));
+        const uintptr_t *sp = (const uintptr_t *)uc->uc_mcontext.mc_rsp;
+        for (int i = 0, found = 0; i < 768 && found < 24 && n < (int)sizeof line - 16; i++)
+            if (sp[i] >= lo && sp[i] < hi) {
+                n += std::snprintf(line + n, sizeof line - n, " +%#lx", (unsigned long)(sp[i] - lo));
+                found++;
+            }
+        evo_bt("%s", line);
+    }
+    evo_boot_log_flush();
     signal(sig, SIG_DFL);   /* re-fault so the kernel writes its crash report */
 }
 
