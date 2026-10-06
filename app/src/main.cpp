@@ -651,6 +651,30 @@ void load_discover(unsigned session)
         if (status == 401 || status == 403)
             seerr_service::session_lost();
     }
+    /* Titles the library has are shown as Jellyfin's own items: its card art
+     * (Thumb), backdrop and logo, and they open the library's page. Seerr only
+     * has one TMDB backdrop, which was the card and the background both. */
+    auto id_key = [](std::string id) {
+        id.erase(std::remove(id.begin(), id.end(), '-'), id.end());
+        for (char &ch : id)
+            ch = (char)std::tolower((unsigned char)ch);
+        return id;
+    };
+    std::map<std::string, jf::Item> owned;
+    if (jf::Client *jc = s_client) {
+        std::set<std::string> ids;
+        for (const auto *list : {&lists[0], &lists[1], &lists[2], &lists[3], &lists[4], &mine})
+            for (const seerr::Title &t : *list)
+                if (!t.jellyfin_id.empty())
+                    ids.insert(id_key(t.jellyfin_id));
+        if (!ids.empty()) {
+            std::string filter = "&Ids=";
+            for (const std::string &id : ids)
+                filter += (filter.size() > 5 ? "," : "") + id;
+            for (const jf::Item &it : jc->library("", "Movie,Series", "SortName", false, 0, (int)ids.size(), filter).items)
+                owned[id_key(it.id)] = it;
+        }
+    }
     ui::HomeModel m;
     auto row = [&](const char *title, const std::vector<seerr::Title> &list) {
         if (list.empty())
@@ -658,8 +682,10 @@ void load_discover(unsigned session)
         ui::HomeRow r;
         r.title = title;
         r.kind = ui::HomeRow::Latest;
-        for (const seerr::Title &t : list)
-            r.items.push_back(seerr_service::to_item(t));
+        for (const seerr::Title &t : list) {
+            auto own = t.jellyfin_id.empty() ? owned.end() : owned.find(id_key(t.jellyfin_id));
+            r.items.push_back(own != owned.end() ? own->second : seerr_service::to_item(t));
+        }
         m.rows.push_back(std::move(r));
     };
     row(T("Trender nå"), lists[0]);
