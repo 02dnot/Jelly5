@@ -426,12 +426,21 @@ Action Detail::input(uint32_t p)
             if (m_menu_zone == Episodes) {
                 apply_local(a.change, false);
             } else if (m_menu_zone == Seasons && m_season < (int)m_view.seasons.size()) {
-                /* The whole season: Jellyfin marks every episode in it. */
-                m_view.seasons[m_season].played = a.change.played;
-                for (jf::Item &e : m_eps) {
-                    e.played = a.change.played;
-                    if (a.change.played)
-                        e.played_percent = 0, e.position_ticks = 0;
+                /* The whole season: Jellyfin marks every episode in it. Into the page's
+                 * data (each frame copies it): the view alone forgot it at once. */
+                std::lock_guard<std::mutex> g(m_data->lock);
+                Content &c = m_data->c;
+                if (m_season < (int)c.seasons.size()) {
+                    jf::Item &season = c.seasons[m_season];
+                    season.played = a.change.played;
+                    for (jf::Item &e : c.all_episodes)
+                        if (e.season_id == season.id || (e.season_id.empty() && e.parent_index == season.index)) {
+                            e.played = a.change.played;
+                            if (a.change.played)
+                                e.played_percent = 0, e.position_ticks = 0;
+                        }
+                    m_view = c;
+                    select_episodes();
                 }
             }
         }
