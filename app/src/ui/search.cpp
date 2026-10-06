@@ -150,6 +150,52 @@ Search::Grid Search::grid()
     return {(int)m_data->items.size(), (int)m_data->seerr_shown.size()};
 }
 
+void Search::more_seerr()
+{
+    std::shared_ptr<Data> d = m_data;
+    std::string q;
+    unsigned seq;
+    int page;
+    {
+        std::lock_guard<std::mutex> g(d->lock);
+        const int library = (int)d->items.size(), shown = (int)d->seerr_shown.size();
+        if (!m_in_results || m_result < library || m_result < library + shown - 8 || !d->seerr_more ||
+            d->seerr_more_loading || d->seerr_pending || d->for_seerr != d->for_query || d->for_seerr.empty())
+            return;
+        d->seerr_more_loading = true;
+        q = d->for_seerr;
+        seq = d->seq;
+        page = d->seerr_page + 1;
+    }
+    std::shared_ptr<seerr::Client> sc = seerr_service::client();
+    if (!sc) {
+        std::lock_guard<std::mutex> g(d->lock);
+        d->seerr_more_loading = false;
+        return;
+    }
+    std::thread([d, sc, q, seq, page] {
+        const std::vector<seerr::Title> found = sc->search(q, page);
+        std::lock_guard<std::mutex> g(d->lock);
+        d->seerr_more_loading = false;
+        if (seq != d->seq)
+            return;   /* the query moved on */
+        std::set<std::string> have;
+        for (const jf::Item &it : d->seerr)
+            have.insert(it.type + std::to_string(it.ext.tmdb_id));
+        size_t added = 0;
+        for (const seerr::Title &t : found) {
+            jf::Item it = seerr_service::to_item(t);
+            if (have.insert(it.type + std::to_string(it.ext.tmdb_id)).second) {
+                d->seerr.push_back(std::move(it));
+                added++;
+            }
+        }
+        d->seerr_page = page;
+        d->seerr_more = added > 0;
+        merge(*d);
+    }).detach();
+}
+
 void Search::start_search()
 {
     std::shared_ptr<Data> d = m_data;
@@ -163,6 +209,8 @@ void Search::start_search()
         seq = ++d->seq;
         d->seerr_pending = sc != nullptr;
         d->seerr_failed = false;
+        d->seerr_page = 1;
+        d->seerr_more = true;
     }
     if (sc) {
         std::thread([d, sc, q, seq] {
@@ -295,6 +343,7 @@ void Search::draw(double now, float dt)
         m_pending = false;
         start_search();
     }
+    more_seerr();
     std::vector<jf::Item> items, seerr;
     std::string for_query;
     bool seerr_pending, seerr_failed, seerr_asked;

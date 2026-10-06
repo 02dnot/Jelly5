@@ -40,6 +40,18 @@ std::string runtime_label(int64_t ticks)
 
 } // namespace
 
+bool Home::wants_more(int *shelf, int *page) const
+{
+    if (!m_discover || m_row < 0 || m_row >= (int)m_model.rows.size() || m_row >= (int)m_cols.size())
+        return false;
+    const HomeRow &row = m_model.rows[m_row];
+    if (row.shelf < 0 || !row.more || m_cols[m_row] < (int)row.items.size() - 5)
+        return false;
+    *shelf = row.shelf;
+    *page = row.page + 1;
+    return true;
+}
+
 void Home::set_model(HomeModel model)
 {
     /* Keep focus on the same title where it survived the refresh. */

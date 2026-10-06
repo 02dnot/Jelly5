@@ -128,6 +128,7 @@ struct State {
     /* Seerr's tab: its rows, and how their loading goes. */
     ui::HomeModel discover;
     bool discover_loading = false, discover_failed = false;
+    bool discover_more_loading = false;   /* a next page of one of its rows */
     bool discover_again = false;        /* asked for while loading (the language moved on): once more */
     double discover_at = -1;            /* when it last loaded (now_s), -1 never */
 };
@@ -608,6 +609,78 @@ void load_extras(jf::Client &c, unsigned session)
 
 /* Seerr's tab: what is trending, popular and coming, and the viewer's own
  * requests, all asked for side by side (off the main thread). */
+/* Seerr's titles as the tab's items. Titles the library has are Jellyfin's own
+ * items (fetched in one request): their card art, backdrop and logo, and they
+ * open the library's page; Seerr has one TMDB backdrop per title. */
+std::vector<jf::Item> discover_items(const std::vector<seerr::Title> &list)
+{
+    auto id_key = [](std::string id) {
+        id.erase(std::remove(id.begin(), id.end(), '-'), id.end());
+        for (char &ch : id)
+            ch = (char)std::tolower((unsigned char)ch);
+        return id;
+    };
+    std::map<std::string, jf::Item> owned;
+    if (jf::Client *jc = s_client) {
+        std::set<std::string> ids;
+        for (const seerr::Title &t : list)
+            if (!t.jellyfin_id.empty())
+                ids.insert(id_key(t.jellyfin_id));
+        if (!ids.empty()) {
+            std::string filter = "&Ids=";
+            for (const std::string &id : ids)
+                filter += (filter.size() > 5 ? "," : "") + id;
+            for (const jf::Item &it : jc->library("", "Movie,Series", "SortName", false, 0, (int)ids.size(), filter).items)
+                owned[id_key(it.id)] = it;
+        }
+    }
+    std::vector<jf::Item> out;
+    for (const seerr::Title &t : list) {
+        auto own = t.jellyfin_id.empty() ? owned.end() : owned.find(id_key(t.jellyfin_id));
+        out.push_back(own != owned.end() ? own->second : seerr_service::to_item(t));
+    }
+    return out;
+}
+
+/* The next page of one of Seerr's lists on its tab, appended to its row. */
+void load_more_discover(unsigned session, int shelf, int page)
+{
+    {
+        std::lock_guard<std::mutex> g(s_state.lock);
+        if (session != s_session || s_state.discover_more_loading)
+            return;
+        s_state.discover_more_loading = true;
+    }
+    std::thread([session, shelf, page] {
+        using Shelf = seerr::Client::Shelf;
+        const Shelf shelves[] = {Shelf::Trending, Shelf::PopularMovies, Shelf::PopularTv, Shelf::UpcomingMovies,
+                                 Shelf::UpcomingTv};
+        std::vector<jf::Item> items;
+        if (std::shared_ptr<seerr::Client> c = seerr_service::client())
+            items = discover_items(c->discover(shelves[shelf], page));
+        std::lock_guard<std::mutex> g(s_state.lock);
+        s_state.discover_more_loading = false;
+        if (session != s_session)
+            return;
+        for (ui::HomeRow &r : s_state.discover.rows) {
+            if (r.shelf != shelf || r.page + 1 != page)
+                continue;
+            std::set<std::string> have;   /* a title can move up a page between two loads */
+            for (const jf::Item &it : r.items)
+                have.insert(it.id + "/" + std::to_string(it.ext.tmdb_id));
+            size_t added = 0;
+            for (jf::Item &it : items)
+                if (have.insert(it.id + "/" + std::to_string(it.ext.tmdb_id)).second) {
+                    r.items.push_back(std::move(it));
+                    added++;
+                }
+            r.page = page;
+            r.more = added > 0;
+            s_discover_version++;
+        }
+    }).detach();
+}
+
 void load_discover(unsigned session)
 {
     std::shared_ptr<seerr::Client> c = seerr_service::client();
@@ -651,49 +724,23 @@ void load_discover(unsigned session)
         if (status == 401 || status == 403)
             seerr_service::session_lost();
     }
-    /* Titles the library has are shown as Jellyfin's own items: its card art
-     * (Thumb), backdrop and logo, and they open the library's page. Seerr only
-     * has one TMDB backdrop, which was the card and the background both. */
-    auto id_key = [](std::string id) {
-        id.erase(std::remove(id.begin(), id.end(), '-'), id.end());
-        for (char &ch : id)
-            ch = (char)std::tolower((unsigned char)ch);
-        return id;
-    };
-    std::map<std::string, jf::Item> owned;
-    if (jf::Client *jc = s_client) {
-        std::set<std::string> ids;
-        for (const auto *list : {&lists[0], &lists[1], &lists[2], &lists[3], &lists[4], &mine})
-            for (const seerr::Title &t : *list)
-                if (!t.jellyfin_id.empty())
-                    ids.insert(id_key(t.jellyfin_id));
-        if (!ids.empty()) {
-            std::string filter = "&Ids=";
-            for (const std::string &id : ids)
-                filter += (filter.size() > 5 ? "," : "") + id;
-            for (const jf::Item &it : jc->library("", "Movie,Series", "SortName", false, 0, (int)ids.size(), filter).items)
-                owned[id_key(it.id)] = it;
-        }
-    }
     ui::HomeModel m;
-    auto row = [&](const char *title, const std::vector<seerr::Title> &list) {
+    auto row = [&](const char *title, const std::vector<seerr::Title> &list, int shelf) {
         if (list.empty())
             return;
         ui::HomeRow r;
         r.title = title;
         r.kind = ui::HomeRow::Latest;
-        for (const seerr::Title &t : list) {
-            auto own = t.jellyfin_id.empty() ? owned.end() : owned.find(id_key(t.jellyfin_id));
-            r.items.push_back(own != owned.end() ? own->second : seerr_service::to_item(t));
-        }
+        r.shelf = shelf;
+        r.items = discover_items(list);
         m.rows.push_back(std::move(r));
     };
-    row(T("Trender nå"), lists[0]);
-    row(T("Populære filmer"), lists[1]);
-    row(T("Populære serier"), lists[2]);
-    row(T("Kommende filmer"), lists[3]);
-    row(T("Kommende serier"), lists[4]);
-    row(T("Mine forespørsler"), mine);
+    row(T("Trender nå"), lists[0], 0);
+    row(T("Populære filmer"), lists[1], 1);
+    row(T("Populære serier"), lists[2], 2);
+    row(T("Kommende filmer"), lists[3], 3);
+    row(T("Kommende serier"), lists[4], 4);
+    row(T("Mine forespørsler"), mine, -1);
     bool again;
     {
         std::lock_guard<std::mutex> g(s_state.lock);
@@ -1357,6 +1404,9 @@ bool draw_frame(double t, float dt)
             s_discover_taken = s_discover_version;
             s_discover->set_model(s_state.discover);
         }
+        int more_shelf, more_page;   /* near the end of one of Seerr's rows: its next page */
+        if (s_tab == ui::Nav::Discover && s_stack.empty() && s_discover->wants_more(&more_shelf, &more_page))
+            load_more_discover(s_session, more_shelf, more_page);
     }
     art::tick();
     gfx::begin_frame();
