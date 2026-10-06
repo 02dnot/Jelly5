@@ -116,6 +116,8 @@ struct GateRequest {
     Gate kind = Gate::None;
     std::string server, user;
     bool can_cancel = false;
+    bool known_server = false;   /* signed in to before: the login skips its address */
+    bool return_to = false;      /* Profiles: the one the login came from, on the server it showed */
 };
 
 struct State {
@@ -304,10 +306,10 @@ int init_hardware()
 
 /* ---- signing in --------------------------------------------------------------------- */
 void request_gate(Gate kind, const std::string &server = std::string(), const std::string &user = std::string(),
-                  bool can_cancel = false)
+                  bool can_cancel = false, bool known_server = false)
 {
     std::lock_guard<std::mutex> g(s_state.lock);
-    s_state.gate = {kind, server, user, can_cancel};
+    s_state.gate = {kind, server, user, can_cancel, known_server};
     s_state.phase = Phase::Gate;
 }
 
@@ -896,24 +898,36 @@ void refresh_discover(double max_age, bool force = false)
     jelly5::spawn([session] { load_discover(session); });   /* no thread: the tab's next opening tries again */
 }
 
+/* Saves an account; when its server answered at a new address, its Seerr
+ * settings move there with its accounts. */
+void remember_account(const accounts::Account &a)
+{
+    for (const std::string &from : accounts::remember(a))
+        seerr_service::move_server(from, a.server);
+}
+
 /* Signs in with a saved account (off the main thread): check the token, then
- * preferences, server info and the home rows. A rejected token asks for the
- * password again; an unreachable server is retried until the account changes. */
+ * preferences, server info and the home rows. A rejected token opens the
+ * sign-in on that server again (Quick Connect first); an unreachable server is
+ * retried until the account changes. */
 void use_account(jf::Client &c, unsigned session, accounts::Account a)
 {
     set_phase(Phase::Connecting, T("Kobler til ") + (a.server_name.empty() ? a.server : a.server_name) + " \xE2\x80\xA6");
     while (session == s_session) {
         if (c.validate()) {
+            std::string name, version, id;
+            c.public_info(&name, &version, &id);   /* (before the check below: it waits on the server) */
             if (session != s_session)
                 return;   /* switched away meanwhile: leave "last account" and prefs alone */
-            accounts::set_last(a.server, a.user_id);
             a.user_name = c.user_name();
             a.image_tag = c.user_image_tag();
-            accounts::remember(a);
+            if (!name.empty())   /* renamed; an answer without them keeps what was saved */
+                a.server_name = name;
+            if (!id.empty())     /* saved before the Id was kept */
+                a.server_id = id;
+            remember_account(a);   /* (also the last used) */
             settings::load_server(c);
             c.check_subtitle_search();
-            std::string name, version;
-            c.public_info(&name, &version);
             {
                 std::lock_guard<std::mutex> g(s_state.lock);
                 s_state.server_name = name;
@@ -933,7 +947,7 @@ void use_account(jf::Client &c, unsigned session, accounts::Account a)
         const std::string err = c.last_error();
         evo_bt("jelly5: sign-in check failed: %s", err.c_str());
         if (err.find("-> 401") != std::string::npos) {
-            request_gate(Gate::Login, a.server, a.user_name, true);
+            request_gate(Gate::Login, a.server, a.user_name, true, true);
             return;
         }
         set_phase(Phase::Failed, T("Får ikke kontakt med ") + (a.server_name.empty() ? a.server : a.server_name) +
@@ -1149,11 +1163,13 @@ void open_gate(const GateRequest &r)
 {
     s_gate = r.kind;
     if (r.kind == Gate::Profiles) {
-        s_profiles.reset(new ui::Profiles());
+        if (!r.return_to || !s_profiles)
+            s_profiles.reset(new ui::Profiles());
         s_profiles->activate();
     } else if (r.kind == Gate::Login) {
-        s_login.reset(new ui::Login(*s_client, r.server.empty() ? std::string(JELLY5_SERVER) : r.server, r.user,
-                                    r.can_cancel));
+        /* The build's default server only before any account is saved: "+ Server" starts empty. */
+        const std::string server = r.server.empty() && accounts::load().empty() ? std::string(JELLY5_SERVER) : r.server;
+        s_login.reset(new ui::Login(*s_client, server, r.user, r.can_cancel, r.known_server));
         s_login->activate();
     }
 }
@@ -1179,15 +1195,20 @@ void gate_input(uint32_t p)
         s_profiles->input(p);
         ui::Profiles::Choice ch;
         if (s_profiles->take_choice(&ch)) {
-            if (ch.add)
-                open_gate({Gate::Login, s_client->server(), "", true});
+            if (ch.add)   /* another user on that server */
+                open_gate({Gate::Login, ch.account.server, "", true, true});
+            else if (ch.add_server)
+                open_gate({Gate::Login, "", "", true});
             else
                 switch_to(ch.account);
         }
     } else if (s_gate == Gate::Login && s_login) {
         const ui::Action a = s_login->input(p);
-        if (a.kind == ui::Action::Back)
-            open_gate({accounts::load().empty() ? Gate::Login : Gate::Profiles, s_client->server(), "", false});
+        if (a.kind == ui::Action::Back) {
+            GateRequest r{accounts::load().empty() ? Gate::Login : Gate::Profiles, s_client->server(), "", false};
+            r.return_to = true;
+            open_gate(r);
+        }
     }
 }
 
@@ -1196,7 +1217,7 @@ void gate_poll()
 {
     accounts::Account a;
     if (s_gate == Gate::Login && s_login && s_login->take_result(&a)) {
-        accounts::remember(a);
+        remember_account(a);
         switch_to(a);
     }
 }

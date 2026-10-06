@@ -4,6 +4,7 @@
  */
 #include "app/accounts.h"
 
+#include <algorithm>
 #include <map>
 
 #include "evo_boot_trace.h"
@@ -51,6 +52,7 @@ Account account_of(const cJSON *o)
     a.user_name = str(o, "userName");
     a.image_tag = str(o, "imageTag");
     a.token = str(o, "token");
+    a.server_id = str(o, "serverId");
     return a;
 }
 
@@ -106,6 +108,7 @@ void write_store(const Store &s)
         cJSON_AddStringToObject(o, "userName", a.user_name.c_str());
         cJSON_AddStringToObject(o, "imageTag", a.image_tag.c_str());
         cJSON_AddStringToObject(o, "token", a.token.c_str());
+        cJSON_AddStringToObject(o, "serverId", a.server_id.c_str());
         cJSON_AddItemToArray(arr, o);
     }
     cJSON_AddItemToObject(j, "accounts", arr);
@@ -137,6 +140,21 @@ void write_store(const Store &s)
 
 std::vector<Account> load() { return read_store().list; }
 
+bool same_server(const Account &a, const Account &b)
+{
+    if (!a.server_id.empty() && !b.server_id.empty())
+        return a.server_id == b.server_id;
+    return a.server == b.server || (!a.user_id.empty() && a.user_id == b.user_id);
+}
+
+bool saved_at(const std::string &address)
+{
+    for (const Account &a : read_store().list)
+        if (a.server == address)
+            return true;
+    return false;
+}
+
 void set_ps5_user(int ps5_user_id) { s_ps5_user = ps5_user_id; }
 
 bool last(Account *out)
@@ -156,22 +174,51 @@ bool last(Account *out)
     return false;
 }
 
-void remember(const Account &a)
+std::vector<std::string> remember(const Account &a)
 {
     Store s = read_store();
-    bool found = false;
-    for (Account &x : s.list)
-        if (x.server == a.server && x.user_id == a.user_id) {
-            x = a;
-            found = true;
+    /* The server answered at a.server: everything saved for it at another address
+     * moves there, and the user's own old entry gives way to this one. */
+    std::vector<std::string> moved;
+    for (const Account &x : s.list)
+        if (same_server(x, a) && x.server != a.server && std::find(moved.begin(), moved.end(), x.server) == moved.end())
+            moved.push_back(x.server);
+    auto moved_from = [&](const std::string &server) {
+        return std::find(moved.begin(), moved.end(), server) != moved.end();
+    };
+    std::vector<Account> keep;
+    bool placed = false;
+    for (Account x : s.list) {
+        /* Its accounts, and ones saved at an old address of it before the Id was kept
+         * (never another server's: one with its own Id stays where it is). */
+        if (!same_server(x, a) && !(x.server_id.empty() && moved_from(x.server))) {
+            keep.push_back(x);
+            continue;
         }
-    if (!found)
-        s.list.push_back(a);
+        if (x.user_id == a.user_id) {
+            if (!placed)
+                keep.push_back(a), placed = true;
+            continue;
+        }
+        x.server = a.server;
+        if (x.server_id.empty())
+            x.server_id = a.server_id;
+        if (!a.server_name.empty())
+            x.server_name = a.server_name;
+        keep.push_back(x);
+    }
+    if (!placed)
+        keep.push_back(a);
+    s.list = keep;
+    for (auto &kv : s.by_ps5)
+        if (moved_from(kv.second.first))
+            kv.second.first = a.server;
     s.last_server = a.server;
     s.last_user = a.user_id;
     if (s_ps5_user >= 0)
         s.by_ps5[ps5_key()] = {a.server, a.user_id};
     write_store(s);
+    return moved;
 }
 
 void forget(const std::string &server, const std::string &user_id)

@@ -10,6 +10,7 @@
 #include "gfx/art.h"
 #include "nuvio_input.h"
 #include "platform/ime.h"
+#include "app/spawn.h"
 
 #include <algorithm>
 #include <functional>
@@ -28,10 +29,11 @@ Drop *s_drop = nullptr;
 bool s_focused = false;
 std::vector<std::function<void()>> s_later;
 
-void focus_on(const gfx::Rect &r, bool focus)
+/* key: the control (default: from where it is); ox: where its row is, when the row slides. */
+void focus_on(const gfx::Rect &r, bool focus, int key = -1, float ox = 0)
 {
     if (focus && s_drop) {
-        s_drop->to(r, (int)(r.x * 7 + r.y));
+        s_drop->to(r, key >= 0 ? key : (int)(r.x * 7 + r.y), ox, 0);
         s_focused = true;
     }
 }
@@ -48,26 +50,76 @@ void field(const gfx::Rect &r, const std::string &label, const std::string &valu
     });
 }
 
-void button(const gfx::Rect &r, const std::string &label, bool focus, float)
+void button(const gfx::Rect &r, const std::string &label, bool focus, float, int key = -1, float ox = 0)
 {
     glass_panel(r, 16, 1.f, false);
-    focus_on(r, focus);
+    focus_on(r, focus, key, ox);
     s_later.push_back([=] {
-        gfx::text(r.x + r.w / 2, r.y + r.h / 2 + 9, label, {focus ? gfx::Bold : gfx::SemiBold, 26}, kText, 1);
+        gfx::text(r.x + r.w / 2, r.y + r.h / 2 + 9, label, {focus ? gfx::Bold : gfx::SemiBold, 26, r.w - 40}, kText,
+                  1);
     });
 }
 
 } // namespace
 
-Login::Login(const jf::Client &app_client, const std::string &server, const std::string &user, bool can_cancel)
-    : m_own(new jf::Client(server, app_client.device_id(), app_client.device_name())), m_client(*m_own),
-      m_server(server), m_user(user), m_can_cancel(can_cancel)
+Login::Login(const jf::Client &app_client, const std::string &server, const std::string &user, bool can_cancel,
+             bool known_server)
+    : m_own(new jf::Client(server, app_client.device_id(), app_client.device_name())), m_server(server), m_user(user),
+      m_can_cancel(can_cancel), m_known_server(known_server)
 {
+    if (known_server)
+        m_known_address = server;
+}
+
+unsigned Login::next_gen()
+{
+    std::lock_guard<std::mutex> g(m_shared->lock);
+    return ++m_shared->gen;
 }
 
 void Login::activate()
 {
     ime::init();
+    if (m_known_server && !m_server.empty() && !m_checking) {
+        m_checking = true;
+        m_step = QuickConnectStep;   /* its code box waits with "…"; an error goes to the address */
+        m_focus = 0;
+        check_server();
+    }
+}
+
+/* "Annen server": the address step. Empty when the address here is a saved one
+ * this login was opened with (that server is on "Hvem ser på?"); one typed
+ * here stays to be corrected. */
+void Login::other_server()
+{
+    next_gen();   /* a check or a Quick Connect still running is for the last server */
+    {
+        std::lock_guard<std::mutex> g(m_shared->lock);
+        m_shared->qc_alive = false;
+        m_shared->busy = false;
+        m_shared->error.clear();
+    }
+    if (!m_typed && accounts::saved_at(client().server()))
+        m_server.clear();
+    m_back_to_known = m_known_server;
+    m_known_server = false;
+    m_checking = false;
+    m_step = ServerStep;
+    m_focus = 0;
+}
+
+/* ○ on the address step reached from the known server's Quick Connect: back to it. */
+void Login::back_to_known()
+{
+    m_server = m_known_address;
+    m_typed = false;
+    m_known_server = true;
+    m_back_to_known = false;
+    m_checking = true;
+    m_step = QuickConnectStep;
+    m_focus = 1;
+    check_server();
 }
 
 /* The keyboard's callbacks point at this screen: close it with the screen. */
@@ -94,31 +146,54 @@ void Login::scan(double now)
         sh->scanning = true;
     }
     m_scanned_at = now;
-    std::thread([sh] {
+    const bool offer_moved = m_offer_moved;
+    const bool started = jelly5::spawn([sh, offer_moved] {
         std::vector<jf::FoundServer> f = jf::discover(1500);
+        /* Servers already saved are on "Hvem ser på?": signing in to one at another
+         * address would move its accounts there. Only when it did not answer at its
+         * saved address is it offered where the network finds it now. */
+        const std::vector<accounts::Account> saved = accounts::load();
+        f.erase(std::remove_if(f.begin(), f.end(),
+                               [&](const jf::FoundServer &s) {
+                                   return std::any_of(saved.begin(), saved.end(), [&](const accounts::Account &a) {
+                                       return a.server == s.address ||
+                                              (!offer_moved && !s.id.empty() && a.server_id == s.id);
+                                   });
+                               }),
+                f.end());
         std::lock_guard<std::mutex> g(sh->lock);
         if (!f.empty() || sh->found.empty())
             sh->found = std::move(f);
         sh->scanning = false;
-    }).detach();
+    });
+    if (!started) {
+        std::lock_guard<std::mutex> g(sh->lock);
+        sh->scanning = false;
+    }
 }
 
 void Login::check_server()
 {
-    m_client.set_server(m_server);
-    m_server = m_client.server();
+    m_no_quick_connect = false;
+    m_own = std::make_shared<jf::Client>("", client().device_id(), client().device_name());
+    m_own->set_server(m_server);
+    m_server = client().server();
     std::shared_ptr<Shared> sh = m_shared;
     std::shared_ptr<jf::Client> c = m_own;
+    const unsigned gen = next_gen();
     {
         std::lock_guard<std::mutex> g(sh->lock);
         sh->busy = true;
         sh->error.clear();
+        sh->qc_alive = false;
     }
-    std::thread([sh, c] {
-        std::string name, version;
-        const bool ok = c->public_info(&name, &version);
+    const bool started = jelly5::spawn([sh, c, gen] {
+        std::string name, version, id;
+        const bool ok = c->public_info(&name, &version, &id);
         std::vector<jf::PublicUser> users = ok ? c->public_users() : std::vector<jf::PublicUser>();
         std::lock_guard<std::mutex> g(sh->lock);
+        if (sh->gen != gen)
+            return;   /* another server since */
         sh->busy = false;
         if (!ok) {
             sh->error = T("Fant ingen Jellyfin-server på ") + c->server();
@@ -126,9 +201,15 @@ void Login::check_server()
         }
         sh->server_name = name;
         sh->server_version = version;
+        sh->server_id = id;
         sh->users = std::move(users);
         sh->checked = true;
-    }).detach();
+    });
+    if (!started) {
+        std::lock_guard<std::mutex> g(sh->lock);
+        sh->busy = false;
+        sh->error = T("Innloggingen mislyktes");
+    }
 }
 
 void Login::sign_in()
@@ -136,30 +217,41 @@ void Login::sign_in()
     std::shared_ptr<Shared> sh = m_shared;
     std::shared_ptr<jf::Client> c = m_own;
     const std::string user = m_user, pass = m_password;
+    unsigned gen;
     {
         std::lock_guard<std::mutex> g(sh->lock);
         sh->busy = true;
         sh->error.clear();
+        gen = sh->gen;
     }
-    std::thread([sh, c, user, pass] {
+    const bool started = jelly5::spawn([sh, c, user, pass, gen] {
         c->set_session("", "", "");
         const bool ok = c->authenticate(user, pass);
         std::lock_guard<std::mutex> g(sh->lock);
+        if (sh->gen != gen)
+            return;   /* another server since */
         sh->busy = false;
         if (!ok) {
             sh->error = c->last_error().find("401") != std::string::npos ? T("Feil brukernavn eller passord")
                                                                         : T("Innloggingen mislyktes");
             return;
         }
-        sh->result = {c->server(), sh->server_name, c->user_id(), c->user_name(), c->user_image_tag(), c->token()};
+        sh->result = {c->server(), sh->server_name, c->user_id(), c->user_name(), c->user_image_tag(), c->token(),
+                      sh->server_id};
         sh->signed_in = true;
-    }).detach();
+    });
+    if (!started) {
+        std::lock_guard<std::mutex> g(sh->lock);
+        sh->busy = false;
+        sh->error = T("Innloggingen mislyktes");
+    }
 }
 
 void Login::start_quick_connect()
 {
     std::shared_ptr<Shared> sh = m_shared;
     std::shared_ptr<jf::Client> c = m_own;
+    const unsigned gen = next_gen();   /* (a code asked for before is dropped) */
     {
         std::lock_guard<std::mutex> g(sh->lock);
         sh->busy = true;
@@ -169,17 +261,21 @@ void Login::start_quick_connect()
     }
     m_step = QuickConnectStep;
     m_focus = 0;
-    std::thread([sh, c] {
+    const bool started = jelly5::spawn([sh, c, gen] {
         c->set_session("", "", "");
         jf::QuickConnect qc;
         if (!c->quick_connect_start(&qc)) {
             std::lock_guard<std::mutex> g(sh->lock);
+            if (sh->gen != gen)
+                return;
             sh->busy = false;
             sh->error = T("Quick Connect er ikke slått på på denne serveren");
             return;
         }
         {
             std::lock_guard<std::mutex> g(sh->lock);
+            if (sh->gen != gen)
+                return;
             sh->busy = false;
             sh->qc_code = qc.code;
         }
@@ -187,20 +283,27 @@ void Login::start_quick_connect()
             sleep(3);
             {
                 std::lock_guard<std::mutex> g(sh->lock);
-                if (!sh->qc_alive)
+                if (!sh->qc_alive || sh->gen != gen)
                     return;
             }
             bool approved = false;
             c->quick_connect_poll(qc, &approved);
             if (approved) {
                 std::lock_guard<std::mutex> g(sh->lock);
+                if (!sh->qc_alive || sh->gen != gen)
+                    return;   /* left meanwhile: not this sign-in any more */
                 sh->result = {c->server(), sh->server_name, c->user_id(), c->user_name(), c->user_image_tag(),
-                              c->token()};
+                              c->token(), sh->server_id};
                 sh->signed_in = true;
                 return;
             }
         }
-    }).detach();
+    });
+    if (!started) {
+        std::lock_guard<std::mutex> g(sh->lock);
+        sh->busy = false;
+        sh->error = T("Innloggingen mislyktes");
+    }
 }
 
 /* Focus targets per step:
@@ -220,19 +323,33 @@ Action Login::input(uint32_t p)
     }
     if (m_step == QuickConnectStep) {
         /* Quick Connect is the default; below the code: sign in with a name and password
-         * instead (0), or another server (1). Circle goes back to the server. */
+         * instead (0), or another server (1). Circle goes back to the server, or to
+         * "Hvem ser på?" when the server was a known one. */
+        const bool back = (p & NUVIO_BTN_CIRCLE) && m_known_server && m_can_cancel;
+        if (m_checking && !back) {   /* the server has not answered yet: only "Annen server" is there */
+            m_focus = 1;
+            if (p & NUVIO_BTN_CROSS)
+                other_server();
+            return a;
+        }
         if (p & NUVIO_BTN_LEFT)
             m_focus = 0;
         else if (p & NUVIO_BTN_RIGHT)
             m_focus = 1;
-        else if (p & (NUVIO_BTN_CROSS | NUVIO_BTN_CIRCLE)) {
+        else if (back) {
+            std::lock_guard<std::mutex> g(m_shared->lock);
+            m_shared->qc_alive = false;
+            a.kind = Action::Back;
+        } else if ((p & NUVIO_BTN_CROSS) && m_focus == 0) {
             {
                 std::lock_guard<std::mutex> g(m_shared->lock);
                 m_shared->qc_alive = false;
                 m_shared->error.clear();
             }
-            m_step = (p & NUVIO_BTN_CROSS) && m_focus == 0 ? UserStep : ServerStep;
+            m_step = UserStep;
             m_focus = 0;
+        } else if (p & (NUVIO_BTN_CROSS | NUVIO_BTN_CIRCLE)) {
+            other_server();
         }
         return a;
     }
@@ -243,7 +360,7 @@ Action Login::input(uint32_t p)
             std::lock_guard<std::mutex> g(m_shared->lock);
             found = m_shared->found;
         }
-        const int nf = std::min(3, (int)found.size());
+        const int nf = (int)found.size();
         if (p & NUVIO_BTN_DOWN)
             m_focus = std::min(nf > 0 ? 2 : 1, m_focus + 1);
         else if (p & NUVIO_BTN_UP)
@@ -255,14 +372,18 @@ Action Login::input(uint32_t p)
         else if ((p & NUVIO_BTN_CROSS) && m_focus == 2 && m_found_col < nf) {
             if (!busy) {
                 m_server = found[m_found_col].address;
+                m_typed = true;
                 check_server();
             }
-        } else if ((p & NUVIO_BTN_CIRCLE) && m_can_cancel)
+        } else if ((p & NUVIO_BTN_CIRCLE) && m_back_to_known)
+            back_to_known();
+        else if ((p & NUVIO_BTN_CIRCLE) && m_can_cancel)
             a.kind = Action::Back;
         else if (p & NUVIO_BTN_CROSS) {
             if (m_focus == 0)
                 ime::request(ime::Kind::Url, T("Serveradresse"), m_server, [this](const std::string &t) {
                     m_server = t;
+                    m_typed = true;
                     m_focus = 1;
                 });
             else if (!busy && !m_server.empty())
@@ -290,7 +411,12 @@ Action Login::input(uint32_t p)
     else if (nu > 0 && m_focus == 0 && (p & NUVIO_BTN_RIGHT))
         m_user_col = std::min(nu - 1, m_user_col + 1);
     else if (p & NUVIO_BTN_CIRCLE) {
-        start_quick_connect();   /* back to the default */
+        if (!m_no_quick_connect)
+            start_quick_connect();   /* back to the default */
+        else if (m_known_server && m_can_cancel)
+            a.kind = Action::Back;   /* nothing before this: "Hvem ser på?" */
+        else
+            other_server();
     } else if ((p & NUVIO_BTN_CROSS) && !busy) {
         const int f = m_focus - base;
         if (base && m_focus == 0) {
@@ -311,8 +437,7 @@ Action Login::input(uint32_t p)
         } else if (f == 3) {
             start_quick_connect();
         } else if (f == 4) {
-            m_step = ServerStep;
-            m_focus = 0;
+            other_server();
         }
     }
     return a;
@@ -338,8 +463,18 @@ void Login::draw(double now, float dt)
             m_shared->checked = false;
     }
     if (checked)   /* the server answered: Quick Connect first */
-        start_quick_connect();
+        m_checking = false, start_quick_connect();
+    if (m_checking && !busy && !error.empty()) {   /* a known server did not answer: its address, and why */
+        m_checking = false;
+        m_known_server = false;   /* what is typed now is a new address: ○ goes back a step at a time */
+        m_back_to_known = false;  /* (its Quick Connect never showed) */
+        m_offer_moved = true;     /* it may answer elsewhere now: the network's answer is offered */
+        m_scanned_at = -100;      /* ask the network at once */
+        m_step = ServerStep;
+        m_focus = 1;
+    }
     if (m_step == QuickConnectStep && code.empty() && !busy && !error.empty()) {
+        m_no_quick_connect = true;
         m_step = UserStep;   /* no Quick Connect on this server: name and password (the message stays) */
         m_focus = 0;
     }
@@ -349,15 +484,16 @@ void Login::draw(double now, float dt)
     s_drop = &m_drop;
     s_focused = false;
     s_later.clear();
-    draw_brand(kX, 190, 60);
+    /* The brand small in the corner (as the top bar has it): the steps start high. */
+    draw_brand(gfx::W - kPad - brand_width(44), 112, 44);
 
     auto lift = [&](const std::string &k, bool f) { return m_lifts.step(k, f, dt, &anim); };
     if (m_step == ServerStep) {
-        gfx::text(kX, 340, T("Koble til Jellyfin"), {gfx::Bold, 64}, kText);
-        gfx::text(kX, 400, T("Skriv inn adressen til Jellyfin-serveren din, for eksempel 192.168.0.10:8096."),
+        gfx::text(kX, 230, T("Koble til Jellyfin"), {gfx::Bold, 64}, kText);
+        gfx::text(kX, 290, T("Skriv inn adressen til Jellyfin-serveren din, for eksempel 192.168.0.10:8096."),
                   {gfx::Medium, 28, 1200}, kText2);
-        field({kX, 500, kW, 84}, "SERVER", m_server, "http://", m_focus == 0, lift("srv", m_focus == 0));
-        button({kX, 640, 260, 76}, busy ? T("Kobler til \xE2\x80\xA6") : T("Fortsett"), m_focus == 1, lift("go", m_focus == 1));
+        field({kX, 390, kW, 84}, "SERVER", m_server, "http://", m_focus == 0, lift("srv", m_focus == 0));
+        button({kX, 530, 260, 76}, busy ? T("Kobler til \xE2\x80\xA6") : T("Fortsett"), m_focus == 1, lift("go", m_focus == 1));
         /* Servers on the network, found by asking (Jellyfin's discovery). */
         scan(now);
         std::vector<jf::FoundServer> found;
@@ -367,34 +503,44 @@ void Login::draw(double now, float dt)
             found = m_shared->found;
             scanning = m_shared->scanning;
         }
-        const int nf = std::min(3, (int)found.size());
+        const int nf = (int)found.size();
         if (nf > 0 && !m_found_focused) {   /* found one: offer it first */
             m_found_focused = true;
             if (m_focus == 0)
                 m_focus = 2, m_found_col = 0;
         }
         m_found_col = std::min(m_found_col, std::max(0, nf - 1));
-        gfx::text(kX, 800, nf > 0 ? T("FUNNET P\xC3\x85 NETTVERKET") : scanning ? T("S\xC3\x98KER P\xC3\x85 NETTVERKET \xE2\x80\xA6") : "",
+        gfx::text(kX, 690, nf > 0 ? T("FUNNET P\xC3\x85 NETTVERKET") : scanning ? T("S\xC3\x98KER P\xC3\x85 NETTVERKET \xE2\x80\xA6") : "",
                   {gfx::SemiBold, 20}, kText3);
-        float fx = kX;
+        /* All of them in a row; more than fit, and it slides with the focus kept in view. */
+        std::vector<std::string> labels(nf);
+        std::vector<float> w(nf), at(nf);
+        float row_w = 0;
         for (int i = 0; i < nf; i++) {
-            const std::string label = (found[i].name.empty() ? std::string("Jellyfin") : found[i].name) + "  \xC2\xB7  " +
-                                      found[i].address.substr(found[i].address.find("//") == std::string::npos
-                                                                  ? 0 : found[i].address.find("//") + 2);
-            const float w = std::min(620.f, gfx::text_width(label, {gfx::SemiBold, 26}) + 64);
-            button({fx, 822, w, 76}, label, m_focus == 2 && m_found_col == i, 0);
-            fx += w + 20;
+            labels[i] = (found[i].name.empty() ? std::string("Jellyfin") : found[i].name) + "  \xC2\xB7  " +
+                        host_of(found[i].address);
+            w[i] = std::min(560.f, gfx::text_width(labels[i], {gfx::Bold, 26}) + 64);
+            at[i] = row_w;
+            row_w += w[i] + (i + 1 < nf ? 20 : 0);
         }
+        const float fx = nf > 0 ? kX - row_scroll(m_found_scroll, row_w, gfx::W - kX - 160,
+                                                  at[m_found_col] + w[m_found_col] / 2, dt, &anim)
+                                : kX;
+        for (int i = 0; i < nf; i++)
+            button({fx + at[i], 712, w[i], 76}, labels[i], m_focus == 2 && m_found_col == i, 0, 1000 + i, fx - kX);
     } else if (m_step == UserStep) {
-        gfx::text(kX, 340, T("Logg inn"), {gfx::Bold, 64}, kText);
-        gfx::text(kX, 396, server_name + "  \xC2\xB7  Jellyfin " + version + "  \xC2\xB7  " + m_server,
+        gfx::text(kX, 230, T("Logg inn"), {gfx::Bold, 64}, kText);
+        gfx::text(kX, 286, server_name + "  \xC2\xB7  Jellyfin " + version + "  \xC2\xB7  " + m_server,
                   {gfx::Medium, 24, 1500}, kText3);
-        float y = 470;
+        float y = 340;
         const int base = users.empty() ? 0 : 1;
         if (!users.empty()) {
-            float x = kX;
-            for (size_t i = 0; i < users.size() && i < 8; i++) {
-                const bool f = m_focus == 0 && (int)i == m_user_col;
+            /* All of them; more than fit, and the row slides with the focus kept in view. */
+            const int nu = (int)users.size();
+            float x = kX - row_scroll(m_users_scroll, nu * 170.f - 50, gfx::W - kX - 160,
+                                      std::min(m_user_col, nu - 1) * 170.f + 60, dt, &anim);
+            for (int i = 0; i < nu; i++) {
+                const bool f = m_focus == 0 && i == m_user_col;
                 const float l = lift("u" + users[i].id, f);
                 const float d = 120 * (1.f + 0.1f * l);
                 const gfx::Rect r{x + 60 - d / 2, y + 60 - d / 2, d, d};
@@ -402,7 +548,7 @@ void Login::draw(double now, float dt)
                     glass_panel({r.x - 8, r.y - 8, d + 16, d + 16}, d / 2 + 8, 1.f, false, 1.f);
                 const std::string url = users[i].image_tag.empty()
                                             ? std::string()
-                                            : m_client.server() + "/Users/" + users[i].id + "/Images/Primary?tag=" +
+                                            : client().server() + "/Users/" + users[i].id + "/Images/Primary?tag=" +
                                                   users[i].image_tag + "&fillWidth=240";
                 if (url.empty()) {
                     gfx::fill(r, 0xff6e7fd6u, d / 2);
@@ -413,22 +559,23 @@ void Login::draw(double now, float dt)
                 gfx::text(x + 60, y + 160, users[i].name, {gfx::SemiBold, 22, 150}, f ? kText : kText2, 1);
                 x += 170;
             }
-            y += 220;
+            y += 190;
         }
+        /* (ends at 866 with users: the error line goes under it) */
         const int f = m_focus - base;
         field({kX, y + 30, kW, 84}, T("BRUKERNAVN"), m_user, T("Brukernavn"), f == 0, lift("user", f == 0));
-        field({kX, y + 160, kW, 84}, T("PASSORD"), std::string(m_password.size(), '*'), T("Passord"), f == 1,
+        field({kX, y + 150, kW, 84}, T("PASSORD"), std::string(m_password.size(), '*'), T("Passord"), f == 1,
               lift("pass", f == 1));
-        const float by = y + 290;
+        const float by = y + 270;
         button({kX, by, 240, 76}, busy ? T("Logger inn \xE2\x80\xA6") : T("Logg inn"), f == 2, lift("in", f == 2));
         button({kX + 260, by, 330, 76}, T("Bruk Quick Connect"), f == 3, lift("qc", f == 3));
         button({kX + 610, by, 250, 76}, T("Annen server"), f == 4, lift("other", f == 4));
     } else {
-        gfx::text(kX, 340, "Quick Connect", {gfx::Bold, 64}, kText);
-        gfx::text(kX, 410,
+        gfx::text(kX, 230, "Quick Connect", {gfx::Bold, 64}, kText);
+        gfx::text(kX, 300,
                   T("Åpne Jellyfin på telefonen eller PC-en, gå til Innstillinger → Quick Connect og skriv inn koden:"),
                   {gfx::Medium, 30, 1100, 2, 44}, kText2);
-        const gfx::Rect box{kX, 540, 760, 220};
+        const gfx::Rect box{kX, 430, 760, 220};
         glass_panel(box, 32, 1.f, false);   /* the code on glass */
         std::string spaced;
         for (char ch : code)
@@ -445,7 +592,7 @@ void Login::draw(double now, float dt)
             static bool qr_ok = false;
             if (qr_for != code) {
                 qr_for = code;
-                const std::string url = m_client.server() + "/web/#/quickconnect?code=" + code;
+                const std::string url = client().server() + "/web/#/quickconnect?code=" + code;
                 std::vector<uint8_t> tmp(qrcodegen_BUFFER_LEN_MAX);
                 qr_ok = qrcodegen_encodeText(url.c_str(), tmp.data(), qr.data(), qrcodegen_Ecc_MEDIUM,
                                              qrcodegen_VERSION_MIN, qrcodegen_VERSION_MAX, qrcodegen_Mask_AUTO, true);
@@ -453,7 +600,7 @@ void Login::draw(double now, float dt)
             if (qr_ok) {
                 const int n = qrcodegen_getSize(qr.data());
                 const float side = 380, m = side / (float)(n + 8);   /* 4 modules of quiet zone round it */
-                const gfx::Rect panel{gfx::W - kPad - side, 330, side, side};
+                const gfx::Rect panel{gfx::W - kPad - side, 220, side, side};
                 gfx::shadow(panel, 24, 30, 0.5f, 12);
                 gfx::fill(panel, 0xfff5f5f7u, 24);
                 for (int y = 0; y < n; y++)
@@ -466,8 +613,12 @@ void Login::draw(double now, float dt)
                           {gfx::Medium, 20}, kText3, 1);
             }
         }
-        button({kX, 800, 560, 76}, T("Logg inn med brukernavn og passord"), m_focus == 0, lift("pw", m_focus == 0));
-        button({kX + 580, 800, 250, 76}, T("Annen server"), m_focus == 1, lift("other2", m_focus == 1));
+        if (m_checking) {   /* until the server answers, the way out is the only button */
+            button({kX, 690, 250, 76}, T("Annen server"), true, lift("other2", true));
+        } else {
+            button({kX, 690, 560, 76}, T("Logg inn med brukernavn og passord"), m_focus == 0, lift("pw", m_focus == 0));
+            button({kX + 580, 690, 250, 76}, T("Annen server"), m_focus == 1, lift("other2", m_focus == 1));
+        }
     }
     if (!s_focused)
         m_drop.hide();
@@ -476,7 +627,7 @@ void Login::draw(double now, float dt)
         f();
     s_later.clear();
     if (!error.empty())
-        gfx::text(kX, 1000, error, {gfx::SemiBold, 24, 1600}, 0xffff6b6bu);
+        gfx::text(kX, 940, error, {gfx::SemiBold, 24, 1600}, 0xffff6b6bu);   /* under every step's last row */
     (void)now;
 }
 

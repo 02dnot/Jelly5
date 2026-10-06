@@ -514,6 +514,32 @@ void set_config(const Config &c)
     }
 }
 
+void move_server(const std::string &from, const std::string &to)
+{
+    if (from.empty() || from == to)
+        return;
+    persist([from, to](cJSON *root) {
+        /* Under the new key. When something is kept there already, which one is newer
+         * is not known: both stay (the old one unused) and nothing is lost. */
+        auto rename = [](cJSON *parent, const std::string &a, const std::string &b) {
+            if (cJSON_GetObjectItemCaseSensitive(parent, b.c_str()))
+                return;
+            if (cJSON *o = cJSON_DetachItemFromObjectCaseSensitive(parent, a.c_str()))
+                cJSON_AddItemToObject(parent, b.c_str(), o);
+        };
+        rename(child(root, "servers"), from, to);
+        cJSON *accounts = child(root, "accounts");
+        const std::string prefix = from + "|";   /* "server|user id" */
+        std::vector<std::string> keys;
+        for (const cJSON *a = accounts->child; a; a = a->next)
+            if (a->string && std::string(a->string).compare(0, prefix.size(), prefix) == 0)
+                keys.push_back(a->string);
+        for (const std::string &k : keys)
+            rename(accounts, k, to + "|" + k.substr(prefix.size()));
+    });
+    evo_bt("seerr: settings moved with the Jellyfin server to its new address");
+}
+
 Snapshot snapshot()
 {
     std::lock_guard<std::mutex> g(s_lock);

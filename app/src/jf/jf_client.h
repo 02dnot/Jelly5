@@ -186,8 +186,8 @@ public:
     /* Safe from any thread: requests may run in parallel. */
     std::string last_error() const { std::lock_guard<std::mutex> g(error_lock_); return error_; }
 
-    /* Server name and version from /System/Info/Public; false if unreachable. */
-    bool public_info(std::string *name, std::string *version);
+    /* Server name, version and Id from /System/Info/Public; false if unreachable. */
+    bool public_info(std::string *name, std::string *version, std::string *id = nullptr);
 
     bool authenticate(const std::string &user, const std::string &password);
     bool quick_connect_start(QuickConnect *out);
