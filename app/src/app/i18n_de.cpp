@@ -396,6 +396,19 @@ const std::unordered_map<std::string, const char *> &german_table()
         {"Trekker tilbake …", "Wird zurückgezogen …"},
         {"Forespørselen er trukket tilbake", "Die Anfrage wurde zurückgezogen"},
         {"Kunne ikke trekke tilbake forespørselen", "Die Anfrage konnte nicht zurückgezogen werden"},
+        {"%d av %d forespørsler brukt", "%d von %d Anfragen genutzt"},
+        {"%d av %d sesonger brukt", "%d von %d Staffeln genutzt"},
+        {"%d av %d sesonger brukt (siste %d dager)", "%d von %d Staffeln genutzt (letzte %d Tage)"},
+        {"Avslått", "Abgelehnt"},
+        {"Feilet", "Fehlgeschlagen"},
+        {"Ingenting å vise akkurat nå – ✕ for å prøve igjen", "Gerade nichts zu zeigen – ✕ zum erneuten Versuch"},
+        {"Kunne ikke sende forespørselen", "Die Anfrage konnte nicht gesendet werden"},
+        {"Kvoten din er brukt opp", "Dein Kontingent ist aufgebraucht"},
+        {"Kvoten din gir plass til %d sesonger til", "Dein Kontingent reicht noch für %d Staffeln"},
+        {"Seerr svarer ikke – ✕ for å prøve igjen", "Seerr antwortet nicht – ✕ zum erneuten Versuch"},
+        {"Slettet", "Gelöscht"},
+        {"Trykk ✕ igjen for å logge ut", "Zum Abmelden ✕ erneut drücken"},
+        {"Trykk ✕ igjen for å trekke tilbake forespørselen", "Zum Zurückziehen der Anfrage ✕ erneut drücken"},
     };
     return t;
 }

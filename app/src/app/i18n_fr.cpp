@@ -402,6 +402,19 @@ const std::unordered_map<std::string, const char *> &french_table()
         {"Trekker tilbake …", "Retrait …"},
         {"Forespørselen er trukket tilbake", "La demande a été retirée"},
         {"Kunne ikke trekke tilbake forespørselen", "Impossible de retirer la demande"},
+        {"%d av %d forespørsler brukt", "%d demandes sur %d utilisées"},
+        {"%d av %d sesonger brukt", "%d saisons sur %d utilisées"},
+        {"%d av %d sesonger brukt (siste %d dager)", "%d saisons sur %d utilisées (%d derniers jours)"},
+        {"Avslått", "Refusée"},
+        {"Feilet", "Échouée"},
+        {"Ingenting å vise akkurat nå – ✕ for å prøve igjen", "Rien à afficher pour l'instant – ✕ pour réessayer"},
+        {"Kunne ikke sende forespørselen", "Impossible d'envoyer la demande"},
+        {"Kvoten din er brukt opp", "Votre quota est épuisé"},
+        {"Kvoten din gir plass til %d sesonger til", "Votre quota permet encore %d saisons"},
+        {"Seerr svarer ikke – ✕ for å prøve igjen", "Seerr ne répond pas – ✕ pour réessayer"},
+        {"Slettet", "Supprimé"},
+        {"Trykk ✕ igjen for å logge ut", "Appuyez à nouveau sur ✕ pour vous déconnecter"},
+        {"Trykk ✕ igjen for å trekke tilbake forespørselen", "Appuyez à nouveau sur ✕ pour retirer la demande"},
     };
     return t;
 }

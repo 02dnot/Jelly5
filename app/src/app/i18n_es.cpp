@@ -396,6 +396,19 @@ const std::unordered_map<std::string, const char *> &spanish_table()
         {"Trekker tilbake …", "Retirando …"},
         {"Forespørselen er trukket tilbake", "La solicitud se ha retirado"},
         {"Kunne ikke trekke tilbake forespørselen", "No se pudo retirar la solicitud"},
+        {"%d av %d forespørsler brukt", "%d de %d solicitudes usadas"},
+        {"%d av %d sesonger brukt", "%d de %d temporadas usadas"},
+        {"%d av %d sesonger brukt (siste %d dager)", "%d de %d temporadas usadas (últimos %d días)"},
+        {"Avslått", "Rechazada"},
+        {"Feilet", "Fallida"},
+        {"Ingenting å vise akkurat nå – ✕ for å prøve igjen", "Nada que mostrar ahora – ✕ para reintentar"},
+        {"Kunne ikke sende forespørselen", "No se pudo enviar la solicitud"},
+        {"Kvoten din er brukt opp", "Tu cuota está agotada"},
+        {"Kvoten din gir plass til %d sesonger til", "Tu cuota permite %d temporadas más"},
+        {"Seerr svarer ikke – ✕ for å prøve igjen", "Seerr no responde – ✕ para reintentar"},
+        {"Slettet", "Eliminado"},
+        {"Trykk ✕ igjen for å logge ut", "Pulsa ✕ de nuevo para cerrar sesión"},
+        {"Trykk ✕ igjen for å trekke tilbake forespørselen", "Pulsa ✕ de nuevo para retirar la solicitud"},
     };
     return t;
 }

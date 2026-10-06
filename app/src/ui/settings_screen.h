@@ -49,6 +49,7 @@ private:
 
     std::string m_seerr_email;       /* a local Seerr account: the e-mail, then the password */
     bool m_want_password = false;
+    bool m_signout_armed = false;    /* Seerr's account row: the first ✕ asks, the second signs out */
 
     jf::Client &m_client;
     int m_row = 0;

@@ -550,7 +550,7 @@ void SeerrDetail::draw(double now, float dt)
             if (m_row == r)   /* the focused row's posters under the top third of the screen */
                 m_page.to(std::max(0.f, rows_top + shown * rowh - 300));
             shown++;
-            gfx::text(kPad, ry, r == 0 ? T("Anbefalt") : T("Lignende"), {gfx::Bold, 30}, alpha(0xebffffffu, 1.f));
+            gfx::text(kPad, ry, r == 0 ? T("Anbefalt") : T("Mer som dette"), {gfx::Bold, 30}, alpha(0xebffffffu, 1.f));
             const int col = std::min(m_cols[r], (int)m_rows[r].size() - 1);
             const float max_scroll = std::max(0.f, m_rows[r].size() * (pw + gap) - gap - (gfx::W - 2 * kPad));
             m_rscroll[r].to(std::min(max_scroll, std::max(0.f, (col - 1) * (pw + gap))));
