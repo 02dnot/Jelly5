@@ -86,25 +86,30 @@ bool SeerrDetail::can_request() const
     return m_loaded && s.state == seerr_service::State::Ready && RequestSheet::offers(m_detail, s.user, s.settings);
 }
 
-int SeerrDetail::my_waiting_request() const
+std::vector<int> SeerrDetail::my_waiting_requests() const
 {
+    std::vector<int> ids;
     if (!m_loaded)
-        return 0;
+        return ids;
     const seerr_service::Snapshot s = seerr_service::snapshot();
     if (s.state != seerr_service::State::Ready)
-        return 0;
-    for (const seerr::Detail::Waiting &w : m_detail.waiting)
+        return ids;
+    for (const seerr::Detail::Waiting &w : m_detail.waiting)   /* a series asked for season by season: several */
         if (w.user == s.user.id)
-            return w.id;
-    return 0;
+            ids.push_back(w.id);
+    return ids;
 }
 
 std::vector<SeerrDetail::Button> SeerrDetail::buttons() const
 {
     std::vector<Button> b;
+    if (m_failed && !m_loaded) {   /* the details did not come: something to press */
+        b.push_back(RetryButton);
+        return b;
+    }
     if (can_request())
         b.push_back(RequestButton);
-    if (my_waiting_request())
+    if (!my_waiting_requests().empty() || m_cancelling)
         b.push_back(CancelButton);
     const std::string &jid = m_loaded && !m_detail.title.jellyfin_id.empty() ? m_detail.title.jellyfin_id
                                                                              : m_item.ext.jellyfin_id;
@@ -140,6 +145,8 @@ Action SeerrDetail::input(uint32_t p)
             m_qr_open = false;
         return a;
     }
+    if (!(p & NUVIO_BTN_CROSS))
+        m_cancel_armed = false;   /* the focus moved (or back): "Trekk tilbake" asks again */
     sync_button();
     const std::vector<Button> bs = buttons();
     m_button = std::min(m_button, std::max(0, (int)bs.size() - 1));
@@ -201,21 +208,26 @@ Action SeerrDetail::input(uint32_t p)
             a.item.name = m_item.name;
             break;
         }
-        case CancelButton: {   /* withdraw the viewer's request: a second press confirms */
-            if (m_now - m_cancel_armed > 3.0) {
-                m_cancel_armed = m_now;
+        case CancelButton: {   /* withdraw the viewer's requests: a second press confirms */
+            if (m_cancelling)
+                break;   /* on its way */
+            if (!m_cancel_armed) {
+                m_cancel_armed = true;   /* until the focus moves (as removing an account) */
                 break;
             }
-            m_cancel_armed = -100;
-            const int id = my_waiting_request();
+            m_cancel_armed = false;
+            const std::vector<int> ids = my_waiting_requests();
             std::shared_ptr<seerr::Client> c = seerr_service::client();
-            if (!id || !c)
+            if (ids.empty() || !c)
                 break;
             std::shared_ptr<Data> d = m_data;
+            m_cancelling = true;
             m_note = T("Trekker tilbake \xE2\x80\xA6");
             m_note_at = m_now;
-            const bool started = jelly5::spawn([c, id, d] {   /* d, not this: the page may close meanwhile */
-                const bool ok = c->cancel_request(id);
+            const bool started = jelly5::spawn([c, ids, d] {   /* d, not this: the page may close meanwhile */
+                bool ok = true;
+                for (int id : ids)
+                    ok = c->cancel_request(id) && ok;
                 std::lock_guard<std::mutex> g(d->lock);
                 d->cancel_result = ok ? 1 : -1;
             });
@@ -223,6 +235,15 @@ Action SeerrDetail::input(uint32_t p)
                 std::lock_guard<std::mutex> g(d->lock);
                 d->cancel_result = -1;
             }
+            break;
+        }
+        case RetryButton: {   /* the details again */
+            {
+                std::lock_guard<std::mutex> g(m_data->lock);
+                m_data->failed = false;
+            }
+            m_failed = false;
+            activate();
             break;
         }
         case TrailerButton: {   /* a QR code of the link: the phone plays it */
@@ -305,6 +326,8 @@ void SeerrDetail::draw(double now, float dt)
         std::lock_guard<std::mutex> g(m_data->lock);
         std::swap(cancelled, m_data->cancel_result);
     }
+    if (cancelled)
+        m_cancelling = false;
     if (cancelled > 0)
         seerr_service::note_status(m_item.ext.tmdb_id, m_item.type == "Series", (int)seerr::Status::Unknown);
     if (cancelled) {   /* withdrawn (or not): say so, and read the page again */
@@ -419,11 +442,11 @@ void SeerrDetail::draw(double now, float dt)
     if (bs.empty() || sheet || !m_focused || m_row >= 0)
         m_drop.hide();
     const gfx::TextStyle st{gfx::Bold, 26};
-    auto label_of = [this](Button b) -> std::string {
+    auto label_of = [](Button b) -> std::string {
         return b == RequestButton  ? T("Be om")
                : b == LibraryButton ? T("Se i biblioteket")
-               : b == CancelButton  ? (m_now - m_cancel_armed < 3.0 ? T("Trykk igjen for å trekke tilbake")
-                                                                    : T("Trekk tilbake forespørselen"))
+               : b == CancelButton  ? T("Trekk tilbake forespørselen")
+               : b == RetryButton   ? T("Prøv igjen")
                                     : T("Trailer");
     };
     for (int pass = 0; pass < 2; pass++) {
@@ -455,8 +478,15 @@ void SeerrDetail::draw(double now, float dt)
     /* Under the buttons: why there is no request button, the cast, the seasons. */
     float cy = by + (bs.empty() ? 30 : 76 + 46);
     const seerr_service::Snapshot snap = seerr_service::snapshot();
+    if (m_cancel_armed) {   /* as removing an account: a red line says what the next press does */
+        gfx::text(kPad, cy, T("Trykk \xE2\x9C\x95 igjen for å trekke tilbake forespørselen"), {gfx::Medium, 22, 1200},
+                  0xffff6b6bu);
+        cy += 46;
+    }
     std::string why;
-    if (m_failed)
+    if (!m_loaded && !m_failed)
+        why = T("Henter \xE2\x80\xA6");   /* the details on their way (no buttons yet) */
+    else if (m_failed)
         why = T("Kunne ikke hente detaljene fra Seerr");
     else if (snap.state != seerr_service::State::Ready)
         why = snap.state == seerr_service::State::Unreachable ? T("Seerr svarer ikke")

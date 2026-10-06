@@ -37,7 +37,7 @@ public:
     bool modal() const override { return m_sheet.active() || m_qr_open; }
 
 private:
-    enum Button { RequestButton, LibraryButton, TrailerButton, CancelButton };
+    enum Button { RequestButton, LibraryButton, TrailerButton, CancelButton, RetryButton };
     struct Data {
         std::mutex lock;
         bool loaded = false, failed = false;
@@ -47,7 +47,7 @@ private:
     };
     std::vector<Button> buttons() const;
     bool can_request() const;
-    int my_waiting_request() const;   /* the viewer's request still waiting for approval, or 0 */
+    std::vector<int> my_waiting_requests() const;   /* the viewer's requests still waiting for approval */
     void draw_qr(float dt);
 
     jf::Client &m_client;                   /* for the posters of titles the library has */
@@ -69,7 +69,8 @@ private:
     Anim m_enter, m_content, m_note_a;
     Drop m_drop;
     bool m_animating = false;
-    double m_cancel_armed = -100;          /* first press on "Trekk tilbake": the second withdraws */
+    /* "Trekk tilbake": the first ✕ arms it (until the focus moves), the second withdraws. */
+    bool m_cancel_armed = false, m_cancelling = false;
     /* Under the page: "Anbefalt" and "Lignende" (posters). m_row -1: the buttons. */
     std::vector<jf::Item> m_rows[2];
     int m_row = -1, m_cols[2] = {0, 0};
