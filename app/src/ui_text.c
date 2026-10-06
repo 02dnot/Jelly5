@@ -15,6 +15,7 @@
 #include <hb-ot.h>
 #include <hb.h>
 
+#include <errno.h>
 #include <fcntl.h>
 #include <math.h>
 #include <stdlib.h>
@@ -81,9 +82,13 @@ static void load_system_font(int idx)
     if (f->tried)
         return;
     f->tried = 1;
-    if (!k_sys_paths[idx] || stat(k_sys_paths[idx], &st) != 0 || st.st_size <= 0 ||
-        (fd = open(k_sys_paths[idx], O_RDONLY)) < 0)
+    if (!k_sys_paths[idx])
         return;
+    if (stat(k_sys_paths[idx], &st) != 0 || st.st_size <= 0 || (fd = open(k_sys_paths[idx], O_RDONLY)) < 0) {
+        /* Said once: without it, Japanese, Korean, Chinese or Thai text has no glyphs. */
+        evo_bt("text: system font %s not readable (errno %d)", k_sys_paths[idx], errno);
+        return;
+    }
     uint8_t *buf = (uint8_t *)malloc((size_t)st.st_size);
     size_t got = 0;
     while (buf && got < (size_t)st.st_size) {
