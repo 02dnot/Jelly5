@@ -361,11 +361,14 @@ void connect_worker(unsigned epoch)
              * session: only for an address the viewer approved themselves. */
             why = Why::NeedApproval;
             error = "Quick Connect not approved for this address";
+        } else if (!ok && st.config.auth == Auth::QuickConnect && !ps.media_server_login) {
+            why = Why::MethodOff;   /* Quick Connect is a Jellyfin sign-in: Seerr has those off */
+            error = "Seerr's Jellyfin sign-in is off";
         } else if (!ok && st.config.auth == Auth::QuickConnect && jf) {
             evo_bt("seerr: no session, signing in by Quick Connect");
             ok = cl->sign_in_quick_connect([jf](const std::string &code) { return jf->quick_connect_authorize(code); },
                                            &u);
-            why = Why::AutoFailed;
+            why = cl->last_status() == 403 ? Why::NotInSeerr : Why::AutoFailed;
             error = "Quick Connect: " + cl->last_error();
         }
         finish(epoch, cl, ok, u, version, ps, why, error);
@@ -642,7 +645,7 @@ void session_lost()
     if (t - s_last_lost < 60000) {
         evo_bt("seerr: the session ended again within a minute; not signing in again yet");
         s_snap.state = State::SignedOut;
-        s_snap.why = Why::AutoFailed;
+        s_snap.why = Why::SignedOut;   /* "Ikke pålogget – ✕": whatever the way of signing in */
         s_client.reset();
         s_gen++;
         return;
@@ -680,9 +683,23 @@ void sign_in(const std::string &user, const std::string &password)
         }
         cl->public_settings(&ps);
         seerr::User u;
-        const bool ok = st.config.auth == Auth::Local ? cl->sign_in_local(name, password, &u)
-                                                      : cl->sign_in_jellyfin(name, password, &u);
-        finish(epoch, cl, ok, u, version, ps, cl->last_unreachable() ? Why::AutoFailed : Why::WrongPassword,
+        const bool local = st.config.auth == Auth::Local;
+        if (local ? !ps.local_login : !ps.media_server_login) {   /* Seerr has this way switched off */
+            finish(epoch, cl, false, u, version, ps, Why::MethodOff, "sign-in method off in Seerr");
+            return;
+        }
+        const bool ok = local ? cl->sign_in_local(name, password, &u) : cl->sign_in_jellyfin(name, password, &u);
+        if (!ok && cl->last_unreachable()) {   /* gone between two requests: not a wrong password */
+            const std::string err = cl->last_error();
+            publish(epoch, [&](Snapshot &s) {
+                s.state = State::Unreachable;
+                s.error = err;
+            });
+            return;
+        }
+        /* 403: Seerr knows no such user (a Jellyfin user not imported, new sign-ins
+         * off); else the name or the password. */
+        finish(epoch, cl, ok, u, version, ps, cl->last_status() == 403 && !local ? Why::NotInSeerr : Why::WrongPassword,
                cl->last_error());
     });
     if (!started) {

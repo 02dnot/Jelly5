@@ -43,6 +43,8 @@ enum class Why {
     NeedPassword,   /* the method is a password: the viewer types it */
     AutoFailed,     /* Quick Connect did not work (Seerr before 3.4, Quick Connect off ...) */
     NeedApproval,   /* Quick Connect not yet approved by the viewer for this address */
+    MethodOff,      /* Seerr has this way of signing in switched off (its Jellyfin or local login) */
+    NotInSeerr,     /* the Jellyfin user is not one of Seerr's (not imported, new sign-ins off) */
     WrongPassword,
     SignedOut,      /* the viewer signed out: nothing automatic until they sign in */
 };

@@ -415,6 +415,8 @@ const std::unordered_map<std::string, const char *> &french_table()
         {"Trykk ✕ igjen for å logge ut", "Appuyez à nouveau sur ✕ pour vous déconnecter"},
         {"Trykk ✕ igjen for å trekke tilbake forespørselen", "Appuyez à nouveau sur ✕ pour retirer la demande"},
         {"Valg", "Options"},
+        {"Seerr tillater ikke denne påloggingen – velg en annen", "Seerr n'autorise pas cette connexion – choisissez-en une autre"},
+        {"Brukeren finnes ikke i Seerr – be administratoren importere den", "Cet utilisateur n'est pas dans Seerr – demandez à l'administrateur de l'importer"},
     };
     return t;
 }

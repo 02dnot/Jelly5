@@ -217,6 +217,10 @@ std::string SettingsScreen::value(Row r) const
         case State::SignedOut:
             if (sn.why == Why::WrongPassword)
                 return T("Feil brukernavn eller passord");
+            if (sn.why == Why::MethodOff)
+                return T("Seerr tillater ikke denne påloggingen \xE2\x80\x93 velg en annen");
+            if (sn.why == Why::NotInSeerr)
+                return T("Brukeren finnes ikke i Seerr \xE2\x80\x93 be administratoren importere den");
             if (sn.why == Why::NeedApproval)
                 return T("\xE2\x9C\x95 godkjenn Quick Connect for denne adressen");
             if (sn.why == Why::AutoFailed)

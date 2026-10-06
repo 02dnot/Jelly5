@@ -410,6 +410,8 @@ const std::unordered_map<std::string, const char *> &italian_table()
         {"Trykk ✕ igjen for å logge ut", "Premi di nuovo ✕ per uscire"},
         {"Trykk ✕ igjen for å trekke tilbake forespørselen", "Premi di nuovo ✕ per ritirare la richiesta"},
         {"Valg", "Opzioni"},
+        {"Seerr tillater ikke denne påloggingen – velg en annen", "Seerr non consente questo accesso – scegline un altro"},
+        {"Brukeren finnes ikke i Seerr – be administratoren importere den", "Questo utente non è in Seerr – chiedi all'amministratore di importarlo"},
     };
     return t;
 }
