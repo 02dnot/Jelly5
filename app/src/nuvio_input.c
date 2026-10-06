@@ -57,9 +57,8 @@ typedef struct ScePadVibration {
 #define STICK_OFF 60
 
 static int s_pad = -1;
-/* The public PS5 pad ABI has a separate remote-control port (16).
- * HDMI Device Link routing here still needs a firmware/TV hardware test.
- * See ps5-native-gamepad-input-research/include/ps5_pad.hpp. */
+/* HDMI Device Link uses the system remote-control port (16), user 0xff.
+ * ABI: ps5-native-gamepad-input-research/include/ps5_pad.hpp. */
 enum { PAD_PORT_STANDARD = 0, PAD_PORT_REMOTE_CONTROL = 16, PAD_REMOTE_SYSTEM_USER = 0xff };
 static int s_remote_pad = -1;
 static uint32_t s_remote_ignore;

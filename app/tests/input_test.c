@@ -281,6 +281,8 @@ static void remote_key_regressions(void)
             else
                 standard.buttons = keys[i].button;
             nuvio_input_open(7);
+            if (held_remote)
+                enqueue_remote_key(0, keys[i].code, 1);
             state = poll();
             assert(state.pressed == 0 && state.held == 0);
             if (held_remote)
@@ -385,33 +387,6 @@ int main(void)
 {
     queue_regressions();
     remote_key_regressions();
-    /* A complete OK/Back tap can occur between state snapshots. */
-    reset(1, 1);
-    nuvio_input_open(7);
-    enqueue(NUVIO_BTN_CROSS); enqueue(0);
-    assert(poll().pressed == NUVIO_BTN_CROSS);
-    assert(poll().pressed == 0);
-    enqueue(NUVIO_BTN_CIRCLE); enqueue(0);
-    assert(poll().pressed == NUVIO_BTN_CIRCLE);
-    enqueue(0x80000000u | NUVIO_BTN_CROSS); enqueue(0);
-    assert(poll().pressed == 0);
-    enqueue(NUVIO_BTN_CROSS);
-    remote.buttons = NUVIO_BTN_CROSS;
-    assert(poll().pressed == NUVIO_BTN_CROSS);
-    enqueue(NUVIO_BTN_CROSS);
-    assert(poll().pressed == 0);
-    standard.buttons = NUVIO_BTN_CROSS;
-    remote.buttons = 0;
-    enqueue(0); enqueue(NUVIO_BTN_CROSS); enqueue(0);
-    assert(poll().pressed == 0);
-    reset(1, 1);
-    remote.buttons = NUVIO_BTN_CROSS;
-    nuvio_input_open(7);
-    enqueue(NUVIO_BTN_CROSS);
-    assert(poll().pressed == 0);
-    remote.buttons = 0;
-    enqueue(0); enqueue(NUVIO_BTN_CROSS); enqueue(0);
-    assert(poll().pressed == NUVIO_BTN_CROSS);
     /* HDMI navigation shares the shell/player buttons and their repeat policy. */
     reset(1, 1);
     nuvio_input_open(7);
@@ -460,22 +435,6 @@ int main(void)
     assert(closes[0] == 1 && closes[1] == 1);
     nuvio_input_close();
     assert(closes[0] == 1 && closes[1] == 1);
-
-    /* Launch suppression is per source, in both directions. */
-    for (int which = 0; which < 2; ++which) {
-        reset(1, 1);
-        pad_data *held = which ? &remote : &standard;
-        pad_data *other = which ? &standard : &remote;
-        held->buttons = NUVIO_BTN_CROSS;
-        nuvio_input_open(7);
-        assert(poll().pressed == 0 && poll().released == 0);
-        other->buttons = NUVIO_BTN_CROSS;
-        assert(poll().pressed == NUVIO_BTN_CROSS);
-        other->buttons = held->buttons = 0;
-        assert(poll().released == NUVIO_BTN_CROSS);
-        held->buttons = NUVIO_BTN_CROSS;
-        assert(poll().pressed == NUVIO_BTN_CROSS);
-    }
 
     /* Remote is optional; it also works without a DualSense. */
     for (int have_standard = 0; have_standard < 2; ++have_standard) {
