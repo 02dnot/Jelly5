@@ -137,14 +137,22 @@ const Video *Detail::trailer() const
     for (const Video &v : videos) {
         if (v.url.empty())
             continue;
-        if (v.type == "Trailer" && v.site == "YouTube")
-            return &v;
-        if (!trailer && v.type == "Trailer")
+        if (v.type == "Trailer" && (!trailer || v.size >= trailer->size))
             trailer = &v;
         if (!any)
             any = &v;
     }
     return trailer ? trailer : any;
+}
+
+std::string Detail::trailer_url(const std::string &youtube_url) const
+{
+    const Video *v = trailer();
+    if (!v)
+        return std::string();
+    if (v->site == "YouTube" && !youtube_url.empty() && !v->key.empty())
+        return youtube_url + v->key;   /* as Seerr's page builds it */
+    return v->url;
 }
 
 Client::Client(const std::string &url) { set_url(url); }
@@ -469,7 +477,8 @@ static void detail_fields(const cJSON *j, bool tv, Detail *out)
         if (out->cast.size() < 8)
             out->cast.push_back(str_of(v, "name"));
     cJSON_ArrayForEach(v, cJSON_GetObjectItemCaseSensitive(j, "relatedVideos"))
-        out->videos.push_back({str_of(v, "name"), str_of(v, "type"), str_of(v, "site"), str_of(v, "url")});
+        out->videos.push_back({str_of(v, "name"), str_of(v, "type"), str_of(v, "site"), str_of(v, "key"),
+                               str_of(v, "url"), int_of(v, "size")});
     cJSON_ArrayForEach(v, cJSON_GetObjectItemCaseSensitive(j, "keywords"))
         if (int_of(v, "id") == kAnimeKeyword)
             out->anime = true;

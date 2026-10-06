@@ -36,6 +36,7 @@
 #include "ui/profiles.h"
 #include "ui/screensaver.h"
 #include "ui/search.h"
+#include "ui/seerr_detail.h"
 #include "ui/settings_screen.h"
 #include "ui/syncplay_screen.h"
 #include "ui_image.h"
@@ -954,15 +955,17 @@ void shell_input(uint32_t p, jf::Item *play, bool *chose, bool *from_start, bool
         break;
     }
     case ui::Action::Open: {
-        if (a.item.external() && a.item.ext.jellyfin_id.empty())
-            break;   /* a Seerr title the server does not have: its Seerr page (next step) */
+        /* A Seerr title opens Seerr's page when the server does not have it, or
+         * only some of it (the rest can be requested there); else the server's. */
+        const bool seerr_page = a.item.external() && (a.item.ext.jellyfin_id.empty() ||
+                                                      a.item.ext.status == (int)seerr::Status::PartiallyAvailable);
         ui::Screen::Card from;
         const bool have_from = screen_for(s_tab)->focused_card(&from);
         if (s_stack.size() >= 8)
             s_stack.erase(s_stack.begin());   /* "more like this" chains stay bounded */
         /* Seasons and episodes open their series' page. */
         jf::Item target = a.item;
-        if (target.external()) {   /* a Seerr title the server has: the server's own page */
+        if (target.external() && !seerr_page) {   /* a Seerr title the server has: the server's own page */
             jf::Item own;
             own.id = target.ext.jellyfin_id;
             own.type = target.type;
@@ -981,7 +984,9 @@ void shell_input(uint32_t p, jf::Item *play, bool *chose, bool *from_start, bool
             target.logo_owner = a.item.logo_owner;
             target.logo_tag = a.item.logo_tag;
         }
-        if (target.type == "SyncPlay")
+        if (seerr_page)
+            s_stack.emplace_back(new ui::SeerrDetail(a.item));
+        else if (target.type == "SyncPlay")
             s_stack.emplace_back(new ui::SyncPlayScreen(s_client->user_name()));
         else if (target.type == "Person")
             s_stack.emplace_back(new ui::Person(*s_client, target));

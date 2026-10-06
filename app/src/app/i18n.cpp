@@ -194,6 +194,27 @@ const std::unordered_map<std::string, const char *> &english_table()
         {"Ikke forespurt", "Not requested"}, {"Fra Seerr", "From Seerr"}, {"Seerr svarer ikke", "Seerr is not answering"},
         {"Ikke pålogget Seerr – se Innstillinger", "Not signed in to Seerr – see Settings"},
         {"Ingenting mer på Seerr", "Nothing more on Seerr"},
+        /* Seerr: a title's page and requests */
+        {"Allerede forespurt", "Already requested"}, {"Kvoten for forespørsler er nådd", "Request quota reached"},
+        {"Du har ikke lov til å be om dette", "You are not allowed to request this"},
+        {"Seerr-økten var utløpt – logger på igjen, prøv på nytt", "The Seerr session had expired – signing in again, try again"},
+        {"Forespørselen mislyktes", "The request failed"}, {"Velg minst én sesong", "Choose at least one season"},
+        {"Godkjennes automatisk og sendes rett videre", "Approved automatically and sent straight on"},
+        {"En administrator må godkjenne den", "An administrator must approve it"},
+        {"%d av %d forespørsler brukt (siste %d dager)", "%d of %d requests used (last %d days)"},
+        {"Henter valg …", "Loading options …"}, {"Sender …", "Sending …"}, {"Be om «", "Request «"},
+        {"Serie", "Series"}, {"Film", "Movie"}, {"Alle sesonger", "All seasons"},
+        {"Alle manglende sesonger", "All missing seasons"}, {"%d sesong", "%d season"}, {"%d sesonger", "%d seasons"},
+        {"%d episoder", "%d episodes"}, {"Kvalitetsprofil", "Quality profile"}, {"Rotmappe", "Root folder"},
+        {"  ·  %lld GB ledig", "  ·  %lld GB free"}, {"Be om", "Request"}, {"Prøv igjen", "Try again"},
+        {"Trailer", "Trailer"}, {"Skann med telefonen for å se den der", "Scan with your phone to watch it there"},
+        {"Forespørselen er godkjent – den hentes snart", "Request approved – it will be fetched soon"},
+        {"Forespørselen er sendt – venter på godkjenning", "Request sent – waiting for approval"},
+        {"Ingenting å be om: alt er der eller forespurt allerede", "Nothing to request: everything is there or requested already"},
+        {"Se i biblioteket", "See in the library"},
+        {"Kunne ikke hente detaljene fra Seerr", "Couldn't get the details from Seerr"},
+        {"Seerr-kontoen din kan ikke be om serier", "Your Seerr account can't request series"},
+        {"Seerr-kontoen din kan ikke be om filmer", "Your Seerr account can't request movies"},
     };
     return t;
 }

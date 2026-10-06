@@ -98,7 +98,8 @@ struct Season {
 };
 
 struct Video {
-    std::string name, type, site, url;  /* type: Trailer, Teaser ...; url: on YouTube or Vimeo */
+    std::string name, type, site, key, url;   /* type: Trailer, Teaser ...; url: on YouTube or Vimeo */
+    int size = 0;                       /* its height (1080 ...) */
 };
 
 /* A title's page. */
@@ -112,8 +113,11 @@ struct Detail {
     std::vector<Video> videos;
     int tvdb_id = 0;                    /* series */
     bool anime = false;                 /* TMDB's "anime" keyword: Sonarr's anime defaults apply */
-    /* The video to offer as the trailer (a YouTube trailer first), or null. */
+    /* The video to offer as the trailer, as Seerr's own page picks it (its
+     * largest trailer; else any video it has), or null. */
     const Video *trailer() const;
+    /* Its address: the YouTube URL set in Seerr (an Invidious, say) when there is one. */
+    std::string trailer_url(const std::string &youtube_url) const;
 };
 
 struct Profile {
