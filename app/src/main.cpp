@@ -1943,7 +1943,8 @@ int main()
     unsigned frames = 0;
     unsigned lang_gen = i18n::generation();
     unsigned seerr_gen = seerr_service::generation();
-    bool waited = true;   /* the loop chose to wait since the last frame (nothing moved) */
+    [[maybe_unused]] bool waited = true;   /* the loop chose to wait since the last frame (nothing moved; read by
+                                            * the development builds' frame timing) */
     for (;;) {
         nuvio_input_state in;
         nuvio_input_poll(&in);
