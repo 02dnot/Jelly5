@@ -51,6 +51,9 @@ public:
     /* Seerr's tab: a row whose focus is near its end, with more to come (its shelf
      * and the next page), or false. The caller loads it and sets the model again. */
     bool wants_more(int *shelf, int *page) const;
+    /* Seerr's tab: a next page for the row of `shelf`, added to it in place (no
+     * copy of the whole model; focus and scroll stay). */
+    void append(int shelf, int page, bool more, const std::vector<jf::Item> &items);
     bool empty() const { return m_model.hero.empty() && m_model.rows.empty(); }
     /* A change made here or on another screen, shown at once. */
     void apply(const UserDataChange &c);

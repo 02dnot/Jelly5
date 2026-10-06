@@ -131,12 +131,19 @@ struct State {
     bool discover_loading = false, discover_failed = false;
     bool discover_more_loading = false;   /* a next page of one of its rows */
     double discover_more_retry_at = 0;    /* after a failed page: not before (now_s) */
+    struct DiscoverAppend {
+        int shelf, page;
+        bool more;
+        std::vector<jf::Item> items;
+    };
+    std::vector<DiscoverAppend> discover_appends;   /* next pages for the screen's rows, not yet taken */
     bool discover_again = false;        /* asked for while loading (the language moved on): once more */
     double discover_at = -1;            /* when it last loaded (now_s), -1 never */
 };
 State s_state;
 unsigned s_model_version = 0, s_home_version = 0;   /* model published / taken by Home */
 unsigned s_discover_version = 0, s_discover_taken = 0;   /* Seerr's tab: published / taken */
+unsigned s_discover_appended = 0;   /* a next page queued for its rows (a frame to take it) */
 std::atomic<unsigned> s_session{0};                 /* bumped on every account change */
 
 /* One client per session, configured before anyone uses it and never changed or
@@ -680,20 +687,22 @@ void load_more_discover(unsigned session, int shelf, int page)
             std::set<std::string> have;   /* a title can move up a page between two loads */
             for (const jf::Item &it : r.items)
                 have.insert(it.id + "/" + std::to_string(it.ext.tmdb_id));
-            size_t added = 0;
-            for (jf::Item &it : items)
-                if (have.insert(it.id + "/" + std::to_string(it.ext.tmdb_id)).second) {
-                    r.items.push_back(std::move(it));
-                    added++;
-                }
-            (void)added;
             if (!ok) {   /* failed: the row stays as it was; asked again in five seconds */
                 s_state.discover_more_retry_at = now_s() + 5.0;
                 break;
             }
+            std::vector<jf::Item> added;
+            for (jf::Item &it : items)
+                if (have.insert(it.id + "/" + std::to_string(it.ext.tmdb_id)).second) {
+                    r.items.push_back(it);
+                    added.push_back(std::move(it));
+                }
             r.page = page;
             r.more = page < pages;
-            s_discover_version++;
+            /* The screen takes only these (no copy of the whole model on the render
+             * thread, where it was a hitch as the rows grew). */
+            s_state.discover_appends.push_back({shelf, page, r.more, std::move(added)});
+            s_discover_appended++;
         }
     });
     if (!started) {   /* no thread: try again on a later frame */
@@ -1442,6 +1451,11 @@ bool draw_frame(double t, float dt)
         if (s_discover_version != s_discover_taken) {
             s_discover_taken = s_discover_version;
             s_discover->set_model(s_state.discover);
+            s_state.discover_appends.clear();   /* the whole model has them already */
+        } else if (!s_state.discover_appends.empty()) {
+            for (const auto &ap : s_state.discover_appends)
+                s_discover->append(ap.shelf, ap.page, ap.more, ap.items);
+            s_state.discover_appends.clear();
         }
         more = s_tab == ui::Nav::Discover && s_stack.empty() && s_discover->wants_more(&more_shelf, &more_page);
     }
@@ -1825,7 +1839,7 @@ int main()
     double last = t0;
     bool animating = true;
     Phase last_phase = Phase::Connecting;
-    unsigned last_model = ~0u, last_discover = ~0u;
+    unsigned last_model = ~0u, last_discover = ~0u, last_appended = 0;
     int idle_frames = 0;
     unsigned frames = 0;
     unsigned lang_gen = i18n::generation();
@@ -1929,7 +1943,8 @@ int main()
             refresh_discover(1e9);   /* the first time it is there */
         }
         const bool changed = in.pressed || phase != last_phase || s_model_version != last_model ||
-                             gate.kind != Gate::None || seerr_moved || s_discover_version != last_discover;
+                             gate.kind != Gate::None || seerr_moved || s_discover_version != last_discover ||
+                             s_discover_appended != last_appended;
         if (changed || animating || idle_frames < 2) {
             const double now = now_s();
             const float dt = (float)std::min(0.1, now - last);
@@ -1954,6 +1969,7 @@ int main()
             last_phase = phase;
             last_model = s_model_version;
             last_discover = s_discover_version;
+            last_appended = s_discover_appended;
             if ((++frames % 120) == 0)
                 gfx::collect();
         } else {

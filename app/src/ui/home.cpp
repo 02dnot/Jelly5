@@ -47,11 +47,28 @@ bool Home::wants_more(int *shelf, int *page) const
     if (!m_discover || m_row < 0 || m_row >= (int)m_model.rows.size() || m_row >= (int)m_cols.size())
         return false;
     const HomeRow &row = m_model.rows[m_row];
-    if (row.shelf < 0 || !row.more || m_cols[m_row] < (int)row.items.size() - 5)
+    /* Two screens ahead (15 posters): the page is there before the row's end is. */
+    if (row.shelf < 0 || !row.more || m_cols[m_row] < (int)row.items.size() - 15)
         return false;
     *shelf = row.shelf;
     *page = row.page + 1;
     return true;
+}
+
+void Home::append(int shelf, int page, bool more, const std::vector<jf::Item> &items)
+{
+    for (HomeRow &row : m_model.rows) {
+        if (row.shelf != shelf)
+            continue;
+        std::set<std::string> have;   /* a title can move up a page between two loads */
+        for (const jf::Item &it : row.items)
+            have.insert(it.id + "/" + std::to_string(it.ext.tmdb_id));
+        for (const jf::Item &it : items)
+            if (have.insert(it.id + "/" + std::to_string(it.ext.tmdb_id)).second)
+                row.items.push_back(it);
+        row.page = std::max(row.page, page);
+        row.more = more;
+    }
 }
 
 void Home::set_model(HomeModel model)
@@ -201,8 +218,8 @@ Action Home::input(uint32_t p)
             m_hero_button = 1;
         else if (m_cols[m_row] + 1 < (int)m_model.rows[m_row].items.size())
             m_cols[m_row]++;
-        else
-            m_bump = true;   /* the row's end */
+        else if (!(m_model.rows[m_row].shelf >= 0 && m_model.rows[m_row].more))
+            m_bump = true;   /* the row's end (not while more of it is coming) */
     } else if (p & NUVIO_BTN_LEFT) {
         if (m_row < 0)
             m_hero_button = 0;
@@ -483,8 +500,11 @@ void Home::draw_rows(float dt)
 
         /* Horizontal: the focused card sits at the left edge, until the row ends. */
         const int col = m_cols[r];
-        const float max_scroll =
-            std::max(0.f, (float)row.items.size() * (cw + kCardGap) - kCardGap - (gfx::W - 2 * kPad));
+        /* More of a Seerr row coming: three glass cards where it will be (they become
+         * posters in place), and room to scroll to them. */
+        const int coming = m_discover && row.shelf >= 0 && row.more ? 3 : 0;
+        const float max_scroll = std::max(
+            0.f, (float)(row.items.size() + (coming ? 2 : 0)) * (cw + kCardGap) - kCardGap - (gfx::W - 2 * kPad));
         m_scroll[r].to(std::min(max_scroll, (float)col * (cw + kCardGap)));
         if (m_scroll[r].step(dt, 12.f))
             m_animating = true;
@@ -517,6 +537,12 @@ void Home::draw_rows(float dt)
                 gfx::fill({cr.x + 18, cr.y + cr.h - 22, (cr.w - 36) * (float)(it.played_percent / 100), 6},
                           alpha(0xffffffffu, a), 3);
             }
+        }
+        for (int i = 0; i < coming; i++) {
+            const float cx = kPad + (float)(row.items.size() + i) * (cw + kCardGap) - m_scroll[r].value;
+            if (cx > gfx::W + 20)
+                break;
+            draw_glass_placeholder({cx, cy, cw, ch}, kCardR, a * (1.f - 0.3f * i));
         }
         if (focus_i >= 0) {
             const jf::Item &it = row.items[focus_i];
