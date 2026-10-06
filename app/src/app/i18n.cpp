@@ -110,7 +110,7 @@ const std::unordered_map<std::string, const char *> &english_table()
         {"Vurdering", "Rating"}, {"%d titler", "%d titles"}, {"Henter …", "Loading …"},
         {"Ingenting her ennå", "Nothing here yet"}, {"Filmer, serier, personer, musikk", "Movies, shows, people, music"},
         {"mellomrom", "space"}, {"⌫ slett", "⌫ delete"}, {"▢ sletter", "▢ deletes"}, {"Forslag", "Suggestions"},
-        {"Treff for «", "Results for «"}, {"Ingen treff", "No results"},
+        {"Treff for «%s»", "Results for “%s”"}, {"Ingen treff", "No results"}, {"Smart", "Smart"},
         /* sign-in, profiles */
         {"Fant ingen Jellyfin-server på ", "No Jellyfin server found at "},
         {"Feil brukernavn eller passord", "Wrong username or password"}, {"Innloggingen mislyktes", "Sign-in failed"},

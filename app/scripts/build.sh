@@ -6,11 +6,12 @@
 # host plus the Nuvio Player (EVO Player's playback engine, vendored in
 # engine/).
 #
-# Runs inside EVO's toolchain image, which has the PS5 payload SDK, the pacbrew
-# sysroot (FFmpeg, dav1d, OpenSSL) and the native-app link/sign tools. From the
-# Mac:
+# Runs with the PS5 payload SDK and the pacbrew sysroot (FFmpeg, dav1d,
+# OpenSSL) set up by scripts/setup-toolchain.sh (macOS or Linux), or inside a
+# container image that has them. From the repository's app/ folder:
 #
-#   ./scripts/build.sh            # re-execs itself in the container
+#   ./scripts/build.sh            # development build (in the container when
+#                                 # NUVIO_BUILD_IMAGE is set)
 #   ./scripts/build.sh --ffpfsc   # also pack PPSA99505.ffpfsc
 #   ./scripts/build.sh --release  # for sharing: no .env.local server, no log
 #                                 # target, packed as .ffpfsc and .zip
@@ -35,7 +36,7 @@ for arg in "$@"; do
     case "${arg}" in
         --ffpfsc) FFPFSC=1 ;;
         --release) RELEASE=1; FFPFSC=1 ;;
-        -h|--help) sed -n '2,18p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,19p' "$0"; exit 0 ;;
         *) echo "unknown option: ${arg}" >&2; exit 2 ;;
     esac
 done
@@ -126,8 +127,13 @@ JF_URL=""; PS5_HOST=""
 LOG_HOST="${JELLY5_LOG_HOST:-}"
 (( RELEASE )) && LOG_HOST=""
 if [[ -z "${LOG_HOST}" && -n "${PS5_HOST}" ]]; then
-    IFACE="$(route -n get "${PS5_HOST}" 2>/dev/null | awk '/interface:/{print $2}')"
-    [[ -n "${IFACE}" ]] && LOG_HOST="$(ipconfig getifaddr "${IFACE}" 2>/dev/null || true)"
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        IFACE="$(route -n get "${PS5_HOST}" 2>/dev/null | awk '/interface:/{print $2}')"
+        [[ -n "${IFACE}" ]] && LOG_HOST="$(ipconfig getifaddr "${IFACE}" 2>/dev/null || true)"
+    else   # Linux: the source address of the route to the console
+        LOG_HOST="$(ip route get "${PS5_HOST}" 2>/dev/null |
+            awk '{for (i = 1; i < NF; i++) if ($i == "src") { print $(i + 1); exit }}' || true)"
+    fi
 fi
 JELLY5_DEFS="-DJELLY5_VERSION=\\\"$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["contentVersion"])' "${PARAM}")\\\""
 [[ -n "${JF_URL}" ]] && JELLY5_DEFS+=" -DJELLY5_SERVER=\\\"${JF_URL}\\\""
