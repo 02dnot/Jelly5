@@ -64,6 +64,7 @@
 #include <memory>
 #include <mutex>
 #include <pthread.h>
+#include <pthread_np.h>
 #include <signal.h>
 #include <ucontext.h>
 #include <string>
@@ -203,23 +204,44 @@ constexpr uintptr_t kCodeSpan = 32u << 20;
 
 void crash_handler(int sig, siginfo_t *si, void *ctx)
 {
+    static volatile int s_in_crash = 0;
+    if (s_in_crash++) {   /* a fault inside the report itself: let the first one through */
+        signal(sig, SIG_DFL);
+        return;
+    }
     evo_bt("jelly5: CRASH signal=%d addr=%p", sig, si ? si->si_addr : nullptr);
     /* Where: the faulting instruction and the code addresses on the stack, as
      * offsets into the app (llvm-symbolizer --obj=build/llvm-pie.elf 0x...). An
-     * abort's own address is inside abort(); its callers are on the stack. */
+     * abort's own address is inside abort(); its callers are on the stack. Only
+     * this thread's stack is read (its bounds from pthread), never past its top. */
     const uintptr_t lo = (uintptr_t)__ehdr_start, hi = lo + kCodeSpan;
-    if (ctx && lo && hi > lo) {
+    if (ctx && lo) {
         const ucontext_t *uc = (const ucontext_t *)ctx;
         const uintptr_t rip = (uintptr_t)uc->uc_mcontext.mc_rip;
+        const uintptr_t rsp = (uintptr_t)uc->uc_mcontext.mc_rsp;
+        uintptr_t top = 0;
+        pthread_attr_t attr;
+        void *base = nullptr;
+        size_t size = 0;
+        if (pthread_attr_init(&attr) == 0) {
+            if (pthread_attr_get_np(pthread_self(), &attr) == 0 && pthread_attr_getstack(&attr, &base, &size) == 0)
+                top = (uintptr_t)base + size;
+            pthread_attr_destroy(&attr);
+        }
         char line[512];
         int n = std::snprintf(line, sizeof line, "jelly5: crash at %s%#lx; stack:", rip >= lo && rip < hi ? "+" : "",
                               (unsigned long)(rip >= lo && rip < hi ? rip - lo : rip));
-        const uintptr_t *sp = (const uintptr_t *)uc->uc_mcontext.mc_rsp;
-        for (int i = 0, found = 0; i < 768 && found < 24 && n < (int)sizeof line - 16; i++)
-            if (sp[i] >= lo && sp[i] < hi) {
-                n += std::snprintf(line + n, sizeof line - n, " +%#lx", (unsigned long)(sp[i] - lo));
-                found++;
-            }
+        if (rsp && top > rsp) {
+            const uintptr_t *sp = (const uintptr_t *)rsp;
+            const size_t words = std::min<size_t>(1024, (top - rsp) / sizeof(uintptr_t));
+            for (size_t i = 0, found = 0; i < words && found < 24 && n < (int)sizeof line - 16; i++)
+                if (sp[i] >= lo && sp[i] < hi) {
+                    n += std::snprintf(line + n, sizeof line - n, " +%#lx", (unsigned long)(sp[i] - lo));
+                    found++;
+                }
+        } else {
+            n += std::snprintf(line + n, sizeof line - n, " (bounds unknown)");
+        }
         evo_bt("%s", line);
     }
     evo_boot_log_flush();
