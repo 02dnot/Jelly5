@@ -234,10 +234,6 @@ std::string Home::backdrop_url(const jf::Item &it) const
 
 void Home::draw_card_art(const jf::Item &it, const gfx::Rect &r, float radius, float a) const
 {
-    if (m_discover) {   /* posters (the lift is in r already) */
-        draw_poster(m_client, it, r, 0.f, a);
-        return;
-    }
     if (it.external()) {   /* Seerr's: its name on its colours, the picture over it, where it stands */
         draw_title_card(r, it.name, it.ext.tmdb_id, radius, a);
         art::draw(r, it.ext.thumb, "", 640, 360, radius, a, 0);
@@ -449,7 +445,7 @@ void Home::draw_rows(float dt)
 
     /* Seerr's tab shows posters, as Seerr does: the backdrop is the background
      * only, never the card as well (Seerr has one of each per title). */
-    const float cw = m_discover ? 236 : kCardW, ch = m_discover ? 354 : kCardH, rowh = m_discover ? 500 : kRowH;
+    const float cw = m_discover ? 210 : kCardW, ch = m_discover ? 315 : kCardH, rowh = m_discover ? 480 : kRowH;
     for (size_t r = 0; r < m_model.rows.size(); r++) {
         const HomeRow &row = m_model.rows[r];
         const float rel = (float)r - m_rows_y.value;
@@ -469,7 +465,7 @@ void Home::draw_rows(float dt)
         if (m_scroll[r].step(dt, 12.f))
             m_animating = true;
 
-        const float cy = ry + 52;
+        const float cy = ry + (m_discover ? 72 : 52);   /* posters: room for the focused one's lift under the title */
         int focus_i = -1;
         for (size_t i = 0; i < row.items.size(); i++) {
             const float cx = kPad + (float)i * (cw + kCardGap) - m_scroll[r].value;
@@ -485,6 +481,10 @@ void Home::draw_rows(float dt)
             lift.to(0.f);
             if (lift.step(dt, 14.f))
                 m_animating = true;
+            if (m_discover) {   /* the poster draws its own lift, shadow and title */
+                draw_poster(m_client, it, {cx, cy, cw, ch}, lift.value, a);
+                continue;
+            }
             const float k = 1.f + 0.1f * lift.value;
             const gfx::Rect cr{cx - cw * (k - 1) / 2, cy - ch * (k - 1) / 2, cw * k, ch * k};
             draw_card_art(it, cr, kCardR * k, a);
@@ -503,14 +503,17 @@ void Home::draw_rows(float dt)
                 m_animating = true;
             const float k = 1.f + 0.1f * lift.value;
             const gfx::Rect cr{cx - cw * (k - 1) / 2, cy - ch * (k - 1) / 2, cw * k, ch * k};
-            gfx::shadow(cr, kCardR * k, 26, 0.3f * lift.value * a, 10 * lift.value);
-            draw_card_art(it, cr, kCardR * k, a);
-            if (m_discover)
+            if (m_discover) {   /* the poster draws its own lift, shadow and title (brighter on focus) */
+                draw_poster(m_client, it, {cx, cy, cw, ch}, lift.value, a);
                 m_card = {cr, it.external() ? it.ext.poster : poster_url(m_client, it, 480), it.primary_blurhash,
                           kCardR * k};
-            else
-                m_card = {cr, card_url(it), it.thumb_blurhash.empty() ? it.backdrop_blurhash : it.thumb_blurhash,
-                          kCardR * k};
+                m_has_card = true;
+                continue;
+            }
+            gfx::shadow(cr, kCardR * k, 26, 0.3f * lift.value * a, 10 * lift.value);
+            draw_card_art(it, cr, kCardR * k, a);
+            m_card = {cr, card_url(it), it.thumb_blurhash.empty() ? it.backdrop_blurhash : it.thumb_blurhash,
+                      kCardR * k};
             m_has_card = true;
             if (it.played_percent > 0 && it.played_percent < 100) {
                 gfx::fill({cr.x + 18, cr.y + cr.h - 22, cr.w - 36, 6}, alpha(0x47ffffffu, a), 3);
