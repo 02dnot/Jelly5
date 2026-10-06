@@ -335,8 +335,12 @@ void draw_poster(jf::Client &c, const jf::Item &it, const gfx::Rect &base, float
         draw_glass_placeholder(r, 14 * k, opacity);
         if (it.ext.poster.empty() || art::failed(it.ext.poster)) {   /* none to come: its name on the glass */
             const float size = std::max(18.f, std::min(28.f, r.w / 9.f)), pad = std::max(14.f, r.w * 0.08f);
-            /* At the top, as far in as from the sides (its first line's baseline one size down). */
-            gfx::text(r.x + pad, r.y + pad + size, it.name, {gfx::Bold, size, r.w - 2 * pad, 4, size * 1.22f},
+            /* At the top, as far in as from the sides; under the status chip when there is one. */
+            const bool chip = it.ext.request == (int)seerr::RequestStatus::Declined ||
+                              it.ext.request == (int)seerr::RequestStatus::Failed ||
+                              *seerr_status_label(seerr_service::status_of(it));
+            const float top = chip ? 10 + 30 + 12 : pad;   /* the chip: 10 in, 30 high */
+            gfx::text(r.x + pad, r.y + top + size, it.name, {gfx::Bold, size, r.w - 2 * pad, 4, size * 1.22f},
                       alpha(kText2, opacity));
         }
         art::draw(r, it.ext.poster, "", 480, 720, 14 * k, opacity, 0);
