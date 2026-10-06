@@ -126,6 +126,7 @@ struct State {
     /* Seerr's tab: its rows, and how their loading goes. */
     ui::HomeModel discover;
     bool discover_loading = false, discover_failed = false;
+    bool discover_again = false;        /* asked for while loading (the language moved on): once more */
     double discover_at = -1;            /* when it last loaded (now_s), -1 never */
 };
 State s_state;
@@ -620,16 +621,23 @@ void load_discover(unsigned session)
     row(T("Kommende filmer"), lists[3]);
     row(T("Kommende serier"), lists[4]);
     row(T("Mine forespørsler"), mine);
-    std::lock_guard<std::mutex> g(s_state.lock);
-    s_state.discover_loading = false;
-    if (session != s_session)
-        return;
-    s_state.discover_failed = m.rows.empty();
-    s_state.discover_at = now_s();
-    if (!m.rows.empty()) {   /* a failed reload keeps what was there */
-        s_state.discover = std::move(m);
-        s_discover_version++;
+    bool again;
+    {
+        std::lock_guard<std::mutex> g(s_state.lock);
+        s_state.discover_loading = false;
+        again = s_state.discover_again && session == s_session;
+        s_state.discover_again = false;
+        if (session != s_session)
+            return;
+        s_state.discover_failed = m.rows.empty();
+        s_state.discover_at = now_s();
+        if (!m.rows.empty()) {   /* a failed reload keeps what was there */
+            s_state.discover = std::move(m);
+            s_discover_version++;
+        }
     }
+    if (again)   /* e.g. the language was cycled past another one while this loaded */
+        load_discover(session);
 }
 
 /* Loads Seerr's tab when it is due: never loaded this session, or older than
@@ -640,8 +648,11 @@ void refresh_discover(double max_age, bool force = false)
         return;
     {
         std::lock_guard<std::mutex> g(s_state.lock);
-        if (s_state.discover_loading ||
-            (!force && s_state.discover_at >= 0 && now_s() - s_state.discover_at < max_age))
+        if (s_state.discover_loading) {
+            s_state.discover_again = s_state.discover_again || force;   /* what loads now may be stale */
+            return;
+        }
+        if (!force && s_state.discover_at >= 0 && now_s() - s_state.discover_at < max_age)
             return;
     }
     const unsigned session = s_session;
@@ -886,6 +897,7 @@ void reset_screens()
     s_state.discover = ui::HomeModel();
     s_state.discover_at = -1;
     s_state.discover_failed = false;
+    s_state.discover_again = false;
     s_discover_taken = ~0u;
 }
 
