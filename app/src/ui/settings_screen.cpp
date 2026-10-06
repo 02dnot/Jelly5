@@ -60,7 +60,7 @@ int section_of(int row)
 bool adjustable(int r)
 {
     return (r >= SettingsScreen::Quality && r <= SettingsScreen::ThemeMusic) || r == SettingsScreen::SeerrOn ||
-           r == SettingsScreen::SeerrAuth || r == SettingsScreen::SeerrNetwork ||
+           r == SettingsScreen::SeerrAuth ||
            (r >= SettingsScreen::AppLanguage && r <= SettingsScreen::Updates);
 }
 
@@ -92,7 +92,6 @@ const char *label_of(int row)
                                          T("Adresse"),
                                          T("P\xC3\xA5logging"),
                                          T("Seerr-konto"),
-                                         T("Nettverk"),
                                          T("Test tilkoblingen"),
                                          T("Språk"),
                                          T("Bildefrekvens"),
@@ -206,7 +205,6 @@ std::string SettingsScreen::value(Row r) const
         return u.empty() ? std::string(T("Ikke angitt")) : u;
     }
     case SeerrAuth: return auth_name(seerr_service::config().auth);
-    case SeerrNetwork: return seerr_service::config().internet ? T("Internett") : T("Bare lokalt nettverk");
     case SeerrAccount: {
         using namespace seerr_service;
         const Snapshot sn = snapshot();
@@ -321,12 +319,6 @@ void SettingsScreen::change(Row r, int dir)
     case SeerrAuth: {
         seerr_service::Config c = seerr_service::config();
         c.auth = (seerr_service::Auth)cycle((int)c.auth, (int)seerr_service::Auth::Count);
-        seerr_service::set_config(c);
-        break;
-    }
-    case SeerrNetwork: {
-        seerr_service::Config c = seerr_service::config();
-        c.internet = !c.internet;
         seerr_service::set_config(c);
         break;
     }
@@ -482,7 +474,7 @@ void SettingsScreen::draw(double, float dt)
               {gfx::Regular, 20, width}, kText3);
     if (seerr_service::config().enabled)   /* only where it means something */
         gfx::text(left, y + 136 - off,
-                  T("Seerr henter alt fra TMDB selv: uten Internett snakker PS5-en bare med Jellyfin og Seerr."),
+                  T("Seerr henter alt fra TMDB selv: PS5-en snakker bare med Jellyfin og Seerr."),
                   {gfx::Regular, 20, width}, kText3);
 }
 

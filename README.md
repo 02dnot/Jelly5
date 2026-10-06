@@ -154,7 +154,6 @@ In Jelly5, open *Settings* (your picture at the top right), then *Seerr*:
 | **Address** | Seerr's address as the console reaches it. It starts as your Jellyfin server's host on port 5055 (`http://192.168.1.20:5055`, say). A public domain that only works from outside your home will not work from the PS5. |
 | **Sign-in** | *Automatic (Quick Connect)*: the first time, ✕ on *Seerr account* approves Quick Connect for the address shown; from then on Seerr signs in through your Jellyfin account by itself, for that address only (a new address asks again). *Jellyfin password* or *Seerr account (email)*: typed once with the PS5 keyboard. Only Seerr's session is kept, never a password. |
 | **Seerr account** | Who is signed in. ✕ twice signs out (automatic sign-in then waits until you sign in again). Each Jellyfin account on the console has its own. |
-| **Network** | *Local network only* (the default) or *Internet*, for a Seerr whose address is public (HTTPS). Either way the console talks to Jellyfin and Seerr and nothing else. |
 | **Test connection** | Checks the address, the session and the pictures. |
 
 Once signed in, Seerr's results show under the library's in Search, the

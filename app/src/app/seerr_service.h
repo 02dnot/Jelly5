@@ -51,7 +51,6 @@ struct Config {
     bool enabled = false;           /* for this Jellyfin server */
     std::string url;
     Auth auth = Auth::QuickConnect; /* for this account */
-    bool internet = false;          /* the console has Internet (all accounts) */
 };
 
 struct Snapshot {

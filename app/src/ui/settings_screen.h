@@ -24,7 +24,7 @@ public:
         SwitchUser, SignOut,
         Quality, AudioLang, SubMode, SubLang, SubSize, SubBackground, Autoplay, AutoSkip, AudioDelay, NightMode,
         ThemeMusic,
-        SeerrOn, SeerrUrl, SeerrAuth, SeerrAccount, SeerrNetwork, SeerrTest,
+        SeerrOn, SeerrUrl, SeerrAuth, SeerrAccount, SeerrTest,
         AppLanguage, Refresh, Updates, Together, ServerInfo, About, RowCount
     };
     explicit SettingsScreen(jf::Client &client) : m_client(client) {}

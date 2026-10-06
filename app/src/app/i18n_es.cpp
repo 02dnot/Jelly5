@@ -365,7 +365,7 @@ const std::unordered_map<std::string, const char *> &spanish_table()
         {"Rotmappe", "Carpeta raíz"},
         {"Se i biblioteket", "Ver en la biblioteca"},
         {"Seerr %s svarer, men du er ikke pålogget", "Seerr %s responde, pero no has iniciado sesión"},
-        {"Seerr henter alt fra TMDB selv: uten Internett snakker PS5-en bare med Jellyfin og Seerr.", "Seerr obtiene todo de TMDB por sí mismo: sin Internet, la PS5 solo habla con Jellyfin y Seerr."},
+        {"Seerr henter alt fra TMDB selv: PS5-en snakker bare med Jellyfin og Seerr.", "Seerr obtiene todo de TMDB por sí mismo: la PS5 solo habla con Jellyfin y Seerr."},
         {"Seerr svarer ikke", "Seerr no responde"},
         {"Seerr svarer ikke på ", "Seerr no responde en "},
         {"Seerr-adresse", "Dirección de Seerr"},

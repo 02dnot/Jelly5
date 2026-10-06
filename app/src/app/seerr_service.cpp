@@ -182,7 +182,6 @@ Stored load_stored(const std::string &server, const std::string &account)
     cJSON *root = load();
     for (auto &p : pending)
         p(root);
-    s.config.internet = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(root, "internet"));
     const cJSON *srv = cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(root, "servers"),
                                                         server.c_str());
     s.config.enabled = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(srv, "enabled"));
@@ -232,10 +231,12 @@ std::string tmdb_language()
     }
 }
 
+bool local_address(const std::string &url);
+
 std::shared_ptr<seerr::Client> make_client(const Config &c, const std::string &cookies)
 {
     auto cl = std::make_shared<seerr::Client>(c.url);
-    cl->set_timeout(c.internet ? 10 : 5);   /* on the local network an answer comes at once */
+    cl->set_timeout(local_address(c.url) ? 5 : 10);   /* on the home network an answer comes at once */
     cl->set_language(tmdb_language());
     cl->set_cookies(cookies);
     return cl;
@@ -466,14 +467,12 @@ void set_config(const Config &c)
     const Config n = s_stored.config;
     const std::string server = s_server, account = s_account;
     persist([n, server, account](cJSON *root) {
-        put_bool(root, "internet", n.internet);
         cJSON *srv = child(child(root, "servers"), server.c_str());
         put_bool(srv, "enabled", n.enabled);
         put_str(srv, "url", n.url);
         put_str(child(child(root, "accounts"), account.c_str()), "auth", kAuthNames[(int)n.auth]);
     });
-    if (c.enabled == old.enabled && seerr::Client::normalize(c.url) == old.url && c.auth == old.auth &&
-        c.internet == old.internet)
+    if (c.enabled == old.enabled && seerr::Client::normalize(c.url) == old.url && c.auth == old.auth)
         return;
     evo_bt("seerr: %s, %s", c.enabled ? "on" : "off", seerr::Client::normalize(c.url).c_str());
     s_seen_ready = false;
@@ -732,7 +731,7 @@ void test()
         seerr::User u;
         if (!cl->status(&version)) {
             line = (cl->last_unreachable() ? T("Seerr svarer ikke på ") : T("Ingen Seerr-server på ")) + cl->url();
-            if (cl->last_unreachable() && !st.config.internet && !local_address(cl->url()))
+            if (cl->last_unreachable() && !local_address(cl->url()))   /* a public address the console may not reach */
                 line += T(" \xE2\x80\x93 bruk den lokale adressen");
         } else if (!cl->me(&u)) {
             std::snprintf(buf, sizeof buf, T("Seerr %s svarer, men du er ikke pålogget"), version.c_str());
