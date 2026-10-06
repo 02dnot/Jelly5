@@ -366,6 +366,9 @@ bool Client::public_settings(PublicSettings *out)
     out->local_login = bool_of(j, "localLogin", true);
     out->partial_requests = bool_of(j, "partialRequestsEnabled", true);
     out->special_episodes = bool_of(j, "enableSpecialEpisodes");
+    out->hide_available = bool_of(j, "hideAvailable");
+    out->hide_blocklisted = bool_of(j, "hideBlocklisted");
+    out->hide_requested = bool_of(j, "hideRequested");
     out->youtube_url = str_of(j, "youtubeUrl");
     cJSON_Delete(j);
     return true;
@@ -465,10 +468,12 @@ void Client::sign_out()
     cookies_.clear();
 }
 
-std::vector<Title> Client::titles_from(const std::string &body)
+std::vector<Title> Client::titles_from(const std::string &body, int *pages)
 {
     std::vector<Title> out;
     cJSON *j = cJSON_Parse(body.c_str());
+    if (pages)
+        *pages = int_of(j, "totalPages");
     const cJSON *r;
     cJSON_ArrayForEach(r, cJSON_GetObjectItemCaseSensitive(j, "results")) {
         const std::string type = str_of(r, "mediaType");   /* people and collections are left out */
@@ -479,16 +484,20 @@ std::vector<Title> Client::titles_from(const std::string &body)
     return out;
 }
 
-std::vector<Title> Client::search(const std::string &query, int page)
+std::vector<Title> Client::search(const std::string &query, int page, int *pages)
 {
+    if (pages)
+        *pages = 0;
     std::string body;
     if (!get(with_language("/search?query=" + url_escape(query) + "&page=" + std::to_string(page)), &body))
         return {};
-    return titles_from(body);
+    return titles_from(body, pages);
 }
 
-std::vector<Title> Client::discover(Shelf shelf, int page)
+std::vector<Title> Client::discover(Shelf shelf, int page, int *pages)
 {
+    if (pages)
+        *pages = 0;
     const char *path = "/discover/trending";
     switch (shelf) {
     case Shelf::Trending: break;
@@ -500,7 +509,7 @@ std::vector<Title> Client::discover(Shelf shelf, int page)
     std::string body;
     if (!get(with_language(std::string(path) + "?page=" + std::to_string(page)), &body))
         return {};
-    return titles_from(body);
+    return titles_from(body, pages);
 }
 
 std::vector<Title> Client::related(int tmdb_id, bool tv, bool similar, int page)

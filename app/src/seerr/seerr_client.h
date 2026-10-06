@@ -52,6 +52,7 @@ enum Permission : uint32_t {
     kRequestAdvanced = 8192,
     kRequestMovie = 262144,
     kRequestTv = 524288,
+    kManageBlocklist = 268435456,
 };
 
 struct User {
@@ -78,6 +79,9 @@ struct PublicSettings {
     bool partial_requests = true;       /* a series' seasons can be requested one by one */
     bool special_episodes = false;      /* season 0 can be requested */
     std::string youtube_url;            /* where trailers open, when set (an Invidious, say) */
+    /* The administrator's "hide" choices for Discover and search (Seerr's own
+     * pages apply them as seerr_service::visible does). */
+    bool hide_available = false, hide_blocklisted = false, hide_requested = false;
 };
 
 /* A film or series, as search and discover list them. */
@@ -238,9 +242,10 @@ public:
     bool sign_in_local(const std::string &email, const std::string &password, User *out);
     void sign_out();
 
-    std::vector<Title> search(const std::string &query, int page = 1);
+    /* pages: Seerr's total (totalPages), when wanted: the end of the list, as its own pages read it. */
+    std::vector<Title> search(const std::string &query, int page = 1, int *pages = nullptr);
     enum class Shelf { Trending, PopularMovies, PopularTv, UpcomingMovies, UpcomingTv };
-    std::vector<Title> discover(Shelf shelf, int page = 1);
+    std::vector<Title> discover(Shelf shelf, int page = 1, int *pages = nullptr);
     /* A title's recommendations, or (similar) the titles like it: TMDB's lists, through Seerr. */
     std::vector<Title> related(int tmdb_id, bool tv, bool similar, int page = 1);
     bool movie(int tmdb_id, Detail *out);
@@ -275,7 +280,7 @@ private:
     bool post(const std::string &path, const std::string &json, std::string *body);
     std::string with_language(const std::string &path) const;
     bool user_from(const std::string &body, User *out);
-    std::vector<Title> titles_from(const std::string &body);
+    std::vector<Title> titles_from(const std::string &body, int *pages = nullptr);
     void set_error(std::string e);
 
     std::string url_, language_;

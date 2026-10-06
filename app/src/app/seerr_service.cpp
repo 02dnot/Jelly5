@@ -9,6 +9,7 @@
 
 #include "evo_boot_trace.h"
 
+#include <algorithm>
 #include <atomic>
 #include <cstdio>
 #include <cstdlib>
@@ -572,6 +573,29 @@ std::map<std::string, Noted> s_noted;   /* "tv:123" -> status, for two minutes: 
 std::atomic<unsigned> s_changes{0};
 std::string noted_key(int tmdb_id, bool tv) { return (tv ? "tv:" : "movie:") + std::to_string(tmdb_id); }
 } // namespace
+
+std::vector<seerr::Title> visible(std::vector<seerr::Title> titles)
+{
+    seerr::PublicSettings ps;
+    seerr::User u;
+    {
+        std::lock_guard<std::mutex> g(s_lock);
+        ps = s_snap.settings;
+        u = s_snap.user;
+    }
+    using S = seerr::Status;
+    titles.erase(std::remove_if(titles.begin(), titles.end(),
+                                [&](const seerr::Title &t) {
+                                    if (ps.hide_available && (t.status == S::Available || t.status == S::PartiallyAvailable))
+                                        return true;
+                                    /* As Seerr's page: only for those who manage the blocklist. */
+                                    if (ps.hide_blocklisted && t.status == S::Blocklisted && u.has(seerr::kManageBlocklist))
+                                        return true;
+                                    return ps.hide_requested && (t.status == S::Pending || t.status == S::Processing);
+                                }),
+                 titles.end());
+    return titles;
+}
 
 int status_of(const jf::Item &it)
 {

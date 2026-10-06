@@ -80,6 +80,10 @@ void note_status(int tmdb_id, bool tv, int status);
 /* Bumped by note_status: the lists that show statuses read them again. */
 unsigned changes();
 
+/* The titles Discover and search show, without those the administrator hides
+ * (available, requested, blocklisted: Seerr's own pages' rules). */
+std::vector<seerr::Title> visible(std::vector<seerr::Title> titles);
+
 Config config();
 /* Saves; connects again when the address, the sign-in or "on" changed. */
 void set_config(const Config &c);

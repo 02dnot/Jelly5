@@ -130,6 +130,7 @@ struct State {
     ui::HomeModel discover;
     bool discover_loading = false, discover_failed = false;
     bool discover_more_loading = false;   /* a next page of one of its rows */
+    double discover_more_retry_at = 0;    /* after a failed page: not before (now_s) */
     bool discover_again = false;        /* asked for while loading (the language moved on): once more */
     double discover_at = -1;            /* when it last loaded (now_s), -1 never */
 };
@@ -648,7 +649,7 @@ void load_more_discover(unsigned session, int shelf, int page)
 {
     {
         std::lock_guard<std::mutex> g(s_state.lock);
-        if (session != s_session || s_state.discover_more_loading)
+        if (session != s_session || s_state.discover_more_loading || now_s() < s_state.discover_more_retry_at)
             return;
         s_state.discover_more_loading = true;
     }
@@ -657,8 +658,12 @@ void load_more_discover(unsigned session, int shelf, int page)
         const Shelf shelves[] = {Shelf::Trending, Shelf::PopularMovies, Shelf::PopularTv, Shelf::UpcomingMovies,
                                  Shelf::UpcomingTv};
         std::vector<jf::Item> items;
-        if (std::shared_ptr<seerr::Client> c = seerr_service::client())
-            items = discover_items(c->discover(shelves[shelf], page));
+        int pages = 0;   /* Seerr's total: the end of the list (not what was hidden of a page) */
+        bool ok = false;
+        if (std::shared_ptr<seerr::Client> c = seerr_service::client()) {
+            items = discover_items(seerr_service::visible(c->discover(shelves[shelf], page, &pages)));
+            ok = c->last_status() >= 200 && c->last_status() < 300;
+        }
         std::lock_guard<std::mutex> g(s_state.lock);
         s_state.discover_more_loading = false;
         if (session != s_session)
@@ -675,8 +680,13 @@ void load_more_discover(unsigned session, int shelf, int page)
                     r.items.push_back(std::move(it));
                     added++;
                 }
+            (void)added;
+            if (!ok) {   /* failed: the row stays as it was; asked again in five seconds */
+                s_state.discover_more_retry_at = now_s() + 5.0;
+                break;
+            }
             r.page = page;
-            r.more = added > 0;
+            r.more = page < pages;
             s_discover_version++;
         }
     });
@@ -711,7 +721,7 @@ void load_discover(unsigned session)
         std::vector<std::function<void()>> jobs;
         for (int i = 0; i < 5; i++)
             jobs.push_back([&, i] {
-                lists[i] = c->discover(shelves[i]);
+                lists[i] = seerr_service::visible(c->discover(shelves[i]));
                 note();
             });
         const int uid = seerr_service::snapshot().user.id;
