@@ -385,6 +385,7 @@ const std::unordered_map<std::string, const char *> &french_table()
         {"Kunne ikke hente detaljene fra Seerr", "Impossible de récupérer les détails depuis Seerr"},
         {"Seerr-kontoen din kan ikke be om serier", "Votre compte Seerr ne peut pas demander de séries"},
         {"Seerr-kontoen din kan ikke be om filmer", "Votre compte Seerr ne peut pas demander de films"},
+        {"Be om flere sesonger", "Demander d'autres saisons"},
     };
     return t;
 }

@@ -24,6 +24,9 @@
 
 namespace ui {
 
+/* What the page says once a request went through (approved, waiting, nothing to ask for). */
+std::string request_note(const seerr::RequestResult &r);
+
 class RequestSheet {
 public:
     void open(const seerr::Detail &d, const seerr::User &user, const seerr::PublicSettings &ps);
@@ -37,6 +40,9 @@ public:
 
     /* Seasons the viewer may ask for: none of it there or asked for already. */
     static bool requestable(const seerr::Season &s, const seerr::PublicSettings &ps);
+    /* Something of the title can be requested by this user: a film neither there
+     * nor asked for, or a series with such a season. */
+    static bool offers(const seerr::Detail &d, const seerr::User &user, const seerr::PublicSettings &ps);
 
 private:
     enum Kind { AllSeasons, OneSeason, ServerRow, ProfileRow, FolderRow, Buttons };

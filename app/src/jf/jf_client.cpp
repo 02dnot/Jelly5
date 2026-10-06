@@ -39,7 +39,8 @@ constexpr int kTimeout = 15;
 constexpr const char *kVersion = "0.0.1";
 constexpr const char *kFields = "Overview,Genres";            /* rows: what the UI shows */
 constexpr const char *kItemFields =
-    "Overview,Genres,MediaStreams,Taglines,People,Studios,ChildCount,ProductionLocations,SpecialFeatureCount";
+    "Overview,Genres,MediaStreams,Taglines,People,Studios,ChildCount,ProductionLocations,SpecialFeatureCount,"
+    "ProviderIds";   /* a series' TMDB/TVDB ids: Seerr finds it by them */
 
 std::string str_of(const cJSON *o, const char *key)
 {
@@ -176,6 +177,7 @@ Item item_of(const cJSON *o)
         if (cJSON_IsString(g))
             it.locations.push_back(g->valuestring);
     it.tmdb_id = str_of(cJSON_GetObjectItemCaseSensitive(o, "ProviderIds"), "Tmdb");
+    it.tvdb_id = str_of(cJSON_GetObjectItemCaseSensitive(o, "ProviderIds"), "Tvdb");
     return it;
 }
 

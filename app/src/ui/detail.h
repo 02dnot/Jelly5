@@ -8,10 +8,16 @@
  * like this. A collection (BoxSet) lists its titles instead. The page slides
  * up as focus moves down and the backdrop dims. Circle goes back to the
  * buttons, then off the page. Options on an episode marks it watched.
+ *
+ * A series the library has only some seasons of, with Seerr signed in: a
+ * button to request the others (Seerr finds the series by its TMDB or TVDB
+ * id; the seasons there or asked for already are greyed out in the sheet).
  */
 #pragma once
 
+#include "seerr/seerr_client.h"
 #include "ui/screen.h"
+#include "ui/seerr_request.h"
 
 #include <memory>
 #include <mutex>
@@ -49,15 +55,20 @@ public:
     bool animating() const override { return m_animating; }
     float nav_alpha() const override { return 0.f; }
     float enter() const override { return m_enter.value; }
+    bool modal() const override { return m_sheet.active(); }
 
 private:
     enum Zone { Buttons, Seasons, Episodes, Extras, Cast, Similar, ZoneCount };
-    enum Button { PlayButton, RestartButton, TrailerButton, WatchedButton, FavouriteButton };
+    enum Button { PlayButton, RestartButton, TrailerButton, WatchedButton, FavouriteButton, RequestButton };
 
     struct Data {
         std::mutex lock;
         Content c;
+        /* The series in Seerr: what of it can be requested. */
+        seerr::Detail seerr;
+        bool have_seerr = false, seerr_pending = false;
     };
+    static void look_up_in_seerr(const std::shared_ptr<Data> &d, const jf::Item &series);
 
     /* The focused season's episodes, from all_episodes (no request: instant). */
     void select_episodes();
@@ -91,6 +102,13 @@ private:
     Lifts m_lifts;
     Drop m_btn_drop, m_season_drop;     /* the focus on the buttons and on the seasons */
     bool m_animating = false;
+
+    seerr::Detail m_seerr;              /* this frame's copy */
+    bool m_have_seerr = false;
+    RequestSheet m_sheet;
+    std::string m_note;                 /* how a request went, shown for a few seconds */
+    double m_note_at = -100;
+    Anim m_note_a;
 };
 
 } // namespace ui

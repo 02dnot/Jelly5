@@ -413,6 +413,18 @@ float draw_status_chip(float x, float y, int status, float a, float size)
     return w;
 }
 
+void draw_note(const std::string &text, float a, uint32_t dot)
+{
+    if (a <= 0.01f || text.empty())
+        return;
+    const gfx::TextStyle ts{gfx::SemiBold, 24};
+    const float w = gfx::text_width(text, ts) + 72;
+    const gfx::Rect r{gfx::W / 2 - w / 2, 96 - 20 * (1.f - a), w, 60};
+    glass_panel(r, 30, a, true);
+    gfx::fill({r.x + 26, r.y + 25, 10, 10}, alpha(dot, a), 5);
+    gfx::text(r.x + 48, r.y + 39, text, ts, alpha(kText, a));
+}
+
 void draw_title_card(const gfx::Rect &r, const std::string &title, int seed, float radius, float a)
 {
     /* Dark, slightly coloured: a row of them reads as posters, not as holes. */

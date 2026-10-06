@@ -1456,8 +1456,14 @@ void remote_idle(const remote::Command &rc)
 /* What is on screen, for the log's frame timing (development builds). */
 static const char *screen_label()
 {
-    if (!s_stack.empty())
-        return dynamic_cast<ui::Detail *>(s_stack.back().get()) ? "detail page" : "a page";
+    if (!s_stack.empty()) {
+        ui::Screen *s = s_stack.back().get();
+        if (dynamic_cast<ui::SeerrDetail *>(s))
+            return s->modal() ? "Seerr page (sheet)" : "Seerr page";
+        if (dynamic_cast<ui::Detail *>(s))
+            return s->modal() ? "detail page (sheet)" : "detail page";
+        return "a page";
+    }
     switch (s_tab) {
     case ui::Nav::Movies: case ui::Nav::Shows: case ui::Nav::Music: return "a library";
     case ui::Nav::Search: return "search";

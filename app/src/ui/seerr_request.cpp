@@ -49,6 +49,27 @@ bool RequestSheet::requestable(const seerr::Season &s, const seerr::PublicSettin
     return s.status == seerr::Status::Unknown || s.status == seerr::Status::Deleted;
 }
 
+std::string request_note(const seerr::RequestResult &r)
+{
+    using R = seerr::RequestResult;
+    return r.outcome == R::Approved  ? T("Forespørselen er godkjent \xE2\x80\x93 den hentes snart")
+           : r.outcome == R::Pending ? T("Forespørselen er sendt \xE2\x80\x93 venter på godkjenning")
+                                     : T("Ingenting å be om: alt er der eller forespurt allerede");
+}
+
+bool RequestSheet::offers(const seerr::Detail &d, const seerr::User &user, const seerr::PublicSettings &ps)
+{
+    const seerr::Title &t = d.title;
+    if (t.id <= 0 || t.status == seerr::Status::Blocklisted || !user.can_request(t.tv))
+        return false;
+    if (!t.tv)
+        return t.status == seerr::Status::Unknown || t.status == seerr::Status::Deleted;
+    for (const seerr::Season &s : d.seasons)
+        if (requestable(s, ps))
+            return true;
+    return false;
+}
+
 void RequestSheet::open(const seerr::Detail &d, const seerr::User &user, const seerr::PublicSettings &ps)
 {
     m_detail = d;
@@ -330,8 +351,8 @@ void RequestSheet::draw(float dt, bool *animating)
                 m_folder = (int)i;
         m_defaults_set = true;
     }
-    if (sending && animating)
-        *animating = true;
+    if ((sending || !loaded) && animating)
+        *animating = true;   /* what is on its way shows as it comes */
 
     gfx::fill({0, 0, gfx::W, gfx::H}, alpha(0x99000000u, a));
 

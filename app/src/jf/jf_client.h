@@ -46,7 +46,7 @@ struct Item {
     std::string album_primary_tag, album_blurhash;
     std::string premiere_date;                /* ISO date; a person's birth date */
     std::vector<std::string> locations;       /* a person's birthplace */
-    std::string tmdb_id;                      /* ProviderIds.Tmdb (search asks for it) */
+    std::string tmdb_id, tvdb_id;             /* ProviderIds (search and item ask for them) */
 
     /* A title from Seerr rather than this server (search, Discover): its TMDB
      * id, where it stands in Seerr (a seerr::Status), its art as absolute URLs

@@ -67,17 +67,7 @@ void SeerrDetail::activate()
 bool SeerrDetail::can_request() const
 {
     const seerr_service::Snapshot s = seerr_service::snapshot();
-    if (!m_loaded || s.state != seerr_service::State::Ready)
-        return false;
-    const seerr::Title &t = m_detail.title;
-    if (t.status == seerr::Status::Blocklisted || !s.user.can_request(t.tv))
-        return false;
-    if (!t.tv)   /* a film: unless it is asked for or there already */
-        return t.status == seerr::Status::Unknown || t.status == seerr::Status::Deleted;
-    for (const seerr::Season &season : m_detail.seasons)
-        if (RequestSheet::requestable(season, s.settings))
-            return true;
-    return false;
+    return m_loaded && s.state == seerr_service::State::Ready && RequestSheet::offers(m_detail, s.user, s.settings);
 }
 
 std::vector<SeerrDetail::Button> SeerrDetail::buttons() const
@@ -198,13 +188,12 @@ void SeerrDetail::draw(double now, float dt)
     /* A request went through: say how, and read the page again (its status moved). */
     seerr::RequestResult done;
     if (m_sheet.take_done(&done)) {
-        using R = seerr::RequestResult;
-        m_note = done.outcome == R::Approved  ? T("Forespørselen er godkjent \xE2\x80\x93 den hentes snart")
-                 : done.outcome == R::Pending ? T("Forespørselen er sendt \xE2\x80\x93 venter på godkjenning")
-                                              : T("Ingenting å be om: alt er der eller forespurt allerede");
+        m_note = request_note(done);
         m_note_at = now;
         activate();
     }
+    if (!m_loaded && !m_failed)
+        m_animating = true;   /* the details are on their way: show them as they come */
     const seerr::Title &t = m_loaded ? m_detail.title : seerr::Title();
     const std::string &name = m_loaded ? t.name : m_item.name;
     const bool tv = m_item.type == "Series";
@@ -385,15 +374,7 @@ void SeerrDetail::draw(double now, float dt)
     m_note_a.to(now - m_note_at < 4.0 ? 1.f : 0.f);
     if (m_note_a.step(dt, 10.f) || m_note_a.target > 0)
         m_animating = true;
-    if (m_note_a.value > 0.01f && !m_note.empty()) {
-        const float na = m_note_a.value;
-        const gfx::TextStyle ts{gfx::SemiBold, 24};
-        const float w = gfx::text_width(m_note, ts) + 72;
-        const gfx::Rect r{gfx::W / 2 - w / 2, 96 - 20 * (1.f - na), w, 60};
-        glass_panel(r, 30, na, true);
-        gfx::fill({r.x + 26, r.y + 25, 10, 10}, alpha(0xff30d158u, na), 5);
-        gfx::text(r.x + 48, r.y + 39, m_note, ts, alpha(kText, na));
-    }
+    draw_note(m_note, m_note_a.value);
 
     m_sheet.draw(dt, &m_animating);
     draw_qr(dt);
