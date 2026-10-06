@@ -702,13 +702,24 @@ void load_discover(unsigned session)
     std::vector<seerr::Title> lists[5], mine;
     if (c) {
         seerr_service::load_genres();
+        std::atomic<bool> lost{false};   /* a 401/403 on any of them (each reads its own call's status) */
+        auto note = [&] {
+            const int st = c->last_status();
+            if (st == 401 || st == 403)
+                lost = true;
+        };
         std::vector<std::function<void()>> jobs;
         for (int i = 0; i < 5; i++)
-            jobs.push_back([&, i] { lists[i] = c->discover(shelves[i]); });
+            jobs.push_back([&, i] {
+                lists[i] = c->discover(shelves[i]);
+                note();
+            });
         const int uid = seerr_service::snapshot().user.id;
         jobs.push_back([&] {   /* a request names a title; its page has the rest (one after another) */
             std::set<std::string> seen;   /* a series asked for season by season: once */
-            for (const seerr::Request &rq : c->requests(uid, 12)) {
+            const std::vector<seerr::Request> reqs = c->requests(uid, 12);
+            note();
+            for (const seerr::Request &rq : reqs) {
                 const std::string key = (rq.tv ? "tv:" : "movie:") + std::to_string(rq.tmdb_id);
                 seerr::Detail d;
                 if (seen.count(key) || !(rq.tv ? c->tv(rq.tmdb_id, &d) : c->movie(rq.tmdb_id, &d)) || d.title.id <= 0)
@@ -718,8 +729,7 @@ void load_discover(unsigned session)
             }
         });
         jelly5::run_all(jobs);   /* side by side; a job without a thread runs here */
-        const int status = c->last_status();
-        if (status == 401 || status == 403)
+        if (lost)
             seerr_service::session_lost();
     }
     ui::HomeModel m;

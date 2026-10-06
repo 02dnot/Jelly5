@@ -226,28 +226,38 @@ bool Client::has_session() const
     return cookies_.count("connect.sid") > 0;
 }
 
+Client::Last &Client::last_here()
+{
+    if (last_.size() > 64 && !last_.count(std::this_thread::get_id()))
+        last_.clear();   /* threads come and go: keep it small */
+    return last_[std::this_thread::get_id()];
+}
+
 std::string Client::last_error() const
 {
     std::lock_guard<std::mutex> g(lock_);
-    return error_;
+    const auto it = last_.find(std::this_thread::get_id());
+    return it != last_.end() ? it->second.error : std::string();
 }
 
 bool Client::last_unreachable() const
 {
     std::lock_guard<std::mutex> g(lock_);
-    return unreachable_;
+    const auto it = last_.find(std::this_thread::get_id());
+    return it != last_.end() && it->second.unreachable;
 }
 
 int Client::last_status() const
 {
     std::lock_guard<std::mutex> g(lock_);
-    return status_;
+    const auto it = last_.find(std::this_thread::get_id());
+    return it != last_.end() ? it->second.status : 0;
 }
 
 void Client::set_error(std::string e)
 {
     std::lock_guard<std::mutex> g(lock_);
-    error_ = std::move(e);
+    last_here().error = std::move(e);
 }
 
 Client::Reply Client::call(const char *method, const std::string &path, const std::string &body)
@@ -268,8 +278,9 @@ Client::Reply Client::call(const char *method, const std::string &path, const st
     jf::HttpResponse r = jf::http_request(method, url_ + "/api/v1" + path, headers, body, timeout_);
     {
         std::lock_guard<std::mutex> g(lock_);
-        unreachable_ = r.status == 0;
-        status_ = r.status;
+        Last &l = last_here();
+        l.unreachable = r.status == 0;
+        l.status = r.status;
         for (const std::string &c : r.cookies) {
             const size_t eq = c.find('=');
             if (eq == std::string::npos || eq == 0)
@@ -520,7 +531,7 @@ static void detail_fields(const cJSON *j, bool tv, Detail *out)
         if (int_of(v, "id") == kAnimeKeyword)
             out->anime = true;
     cJSON_ArrayForEach(v, cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(j, "mediaInfo"), "requests"))
-        if (int_of(v, "status") == (int)RequestStatus::Pending && int_of(v, "id") > 0)
+        if (int_of(v, "status") == (int)RequestStatus::Pending && int_of(v, "id") > 0 && !bool_of(v, "is4k"))   /* 4K: not offered here */
             out->waiting.push_back({int_of(v, "id"), int_of(cJSON_GetObjectItemCaseSensitive(v, "requestedBy"), "id")});
 }
 

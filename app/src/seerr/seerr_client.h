@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <thread>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -279,11 +280,17 @@ private:
 
     std::string url_, language_;
     int timeout_ = 6;
-    mutable std::mutex lock_;           /* the cookies and the last error */
+    mutable std::mutex lock_;           /* the cookies and the last calls */
     std::map<std::string, std::string> cookies_;
-    std::string error_;
-    bool unreachable_ = false;
-    int status_ = 0;
+    /* How the last call went, per thread: screens share the client, and a status
+     * read after one's own call must be that call's, not a neighbour's. */
+    struct Last {
+        std::string error;
+        bool unreachable = false;
+        int status = 0;
+    };
+    std::map<std::thread::id, Last> last_;
+    Last &last_here();                  /* with lock_ held */
 };
 
 } // namespace seerr

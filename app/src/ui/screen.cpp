@@ -380,6 +380,7 @@ const char *seerr_status_label(int status, bool full)
     case seerr::Status::PartiallyAvailable: return T("Delvis tilgjengelig");
     case seerr::Status::Available: return T("Tilgjengelig");
     case seerr::Status::Blocklisted: return T("Blokkert");
+    case seerr::Status::Deleted: return T("Slettet");   /* was there, removed since (it can be asked for again) */
     default: return full ? T("Ikke forespurt") : "";
     }
 }
@@ -392,6 +393,7 @@ uint32_t seerr_status_color(int status)
     case seerr::Status::PartiallyAvailable: return 0xff7fd8a4u;
     case seerr::Status::Available: return 0xff30d158u;
     case seerr::Status::Blocklisted: return 0xffff453au;
+    case seerr::Status::Deleted: return 0xffff6961u;              /* red, as Seerr's own badge */
     default: return kText3;
     }
 }
