@@ -331,7 +331,7 @@ void draw_poster(jf::Client &c, const jf::Item &it, const gfx::Rect &base, float
     if (lift > 0.01f)
         gfx::shadow(r, 14 * k, 26, 0.3f * lift * opacity, 10 * lift);
     if (it.external()) {   /* the name on its own colours, the picture fading in over it */
-        draw_title_card(r, it.name, it.ext.tmdb_id, 14 * k, opacity);
+        draw_glass_placeholder(r, 14 * k, opacity);
         art::draw(r, it.ext.poster, "", 480, 720, 14 * k, opacity, 0);
         draw_status_chip(r.x + 10, r.y + 10, it.ext.status, opacity);
     } else {
@@ -423,6 +423,13 @@ void draw_note(const std::string &text, float a, uint32_t dot)
     glass_panel(r, 30, a, true);
     gfx::fill({r.x + 26, r.y + 25, 10, 10}, alpha(dot, a), 5);
     gfx::text(r.x + 48, r.y + 39, text, ts, alpha(kText, a));
+}
+
+void draw_glass_placeholder(const gfx::Rect &r, float radius, float a)
+{
+    gfx::fill(r, alpha(0x59141418u, a), radius);
+    gfx::fill_vgradient(r, alpha(0x1fffffffu, a), 0x00000000u, radius);   /* sheen from above */
+    gfx::rim(r, radius, 0.75f * a);
 }
 
 void draw_title_card(const gfx::Rect &r, const std::string &title, int seed, float radius, float a)

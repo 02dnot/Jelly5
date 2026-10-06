@@ -247,7 +247,7 @@ std::string Home::backdrop_url(const jf::Item &it) const
 void Home::draw_card_art(const jf::Item &it, const gfx::Rect &r, float radius, float a) const
 {
     if (it.external()) {   /* Seerr's: its name on its colours, the picture over it, where it stands */
-        draw_title_card(r, it.name, it.ext.tmdb_id, radius, a);
+        draw_glass_placeholder(r, radius, a);
         art::draw(r, it.ext.thumb, "", 640, 360, radius, a, 0);
         draw_status_chip(r.x + 12, r.y + 12, it.ext.status, a);
         return;
