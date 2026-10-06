@@ -570,7 +570,7 @@ bool Client::tv(int tmdb_id, Detail *out)
     cJSON_ArrayForEach(rq, cJSON_GetObjectItemCaseSensitive(media, "requests")) {
         const int st = int_of(rq, "status");
         if (bool_of(rq, "is4k") ||
-            (st != (int)RequestStatus::Pending && st != (int)RequestStatus::Approved))
+            st == (int)RequestStatus::Declined || st == (int)RequestStatus::Completed)   /* as Seerr's server: the rest hold their seasons */
             continue;
         cJSON_ArrayForEach(s, cJSON_GetObjectItemCaseSensitive(rq, "seasons"))
             requested[int_of(s, "seasonNumber")] = true;
@@ -738,13 +738,23 @@ RequestResult Client::request(const RequestOptions &o)
         Quota mq, tq;
         if (!me(&u))
             res.outcome = last_unreachable() ? RequestResult::Unreachable : RequestResult::SignedOut;
-        else if (quota(u.id, &mq, &tq) && (o.tv ? tq : mq).restricted)
+        else if (quota(u.id, &mq, &tq) &&
+                 ((o.tv ? tq : mq).restricted ||   /* a series' quota counts seasons: more than are left */
+                  ((o.tv ? tq : mq).limit > 0 && (o.tv ? (int)o.seasons.size() > tq.remaining : mq.remaining <= 0))))
             res.outcome = RequestResult::QuotaReached;
         else
             res.outcome = RequestResult::NotAllowed;
         set_error(why);
-    } else if (r.status == 409 || r.status == 499) {   /* 409, folded into "other 4xx" on the console */
-        res.outcome = RequestResult::Duplicate;
+    } else if (r.status == 409 || r.status == 499) {
+        /* 409 is a duplicate, but the console folds every other 4xx into 499 too
+         * (and gets no error text): a duplicate only when the title is asked for
+         * or there already. */
+        const std::string why = last_error();
+        Detail d;
+        const bool there = (o.tv ? tv(o.tmdb_id, &d) : movie(o.tmdb_id, &d)) && d.title.status != Status::Unknown &&
+                           d.title.status != Status::Deleted;
+        res.outcome = there || r.status == 409 ? RequestResult::Duplicate : RequestResult::Failed;
+        set_error(why);
     }
     return res;
 }

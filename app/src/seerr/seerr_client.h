@@ -62,7 +62,11 @@ struct User {
     bool can_request(bool tv) const { return has(kRequest) || has(tv ? kRequestTv : kRequestMovie); }
     /* May choose the server, quality profile and folder of a request. */
     bool advanced() const { return has(kManageRequests) || has(kRequestAdvanced); }
-    bool auto_approved(bool tv) const { return has(kAutoApprove) || has(tv ? kAutoApproveTv : kAutoApproveMovie); }
+    /* As Seerr's server: managing requests approves one's own as well. */
+    bool auto_approved(bool tv) const
+    {
+        return has(kAutoApprove) || has(tv ? kAutoApproveTv : kAutoApproveMovie) || has(kManageRequests);
+    }
 };
 
 /* What the server lets everyone know (/settings/public). */

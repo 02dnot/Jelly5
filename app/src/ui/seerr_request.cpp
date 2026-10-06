@@ -45,7 +45,8 @@ void checkbox(float x, float cy, bool on, bool enabled, float a)
 
 bool RequestSheet::requestable(const seerr::Season &s, const seerr::PublicSettings &ps)
 {
-    if ((s.number == 0 && !ps.special_episodes) || s.requested)
+    /* Not one with no episodes yet (announced), as Seerr's own page. */
+    if ((s.number == 0 && !ps.special_episodes) || s.requested || s.episodes <= 0)
         return false;
     return s.status == seerr::Status::Unknown || s.status == seerr::Status::Deleted;
 }
@@ -179,21 +180,21 @@ void RequestSheet::send()
     o.tv = m_detail.title.tv;
     o.tvdb_id = m_detail.tvdb_id;
     if (o.tv) {
-        bool all = true;
-        for (size_t i = 0; i < m_detail.seasons.size(); i++) {
-            if (!requestable(m_detail.seasons[i], m_settings))
-                continue;
-            if (m_picked[i])
+        for (size_t i = 0; i < m_detail.seasons.size(); i++)
+            if (requestable(m_detail.seasons[i], m_settings) && m_picked[i])
                 o.seasons.push_back(m_detail.seasons[i].number);
-            else
-                all = false;
-        }
         if (o.seasons.empty()) {
             m_error = T("Velg minst én sesong");
             return;
         }
-        if (all || !m_settings.partial_requests)
-            o.seasons.clear();   /* every missing season: Seerr's "all" */
+        /* Always the seasons themselves, as Seerr's own page sends them: its "all"
+         * leaves the specials out. Season by season off: every requestable one. */
+        if (!m_settings.partial_requests) {
+            o.seasons.clear();
+            for (const seerr::Season &s : m_detail.seasons)
+                if (requestable(s, m_settings))
+                    o.seasons.push_back(s.number);
+        }
     }
     if (m_touched)
         if (const seerr::Server *s = server()) {   /* chosen: say so (else Seerr decides) */
@@ -203,6 +204,22 @@ void RequestSheet::send()
             if (m_folder < (int)s->folders.size())
                 o.root_folder = s->folders[m_folder].path;
         }
+    {   /* Over the quota: say so here, as Seerr's own page does, not after a refusal. */
+        std::lock_guard<std::mutex> g(m_shared->lock);
+        const seerr::Quota &q = m_shared->quota;
+        if (m_shared->have_quota && q.limit > 0) {
+            char b[160];
+            if (o.tv && (int)o.seasons.size() > q.remaining) {
+                std::snprintf(b, sizeof b, T("Kvoten din gir plass til %d sesonger til"), std::max(0, q.remaining));
+                m_error = b;
+                return;
+            }
+            if (!o.tv && (q.restricted || q.remaining <= 0)) {
+                m_error = T("Kvoten din er brukt opp");
+                return;
+            }
+        }
+    }
     std::shared_ptr<seerr::Client> c = seerr_service::client();
     if (!c) {
         m_error = T("Seerr svarer ikke");
@@ -379,8 +396,14 @@ void RequestSheet::draw(float dt, bool *animating)
         notes.push_back({T("En administrator må godkjenne den"), kText2});
     if (have_quota && quota.limit > 0) {
         char b[160];
-        std::snprintf(b, sizeof b, T("%d av %d forespørsler brukt (siste %d dager)"), quota.used, quota.limit,
-                      quota.days);
+        /* A series' quota counts seasons (Seerr's); a window only when it has one. */
+        if (quota.days > 0)
+            std::snprintf(b, sizeof b, tv ? T("%d av %d sesonger brukt (siste %d dager)")
+                                          : T("%d av %d forespørsler brukt (siste %d dager)"),
+                          quota.used, quota.limit, quota.days);
+        else
+            std::snprintf(b, sizeof b, tv ? T("%d av %d sesonger brukt") : T("%d av %d forespørsler brukt"),
+                          quota.used, quota.limit);
         notes.push_back({b, quota.restricted ? 0xffff9f0au : kText2});
     }
     if (m_user.advanced() && !loaded)
