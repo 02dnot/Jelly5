@@ -34,7 +34,7 @@ std::string minutes_label(int min)
 
 } // namespace
 
-SeerrDetail::SeerrDetail(const jf::Item &item) : m_item(item) {}
+SeerrDetail::SeerrDetail(jf::Client &client, const jf::Item &item) : m_client(client), m_item(item) {}
 
 void SeerrDetail::activate()
 {
@@ -49,11 +49,20 @@ void SeerrDetail::activate()
     }
     std::thread([d, c, id, tv] {
         seerr::Detail det;
+        std::vector<seerr::Title> related[2];
+        std::thread more([&] {   /* the rows under the page, alongside the details */
+            related[0] = c->related(id, tv, false);
+            related[1] = c->related(id, tv, true);
+        });
         const bool ok = tv ? c->tv(id, &det) : c->movie(id, &det);
+        more.join();
         const int status = c->last_status();
         if (!ok && (status == 401 || status == 403))
             seerr_service::session_lost();
         std::lock_guard<std::mutex> g(d->lock);
+        for (int i = 0; i < 2; i++)
+            if (!related[i].empty())
+                d->related[i] = std::move(related[i]);
         if (ok) {
             d->detail = std::move(det);
             d->loaded = true;
@@ -98,6 +107,39 @@ Action SeerrDetail::input(uint32_t p)
     }
     const std::vector<Button> bs = buttons();
     m_button = std::min(m_button, std::max(0, (int)bs.size() - 1));
+    auto next_row = [&](int from, int d) {   /* the next row with titles, or -1 (the buttons) */
+        for (int r = from + d; r >= 0 && r < 2; r += d)
+            if (!m_rows[r].empty())
+                return r;
+        return d > 0 ? from : -1;
+    };
+    if (m_row >= 0) {   /* in "Anbefalt" or "Lignende" */
+        std::vector<jf::Item> &row = m_rows[m_row];
+        int &col = m_cols[m_row];
+        if (p & NUVIO_BTN_CIRCLE) {
+            m_row = -1;   /* back to the buttons first */
+        } else if (p & NUVIO_BTN_UP) {
+            m_row = next_row(m_row, -1);
+        } else if (p & NUVIO_BTN_DOWN) {
+            m_row = next_row(m_row, 1);
+        } else if (p & NUVIO_BTN_LEFT) {
+            if (col > 0)
+                col--;
+        } else if (p & NUVIO_BTN_RIGHT) {
+            if (col + 1 < (int)row.size())
+                col++;
+        } else if ((p & NUVIO_BTN_CROSS) && col < (int)row.size()) {
+            a.kind = Action::Open;   /* its own Seerr page, or the library's when the server has it */
+            a.item = row[col];
+        }
+        return a;
+    }
+    if (p & NUVIO_BTN_DOWN) {
+        m_row = next_row(-1, 1);
+        if (m_row < 0 || m_rows[m_row].empty())
+            m_row = -1;
+        return a;
+    }
     if (p & NUVIO_BTN_CIRCLE) {
         a.kind = Action::Back;
     } else if (p & NUVIO_BTN_RIGHT) {
@@ -184,6 +226,12 @@ void SeerrDetail::draw(double now, float dt)
         m_failed = m_data->failed;
         if (m_loaded)
             m_detail = m_data->detail;
+        for (int i = 0; i < 2; i++)
+            if (m_rows[i].size() != m_data->related[i].size()) {
+                m_rows[i].clear();
+                for (const seerr::Title &t : m_data->related[i])
+                    m_rows[i].push_back(seerr_service::to_item(t));
+            }
     }
     /* A request went through: say how, and read the page again (its status moved). */
     seerr::RequestResult done;
@@ -222,10 +270,14 @@ void SeerrDetail::draw(double now, float dt)
         m_animating = true;
     gfx::push_opacity(m_content.value);
 
-    gfx::text(kPad, 360, name, {gfx::Bold, 84, 1500}, kText);
+    /* The page scrolls up when the rows under it have the focus. */
+    if (m_page.step(dt, 10.f))
+        m_animating = true;
+    const float off = m_page.value;
+    gfx::text(kPad, 360 - off, name, {gfx::Bold, 84, 1500}, kText);
 
     /* Meta: rating, year, runtime or seasons, genres; then where it stands. */
-    const float my = 440;
+    const float my = 440 - off;
     float x = kPad;
     const gfx::TextStyle meta{gfx::Medium, 24};
     bool first = true;
@@ -283,11 +335,11 @@ void SeerrDetail::draw(double now, float dt)
     gfx::text(kPad, y, m_loaded ? t.overview : m_item.overview, {gfx::Regular, 26, 860, 3, 37.7f}, kText2);
 
     /* Buttons: glass panes, the focus drop over them, then the labels. */
-    const float by = 668;
+    const float by = 668 - off;
     const std::vector<Button> bs = buttons();
     m_button = std::min(m_button, std::max(0, (int)bs.size() - 1));
     const bool sheet = m_sheet.active() || m_qr_open;
-    if (bs.empty() || sheet || !m_focused)
+    if (bs.empty() || sheet || !m_focused || m_row >= 0)
         m_drop.hide();
     const gfx::TextStyle st{gfx::Bold, 26};
     auto label_of = [](Button b) -> std::string {
@@ -305,7 +357,7 @@ void SeerrDetail::draw(double now, float dt)
             bx += w + 20;
             if (pass == 0) {
                 glass_panel(r, 16, 1.f, false);
-                if ((int)i == m_button && !sheet)
+                if ((int)i == m_button && !sheet && m_row < 0)
                     m_drop.to(r, (int)bs[i], 0, by);
                 continue;
             }
@@ -367,6 +419,44 @@ void SeerrDetail::draw(double now, float dt)
             gfx::text(sx + 38, cy - 1, b, cs, kText2);
             sx += w + 12;
         }
+    }
+    /* "Anbefalt" and "Lignende": posters, as on Seerr's own pages. */
+    {
+        const float pw = 210, ph = 315, gap = 32, rowh = 470;
+        float ry = cy + 90;
+        const float rows_top = ry + off;   /* unscrolled */
+        int shown = 0;
+        for (int r = 0; r < 2; r++) {
+            if (m_rows[r].empty())
+                continue;
+            if (m_row == r)   /* the focused row's posters under the top third of the screen */
+                m_page.to(std::max(0.f, rows_top + shown * rowh - 300));
+            shown++;
+            gfx::text(kPad, ry, r == 0 ? T("Anbefalt") : T("Lignende"), {gfx::Bold, 30}, alpha(0xebffffffu, 1.f));
+            const int col = std::min(m_cols[r], (int)m_rows[r].size() - 1);
+            const float max_scroll = std::max(0.f, m_rows[r].size() * (pw + gap) - gap - (gfx::W - 2 * kPad));
+            m_rscroll[r].to(std::min(max_scroll, std::max(0.f, (col - 1) * (pw + gap))));
+            if (m_rscroll[r].step(dt, 12.f))
+                m_animating = true;
+            const float py = ry + 42;
+            for (int pass = 0; pass < 2; pass++)   /* the focused poster last, over its neighbours */
+                for (size_t i = 0; i < m_rows[r].size(); i++) {
+                    const bool focus = m_focused && m_row == r && (int)i == col;
+                    if (focus != (pass == 1))
+                        continue;
+                    const float px = kPad + i * (pw + gap) - m_rscroll[r].value;
+                    if (px > gfx::W + 20 || px + pw < -60)
+                        continue;
+                    Anim &lift = m_lift[std::to_string(r) + "@" + std::to_string(m_rows[r][i].ext.tmdb_id)];
+                    lift.to(focus ? 1.f : 0.f);
+                    if (lift.step(dt, 14.f))
+                        m_animating = true;
+                    draw_poster(m_client, m_rows[r][i], {px, py, pw, ph}, lift.value, 1.f);
+                }
+            ry += rowh;
+        }
+        if (m_row < 0)
+            m_page.to(0.f);
     }
     gfx::pop_opacity();
 

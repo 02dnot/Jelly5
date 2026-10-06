@@ -389,6 +389,8 @@ const std::unordered_map<std::string, const char *> &italian_table()
         {"✕ for å teste", "✕ per provare"},
         {"✕ godkjenn Quick Connect for denne adressen", "✕ approva Quick Connect per questo indirizzo"},
         {"✕ logg ut", "✕ esci"},
+        {"Anbefalt", "Consigliati"},
+        {"Lignende", "Simili"},
     };
     return t;
 }

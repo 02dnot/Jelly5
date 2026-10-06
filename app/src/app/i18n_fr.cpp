@@ -395,6 +395,8 @@ const std::unordered_map<std::string, const char *> &french_table()
         {"Kommende filmer", "Films à venir"},
         {"Kommende serier", "Séries à venir"},
         {"Mine forespørsler", "Mes demandes"},
+        {"Anbefalt", "Recommandés"},
+        {"Lignende", "Similaires"},
     };
     return t;
 }

@@ -1173,7 +1173,7 @@ void shell_input(uint32_t p, jf::Item *play, bool *chose, bool *from_start, bool
             target.logo_tag = a.item.logo_tag;
         }
         if (seerr_page)
-            s_stack.emplace_back(new ui::SeerrDetail(a.item));
+            s_stack.emplace_back(new ui::SeerrDetail(*s_client, a.item));
         else if (target.type == "SyncPlay")
             s_stack.emplace_back(new ui::SyncPlayScreen(s_client->user_name()));
         else if (target.type == "Person")

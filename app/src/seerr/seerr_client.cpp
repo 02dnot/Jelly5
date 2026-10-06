@@ -492,6 +492,16 @@ std::vector<Title> Client::discover(Shelf shelf, int page)
     return titles_from(body);
 }
 
+std::vector<Title> Client::related(int tmdb_id, bool tv, bool similar, int page)
+{
+    std::string body;
+    if (!get(with_language(std::string(tv ? "/tv/" : "/movie/") + std::to_string(tmdb_id) +
+                           (similar ? "/similar" : "/recommendations") + "?page=" + std::to_string(page)),
+             &body))
+        return {};
+    return titles_from(body);
+}
+
 /* What films' and series' pages share. */
 static void detail_fields(const cJSON *j, bool tv, Detail *out)
 {

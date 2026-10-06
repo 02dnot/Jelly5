@@ -17,6 +17,7 @@
 
 #include <memory>
 #include <mutex>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -25,7 +26,7 @@ namespace ui {
 class SeerrDetail : public Screen {
 public:
     /* item: a Seerr title (jf::Item::external()). */
-    explicit SeerrDetail(const jf::Item &item);
+    SeerrDetail(jf::Client &client, const jf::Item &item);
 
     void activate() override;
     Action input(uint32_t pressed) override;
@@ -41,11 +42,13 @@ private:
         std::mutex lock;
         bool loaded = false, failed = false;
         seerr::Detail detail;
+        std::vector<seerr::Title> related[2];   /* recommendations, similar */
     };
     std::vector<Button> buttons() const;
     bool can_request() const;
     void draw_qr(float dt);
 
+    jf::Client &m_client;                   /* for the posters of titles the library has */
     jf::Item m_item;
     std::shared_ptr<Data> m_data = std::make_shared<Data>();
     bool m_loaded = false, m_failed = false;   /* this frame's copy */
@@ -62,6 +65,11 @@ private:
     Anim m_enter, m_content, m_note_a;
     Drop m_drop;
     bool m_animating = false;
+    /* Under the page: "Anbefalt" and "Lignende" (posters). m_row -1: the buttons. */
+    std::vector<jf::Item> m_rows[2];
+    int m_row = -1, m_cols[2] = {0, 0};
+    Anim m_page, m_rscroll[2];
+    std::map<std::string, Anim> m_lift;
 };
 
 } // namespace ui

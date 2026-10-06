@@ -230,6 +230,8 @@ public:
     std::vector<Title> search(const std::string &query, int page = 1);
     enum class Shelf { Trending, PopularMovies, PopularTv, UpcomingMovies, UpcomingTv };
     std::vector<Title> discover(Shelf shelf, int page = 1);
+    /* A title's recommendations, or (similar) the titles like it: TMDB's lists, through Seerr. */
+    std::vector<Title> related(int tmdb_id, bool tv, bool similar, int page = 1);
     bool movie(int tmdb_id, Detail *out);
     bool tv(int tmdb_id, Detail *out);
     /* TMDB's genre names for films or series, by id (in the language set). */
