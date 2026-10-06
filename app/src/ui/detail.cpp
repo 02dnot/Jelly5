@@ -353,6 +353,22 @@ std::vector<Detail::Button> Detail::buttons() const
     return b;
 }
 
+/* The focus stays on the same button when the row changes under it; when that
+ * button goes, on the first (Play), never on one to its right (a press there
+ * could mark the series watched). */
+void Detail::sync_button()
+{
+    const std::vector<Button> b = buttons();
+    if (b.empty())
+        return;
+    if (m_button_id >= 0) {
+        const auto it = std::find(b.begin(), b.end(), (Button)m_button_id);
+        m_button = it != b.end() ? (int)(it - b.begin()) : 0;
+    }
+    m_button = std::max(0, std::min(m_button, (int)b.size() - 1));
+    m_button_id = (int)b[m_button];
+}
+
 float Detail::zone_top(Zone z) const
 {
     float y = kTopH;
@@ -395,6 +411,7 @@ Action Detail::input(uint32_t p)
         m_sheet.input(p);
         return a;
     }
+    sync_button();
     const std::vector<Zone> zs = zones();
     const auto zi = std::find(zs.begin(), zs.end(), m_zone) - zs.begin();
     const int nb = (int)buttons().size();
@@ -413,7 +430,11 @@ Action Detail::input(uint32_t p)
         const int d = (p & NUVIO_BTN_RIGHT) ? 1 : -1;
         auto move = [d](int &i, int n) { i = std::max(0, std::min(n - 1, i + d)); };
         switch (m_zone) {
-        case Buttons: move(m_button, nb); break;
+        case Buttons:
+            move(m_button, nb);
+            if (m_button < nb)
+                m_button_id = (int)buttons()[m_button];
+            break;
         case Seasons: {
             const int before = m_season;
             move(m_season, (int)m_view.seasons.size());
@@ -612,6 +633,7 @@ void Detail::draw_top(float y0, float dt)
 
     /* Buttons. */
     const float by = y0 + 668;
+    sync_button();
     const std::vector<Button> bs = buttons();
     /* Glass buttons: the panes, then the focus drop over them, then their labels. */
     if (m_zone != Buttons || m_sheet.active())

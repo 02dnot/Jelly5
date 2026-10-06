@@ -56,6 +56,8 @@ private:
     bool m_loaded = false, m_failed = false;   /* this frame's copy */
     seerr::Detail m_detail;
     int m_button = 0;
+    int m_button_id = -1;                  /* the focused Button (its index moves as buttons come and go) */
+    void sync_button();
     RequestSheet m_sheet;
     bool m_qr_open = false;
     std::string m_qr_url;

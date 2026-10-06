@@ -77,6 +77,7 @@ private:
     static Content fetch(jf::Client &client, const jf::Item &base);
     std::vector<Zone> zones() const;
     std::vector<Button> buttons() const;
+    void sync_button();
     float zone_top(Zone z) const;     /* page y of a section */
 
     void draw_top(float y0, float dt);
@@ -88,6 +89,9 @@ private:
 
     Zone m_zone = Buttons;
     int m_button = 0;
+    /* Which button has the focus (its index can change: "Be om flere sesonger"
+     * comes and goes when Seerr answers). sync_button() maps it back each time. */
+    int m_button_id = -1;
     int m_season = 0, m_episode = 0, m_extra = 0, m_cast = 0, m_similar = 0;
     double m_now = 0;
     bool m_season_picked = false;      /* the viewer moved the picker (else follow the target) */

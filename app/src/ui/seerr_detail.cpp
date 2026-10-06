@@ -110,6 +110,19 @@ std::vector<SeerrDetail::Button> SeerrDetail::buttons() const
     return b;
 }
 
+void SeerrDetail::sync_button()
+{
+    const std::vector<Button> b = buttons();
+    if (b.empty())
+        return;
+    if (m_button_id >= 0) {
+        const auto it = std::find(b.begin(), b.end(), (Button)m_button_id);
+        m_button = it != b.end() ? (int)(it - b.begin()) : 0;
+    }
+    m_button = std::max(0, std::min(m_button, (int)b.size() - 1));
+    m_button_id = (int)b[m_button];
+}
+
 Action SeerrDetail::input(uint32_t p)
 {
     Action a;
@@ -122,6 +135,7 @@ Action SeerrDetail::input(uint32_t p)
             m_qr_open = false;
         return a;
     }
+    sync_button();
     const std::vector<Button> bs = buttons();
     m_button = std::min(m_button, std::max(0, (int)bs.size() - 1));
     auto next_row = [&](int from, int d) {   /* the next row with titles, or -1 (the buttons) */
@@ -161,12 +175,12 @@ Action SeerrDetail::input(uint32_t p)
         a.kind = Action::Back;
     } else if (p & NUVIO_BTN_RIGHT) {
         if (m_button + 1 < (int)bs.size())
-            m_button++;
+            m_button_id = (int)bs[++m_button];
         else
             m_bump = true;
     } else if (p & NUVIO_BTN_LEFT) {
         if (m_button > 0)
-            m_button--;
+            m_button_id = (int)bs[--m_button];
         else
             m_bump = true;
     } else if ((p & NUVIO_BTN_CROSS) && !bs.empty()) {
@@ -387,6 +401,7 @@ void SeerrDetail::draw(double now, float dt)
 
     /* Buttons: glass panes, the focus drop over them, then the labels. */
     const float by = 668 - off;
+    sync_button();
     const std::vector<Button> bs = buttons();
     m_button = std::min(m_button, std::max(0, (int)bs.size() - 1));
     const bool sheet = m_sheet.active() || m_qr_open;
