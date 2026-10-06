@@ -179,11 +179,16 @@ These come from the platform, not from Jelly5:
 
 ## Privacy
 
-Jelly5 talks to your Jellyfin server and nothing else. The one exception is
-opt-in: with *Check for updates* turned on in its settings, it asks GitHub once a
-launch whether there is a newer release. It keeps its accounts, settings and a
-96 MB image cache in its own folder, `/download0/jelly5`, and writes nowhere
-else on the console. Release builds send no logs anywhere.
+Jelly5 talks to your Jellyfin server and, when you turn it on in its settings,
+your Seerr server, and nothing else. Seerr gets what it shows from TMDB itself:
+the console never contacts TMDB, YouTube or any other service, posters come
+through Seerr's own image cache, and a trailer is a QR code that your phone
+opens. Off, nothing is ever sent to Seerr. The one exception is opt-in: with
+*Check for updates* turned on in its settings, it asks GitHub once a launch
+whether there is a newer release. It keeps its accounts, settings, Seerr
+session (never a password) and a 96 MB image cache in its own folder,
+`/download0/jelly5`, and writes nowhere else on the console. Release builds
+send no logs anywhere.
 
 ## Reporting problems
 
