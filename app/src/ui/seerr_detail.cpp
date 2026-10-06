@@ -49,27 +49,29 @@ void SeerrDetail::activate()
     }
     std::thread([d, c, id, tv] {
         seerr::Detail det;
-        std::vector<seerr::Title> related[2];
-        std::thread more([&] {   /* the rows under the page, alongside the details */
-            related[0] = c->related(id, tv, false);
-            related[1] = c->related(id, tv, true);
-        });
         const bool ok = tv ? c->tv(id, &det) : c->movie(id, &det);
-        more.join();
         const int status = c->last_status();
         if (!ok && (status == 401 || status == 403))
             seerr_service::session_lost();
+        {
+            std::lock_guard<std::mutex> g(d->lock);
+            if (ok) {
+                d->detail = std::move(det);
+                d->loaded = true;
+                d->failed = false;
+            } else if (!d->loaded) {
+                d->failed = true;
+            }
+        }
+        if (!ok)
+            return;
+        /* The rows under the page, once the details show (on this thread: no
+         * second one to start, which can fail and abort). */
+        std::vector<seerr::Title> related[2] = {c->related(id, tv, false), c->related(id, tv, true)};
         std::lock_guard<std::mutex> g(d->lock);
         for (int i = 0; i < 2; i++)
             if (!related[i].empty())
                 d->related[i] = std::move(related[i]);
-        if (ok) {
-            d->detail = std::move(det);
-            d->loaded = true;
-            d->failed = false;
-        } else if (!d->loaded) {
-            d->failed = true;
-        }
     }).detach();
 }
 
