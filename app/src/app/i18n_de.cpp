@@ -173,6 +173,7 @@ const std::unordered_map<std::string, const char *> &german_table()
         {"▢ sletter", "▢ löscht"},
         {"Forslag", "Vorschläge"},
         {"Treff for «%s»", "Ergebnisse für „%s“"},
+        {"Smart", "Intelligent"},
         {"Ingen treff", "Keine Ergebnisse"},
         {"Fant ingen Jellyfin-server på ", "Kein Jellyfin-Server gefunden unter "},
         {"Feil brukernavn eller passord", "Falscher Benutzername oder falsches Passwort"},
