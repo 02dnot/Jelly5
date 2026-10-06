@@ -101,6 +101,12 @@ HttpResponse http_request(const std::string &method, const std::string &url,
     while (res.body.size() < kMaxBody && (n = avio_read(io, buf, sizeof buf)) > 0)
         res.body.append((const char *)buf, (size_t)n);
     avio_closep(&io);
+    if (res.body.size() >= kMaxBody) {   /* cut short: not an answer to read as one */
+        res.body.clear();
+        res.status = 0;
+        res.error = "response larger than 16 MB";
+        return res;
+    }
     res.status = 200;   /* avio exposes no 2xx detail; 204 arrives as an empty 200 */
     return res;
 }
