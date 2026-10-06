@@ -140,8 +140,11 @@ void SettingsScreen::seerr_account()
         return;
     }
     switch (config().auth) {
-    case Auth::QuickConnect:
-        reconnect();
+    case Auth::QuickConnect:   /* ✕ here approves Quick Connect for the address shown */
+        if (s.why == Why::NeedApproval)
+            approve_quick_connect();
+        else
+            reconnect();
         break;
     case Auth::JellyfinPassword:
         ime::request(ime::Kind::Password, T("Jellyfin-passord for ") + m_client.user_name(), "",
@@ -209,6 +212,8 @@ std::string SettingsScreen::value(Row r) const
         case State::SignedOut:
             if (sn.why == Why::WrongPassword)
                 return T("Feil brukernavn eller passord");
+            if (sn.why == Why::NeedApproval)
+                return T("\xE2\x9C\x95 godkjenn Quick Connect for denne adressen");
             if (sn.why == Why::AutoFailed)
                 return T("Automatisk p\xC3\xA5logging mislyktes \xE2\x80\x93 velg passord");
             return T("Ikke p\xC3\xA5logget \xE2\x80\x93 \xE2\x9C\x95 for \xC3\xA5 logge p\xC3\xA5");

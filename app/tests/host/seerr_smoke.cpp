@@ -1,7 +1,8 @@
 /*
  * Jelly5 — host smoke test for the Seerr client against a real server.
- * Signs in the way the console does (Quick Connect, approved with the
- * Jellyfin account from .env.local), then reads: search, discover, a film's
+ * Signs in with the Jellyfin password from .env.local (--auth quickconnect
+ * signs in the way the console does, approving a Quick Connect code in
+ * Jellyfin: a write, so only when asked), then reads: search, discover, a film's
  * and a series' pages, the Radarr/Sonarr options, the quota and the user's
  * requests, and fetches a poster through Seerr's image cache. A request is
  * only shown (dry run) unless --for-real is given.
@@ -92,7 +93,7 @@ bool looks_like_image(const std::string &b)
 int main(int argc, char **argv)
 {
     std::string query = env("SEERR_QUERY", "dune"), lang = env("SEERR_LANG", "fr");
-    std::string auth = env("SEERR_AUTH", "quickconnect");
+    std::string auth = env("SEERR_AUTH", "jellyfin");   /* quickconnect approves a code in Jellyfin: only when asked */
     seerr::RequestOptions ro;
     bool for_real = false, keep = false;
     for (int i = 1; i < argc; i++) {

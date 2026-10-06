@@ -42,6 +42,7 @@ enum class Why {
     None,
     NeedPassword,   /* the method is a password: the viewer types it */
     AutoFailed,     /* Quick Connect did not work (Seerr before 3.4, Quick Connect off ...) */
+    NeedApproval,   /* Quick Connect not yet approved by the viewer for this address */
     WrongPassword,
     SignedOut,      /* the viewer signed out: nothing automatic until they sign in */
 };
@@ -89,6 +90,10 @@ std::string suggested_url();
 
 /* Connects again (and signs in by Quick Connect when that is the method). */
 void reconnect();
+/* The viewer approves Quick Connect for the Seerr address in the settings (the
+ * account row): from then on, and only for that address, the console approves
+ * Seerr's Quick Connect codes with this Jellyfin account by itself. */
+void approve_quick_connect();
 /* A request found the session gone (Seerr: 401/403): sign in again. */
 void session_lost();
 /* The Jellyfin password (user empty: the account's own name) or a local account. */

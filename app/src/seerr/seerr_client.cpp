@@ -73,6 +73,22 @@ std::string trim(const std::string &s)
     return s.substr(a, b - a);
 }
 
+/* A Jellyfin item id, as Seerr reports it: 32 hex digits (dashes allowed), else
+ * none. It goes into Jellyfin's request paths, which carry the viewer's token:
+ * nothing else may ride along ("../System/Restart"). */
+std::string jellyfin_id_of(const std::string &v)
+{
+    int hex = 0;
+    for (const char ch : v) {
+        if ((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F'))
+            hex++;
+        else if (ch != '-')
+            return std::string();
+    }
+    return hex == 32 ? v : std::string();
+}
+
+
 int year_of(const std::string &date) { return date.size() >= 4 ? std::atoi(date.substr(0, 4).c_str()) : 0; }
 
 Status status_of(int v) { return v >= 1 && v <= 7 ? (Status)v : Status::Unknown; }
@@ -100,7 +116,7 @@ Title title_of(const cJSON *o, bool tv)
     const cJSON *media = cJSON_GetObjectItemCaseSensitive(o, "mediaInfo");
     if (cJSON_IsObject(media)) {
         t.status = status_of(int_of(media, "status", 1));
-        t.jellyfin_id = str_of(media, "jellyfinMediaId");
+        t.jellyfin_id = jellyfin_id_of(str_of(media, "jellyfinMediaId"));
     }
     return t;
 }

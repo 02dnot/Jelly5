@@ -159,6 +159,7 @@ struct Stored {
     Config config;
     std::string cookies;
     bool signed_out = false;            /* the viewer signed out: no automatic sign-in */
+    std::string quick_connect_url;      /* the Seerr address the viewer approved Quick Connect for */
 };
 
 /* The file's for an account, with the changes still on their way to it (off
@@ -188,6 +189,7 @@ Stored load_stored(const std::string &server, const std::string &account)
             s.config.auth = (Auth)i;
     s.cookies = str(acc, "cookies");
     s.signed_out = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(acc, "signedOut"));
+    s.quick_connect_url = str(acc, "quickConnectUrl");
     cJSON_Delete(root);
     return s;
 }
@@ -339,6 +341,11 @@ void connect_worker(unsigned epoch)
         if (!ok && st.signed_out) {
             why = Why::SignedOut;
             error = "signed out";
+        } else if (!ok && st.config.auth == Auth::QuickConnect && st.quick_connect_url != st.config.url) {
+            /* Approving a code hands whoever answers at this address a Jellyfin
+             * session: only for an address the viewer approved themselves. */
+            why = Why::NeedApproval;
+            error = "Quick Connect not approved for this address";
         } else if (!ok && st.config.auth == Auth::QuickConnect && jf) {
             evo_bt("seerr: no session, signing in by Quick Connect");
             ok = cl->sign_in_quick_connect([jf](const std::string &code) { return jf->quick_connect_authorize(code); },
@@ -534,6 +541,20 @@ void reconnect()
     if (s_account.empty())
         return;
     write_session(read_stored().cookies, false);   /* asked for: sign in automatically again */
+    restart_locked();
+}
+
+void approve_quick_connect()
+{
+    std::lock_guard<std::mutex> g(s_lock);
+    if (s_account.empty())
+        return;
+    const std::string url = s_stored.config.url;
+    s_stored.quick_connect_url = url;
+    const std::string account = s_account;
+    persist([account, url](cJSON *root) { put_str(child(child(root, "accounts"), account.c_str()), "quickConnectUrl", url); });
+    evo_bt("seerr: Quick Connect approved for %s", url.c_str());
+    write_session(read_stored().cookies, false);
     restart_locked();
 }
 
