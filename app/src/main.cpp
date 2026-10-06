@@ -748,11 +748,11 @@ void load_discover(unsigned session)
         if (session != s_session)
             return;
         s_state.discover_failed = m.rows.empty();
-        s_state.discover_at = now_s();
-        if (!m.rows.empty()) {   /* a failed reload keeps what was there */
+        if (!m.rows.empty()) {   /* a failed reload keeps what was there, and is tried again */
             s_state.discover = std::move(m);
-            s_discover_version++;
+            s_state.discover_at = now_s();
         }
+        s_discover_version++;   /* either way the tab redraws (its "Henter …" ends) */
     }
     if (again)   /* e.g. the language was cycled past another one while this loaded */
         load_discover(session);
@@ -1152,6 +1152,10 @@ void shell_input(uint32_t p, jf::Item *play, bool *chose, bool *from_start, bool
             open_tab(s_nav_tab);         /* tvOS-style: focusing a tab opens it */
         return;
     }
+    if (s_tab == ui::Nav::Discover && s_stack.empty() && s_discover->empty() && (p & NUVIO_BTN_CROSS)) {
+        refresh_discover(0, true);   /* the empty tab: ✕ asks Seerr again */
+        return;
+    }
     ui::Screen *in_screen = screen_for(s_tab);
     const ui::Action a = in_screen->input(p);
     if (in_screen->take_bump())
@@ -1406,6 +1410,12 @@ bool draw_frame(double t, float dt)
         }
         more = s_tab == ui::Nav::Discover && s_stack.empty() && s_discover->wants_more(&more_shelf, &more_page);
     }
+    /* A request or a withdrawal here: "Mine forespørsler" and the rows read Seerr again. */
+    static unsigned seen_seerr_changes = 0;
+    if (seerr_service::changes() != seen_seerr_changes) {
+        seen_seerr_changes = seerr_service::changes();
+        refresh_discover(0, true);
+    }
     /* Near the end of one of Seerr's rows: its next page. Outside the lock, which
      * load_more_discover takes itself (taking it twice aborted the app). */
     if (more)
@@ -1470,6 +1480,7 @@ bool draw_frame(double t, float dt)
             }
             scr->set_focused(!s_nav_focus || !s_stack.empty());
             scr->draw(t, dt);
+            bool discover_wait = false;
             if (s_tab == ui::Nav::Discover && s_stack.empty() && s_discover->empty()) {
                 /* Seerr's tab before its rows have come (or when they could not). */
                 bool failed;
@@ -1477,14 +1488,17 @@ bool draw_frame(double t, float dt)
                     std::lock_guard<std::mutex> g(s_state.lock);
                     failed = s_state.discover_failed && !s_state.discover_loading;
                 }
-                const std::string text = failed ? T("Seerr svarer ikke") : T("Henter \xE2\x80\xA6");
+                /* Seerr answered with nothing, or did not answer: either way ✕ asks again. */
+                const bool ready = seerr_service::snapshot().state == seerr_service::State::Ready;
+                const std::string text = !failed ? T("Henter \xE2\x80\xA6")
+                                         : ready ? T("Ingenting å vise akkurat nå \xE2\x80\x93 \xE2\x9C\x95 for å prøve igjen")
+                                                 : T("Seerr svarer ikke \xE2\x80\x93 \xE2\x9C\x95 for å prøve igjen");
                 gfx::text(gfx::W / 2, gfx::H / 2, text, {gfx::SemiBold, 34}, failed ? ui::kText2 : ui::kText3, 1);
-                if (!failed)
-                    animating = true;
+                discover_wait = !failed;
             }
             if (enter < 1.f)
                 gfx::pop_opacity();
-            animating = scr->animating();
+            animating = scr->animating() || discover_wait;   /* "Henter …" until the rows come */
             const float nav = !s_stack.empty() ? 0.f : s_nav_focus ? 1.f : scr->nav_alpha();
             s_nav.draw(nav, s_tab, s_nav_focus ? s_nav_tab : -1, dt, &animating);
             /* The music page closes when the music ends; elsewhere the mini player shows it. */

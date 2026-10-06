@@ -305,6 +305,8 @@ void SeerrDetail::draw(double now, float dt)
         std::lock_guard<std::mutex> g(m_data->lock);
         std::swap(cancelled, m_data->cancel_result);
     }
+    if (cancelled > 0)
+        seerr_service::note_status(m_item.ext.tmdb_id, m_item.type == "Series", (int)seerr::Status::Unknown);
     if (cancelled) {   /* withdrawn (or not): say so, and read the page again */
         m_note = cancelled > 0 ? T("Forespørselen er trukket tilbake") : T("Kunne ikke trekke tilbake forespørselen");
         m_note_at = now;
@@ -315,7 +317,7 @@ void SeerrDetail::draw(double now, float dt)
     const seerr::Title &t = m_loaded ? m_detail.title : seerr::Title();
     const std::string &name = m_loaded ? t.name : m_item.name;
     const bool tv = m_item.type == "Series";
-    const int status = m_loaded ? (int)t.status : m_item.ext.status;
+    const int status = m_loaded ? (int)t.status : seerr_service::status_of(m_item);
 
     /* Backdrop and scrims, as the library's page. */
     const gfx::Rect full{0, 0, gfx::W, gfx::H};

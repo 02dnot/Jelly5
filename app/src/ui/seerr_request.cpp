@@ -341,6 +341,10 @@ void RequestSheet::draw(float dt, bool *animating)
             if (r.outcome == R::Approved || r.outcome == R::Pending || r.outcome == R::NothingToRequest) {
                 m_result = r;
                 m_done = true;
+                if (r.outcome != R::NothingToRequest)   /* shown everywhere at once, before Seerr is read again */
+                    seerr_service::note_status(m_detail.title.id, m_detail.title.tv,
+                                               (int)(r.outcome == R::Approved ? seerr::Status::Processing
+                                                                              : seerr::Status::Pending));
                 m_open = false;
                 m_alpha.to(0.f);
             } else {

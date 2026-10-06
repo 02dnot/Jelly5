@@ -550,6 +550,35 @@ void reconnect()
     restart_locked();
 }
 
+namespace {
+std::mutex s_noted_lock;
+struct Noted {
+    int status;
+    double at;   /* now_ms() */
+};
+std::map<std::string, Noted> s_noted;   /* "tv:123" -> status, for two minutes: Seerr is read again by then */
+std::atomic<unsigned> s_changes{0};
+std::string noted_key(int tmdb_id, bool tv) { return (tv ? "tv:" : "movie:") + std::to_string(tmdb_id); }
+} // namespace
+
+int status_of(const jf::Item &it)
+{
+    std::lock_guard<std::mutex> g(s_noted_lock);
+    const auto n = s_noted.find(noted_key(it.ext.tmdb_id, it.type == "Series"));
+    return n != s_noted.end() && now_ms() - n->second.at < 120000 ? n->second.status : it.ext.status;
+}
+
+void note_status(int tmdb_id, bool tv, int status)
+{
+    {
+        std::lock_guard<std::mutex> g(s_noted_lock);
+        s_noted[noted_key(tmdb_id, tv)] = {status, now_ms()};
+    }
+    s_changes++;
+}
+
+unsigned changes() { return s_changes.load(); }
+
 void approve_quick_connect()
 {
     std::lock_guard<std::mutex> g(s_lock);

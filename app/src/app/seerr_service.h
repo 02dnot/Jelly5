@@ -70,6 +70,16 @@ void attach(jf::Client *client);
 /* The account is going away (switch, sign-out): its requests' results are dropped. */
 void detach();
 
+/* A title's status as this session knows it: a request or a withdrawal made
+ * here moves it at once, before Seerr's lists are read again. it: a Seerr item
+ * (jf::Item::external()). */
+int status_of(const jf::Item &it);
+/* After a request or a withdrawal here: the title's new status (seerr::Status),
+ * shown everywhere at once; bumps changes(). */
+void note_status(int tmdb_id, bool tv, int status);
+/* Bumped by note_status: the lists that show statuses read them again. */
+unsigned changes();
+
 Config config();
 /* Saves; connects again when the address, the sign-in or "on" changed. */
 void set_config(const Config &c);

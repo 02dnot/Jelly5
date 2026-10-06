@@ -5,6 +5,7 @@
  * Sizes, colours and timings follow concept/style.css.
  */
 #include "ui/home.h"
+#include "app/seerr_service.h"
 #include "app/i18n.h"
 
 #include "gfx/art.h"
@@ -249,7 +250,7 @@ void Home::draw_card_art(const jf::Item &it, const gfx::Rect &r, float radius, f
     if (it.external()) {   /* Seerr's: its name on its colours, the picture over it, where it stands */
         draw_glass_placeholder(r, radius, a);
         art::draw(r, it.ext.thumb, "", 640, 360, radius, a, 0);
-        draw_status_chip(r.x + 12, r.y + 12, it.ext.status, a);
+        draw_status_chip(r.x + 12, r.y + 12, seerr_service::status_of(it), a);
         return;
     }
     art::draw(r, card_url(it), it.thumb_blurhash.empty() ? it.backdrop_blurhash : it.thumb_blurhash, 640, 360,
@@ -388,8 +389,9 @@ void Home::draw_info(const jf::Item &it, float bottom, bool hero, float a)
     }
     if (it.external()) {   /* where a Seerr title stands, always said (also "not requested") */
         const float sx = x > kPad ? x + 24 : x;
-        gfx::fill({sx, meta_y - 15, 12, 12}, alpha(seerr_status_color(it.ext.status), a), 6);
-        x = sx + 22 + gfx::text(sx + 22, meta_y, seerr_status_label(it.ext.status, true), {gfx::SemiBold, 22},
+        const int st = seerr_service::status_of(it);
+        gfx::fill({sx, meta_y - 15, 12, 12}, alpha(seerr_status_color(st), a), 6);
+        x = sx + 22 + gfx::text(sx + 22, meta_y, seerr_status_label(st, true), {gfx::SemiBold, 22},
                                 alpha(kText, a));
     }
     if (!it.official_rating.empty()) {

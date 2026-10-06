@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "ui/screen.h"
+#include "app/seerr_service.h"
 #include "app/i18n.h"
 #include "seerr/seerr_client.h"
 
@@ -333,7 +334,7 @@ void draw_poster(jf::Client &c, const jf::Item &it, const gfx::Rect &base, float
     if (it.external()) {   /* the name on its own colours, the picture fading in over it */
         draw_glass_placeholder(r, 14 * k, opacity);
         art::draw(r, it.ext.poster, "", 480, 720, 14 * k, opacity, 0);
-        draw_status_chip(r.x + 10, r.y + 10, it.ext.status, opacity);
+        draw_status_chip(r.x + 10, r.y + 10, seerr_service::status_of(it), opacity);
     } else {
         art::draw(r, poster_url(c, it, 480), it.primary_blurhash, 480, 720, 14 * k, opacity);
     }
