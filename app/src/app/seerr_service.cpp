@@ -11,10 +11,13 @@
 #include <atomic>
 #include <cstdio>
 #include <cstdlib>
+#include <ctime>
+#include <functional>
 #include <mutex>
 #include <sys/stat.h>
 #include <thread>
 #include <unistd.h>
+#include <vector>
 
 extern "C" {
 #include "cJSON.h"
@@ -72,6 +75,52 @@ void save(cJSON *root)
     std::free(text);
 }
 
+/* Writes go through one background writer: a change is queued as a patch to
+ * the file's tree, and the writer reads the file, patches it and writes it.
+ * Nothing waits on the disk: not the render thread (the settings change from
+ * there), not anyone holding s_lock (which the settings read every frame). */
+std::mutex s_disk_lock;                 /* the file: the writer, or load_stored */
+std::mutex s_queue_lock;                /* s_patches, s_writing */
+std::vector<std::function<void(cJSON *)>> s_patches;
+bool s_writing = false;
+
+double now_ms()
+{
+    timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec * 1000.0 + ts.tv_nsec / 1e6;
+}
+
+void persist(std::function<void(cJSON *)> patch)
+{
+    std::lock_guard<std::mutex> g(s_queue_lock);
+    s_patches.push_back(std::move(patch));
+    if (s_writing)
+        return;
+    s_writing = true;
+    std::thread([] {
+        for (;;) {
+            std::lock_guard<std::mutex> disk(s_disk_lock);
+            std::vector<std::function<void(cJSON *)>> todo;
+            {
+                std::lock_guard<std::mutex> q(s_queue_lock);
+                if (s_patches.empty()) {
+                    s_writing = false;
+                    return;
+                }
+                todo.swap(s_patches);
+            }
+            const double t0 = now_ms();
+            cJSON *root = load();
+            for (auto &p : todo)
+                p(root);
+            save(root);
+            cJSON_Delete(root);
+            evo_bt("seerr: seerr.json saved (%zu changes) in %.0f ms", todo.size(), now_ms() - t0);
+        }
+    }).detach();
+}
+
 /* parent[key], made when missing. */
 cJSON *child(cJSON *parent, const char *key)
 {
@@ -108,18 +157,27 @@ struct Stored {
     bool signed_out = false;            /* the viewer signed out: no automatic sign-in */
 };
 
-/* The file's, for the account in use (call with s_lock held). */
-Stored load_stored()
+/* The file's for an account, with the changes still on their way to it (off
+ * the render thread: it reads the disk). */
+Stored load_stored(const std::string &server, const std::string &account)
 {
     Stored s;
+    std::lock_guard<std::mutex> disk(s_disk_lock);   /* not halfway through a write */
+    std::vector<std::function<void(cJSON *)>> pending;
+    {
+        std::lock_guard<std::mutex> q(s_queue_lock);
+        pending = s_patches;
+    }
     cJSON *root = load();
+    for (auto &p : pending)
+        p(root);
     s.config.internet = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(root, "internet"));
     const cJSON *srv = cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(root, "servers"),
-                                                        s_server.c_str());
+                                                        server.c_str());
     s.config.enabled = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(srv, "enabled"));
     s.config.url = str(srv, "url");
     const cJSON *acc = cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(root, "accounts"),
-                                                        s_account.c_str());
+                                                        account.c_str());
     const std::string auth = str(acc, "auth");
     for (int i = 0; i < (int)Auth::Count; i++)
         if (auth == kAuthNames[i])
@@ -130,7 +188,7 @@ Stored load_stored()
     return s;
 }
 
-Stored s_stored;                        /* load_stored(), kept current: read every frame */
+Stored s_stored;                        /* the account in use's, kept current: read every frame */
 
 Stored read_stored() { return s_stored; }
 
@@ -140,12 +198,12 @@ void write_session(const std::string &cookies, bool signed_out)
         return;
     s_stored.cookies = cookies;
     s_stored.signed_out = signed_out;
-    cJSON *root = load();
-    cJSON *acc = child(child(root, "accounts"), s_account.c_str());
-    put_str(acc, "cookies", cookies);
-    put_bool(acc, "signedOut", signed_out);
-    save(root);
-    cJSON_Delete(root);
+    const std::string account = s_account;
+    persist([account, cookies, signed_out](cJSON *root) {
+        cJSON *acc = child(child(root, "accounts"), account.c_str());
+        put_str(acc, "cookies", cookies);
+        put_bool(acc, "signedOut", signed_out);
+    });
 }
 
 /* ---- state ----------------------------------------------------------------------- */
@@ -326,11 +384,13 @@ bool local_address(const std::string &url)
 
 void attach(jf::Client *client)
 {
+    const std::string server = client->server(), account = client->server() + "|" + client->user_id();
+    const Stored loaded = load_stored(server, account);   /* the disk, before taking s_lock */
     std::lock_guard<std::mutex> g(s_lock);
     s_jf = client;
-    s_server = client->server();
-    s_account = client->server() + "|" + client->user_id();
-    s_stored = load_stored();
+    s_server = server;
+    s_account = account;
+    s_stored = loaded;
     const Stored st = s_stored;
     if (st.config.enabled && !st.config.url.empty()) {
         restart_locked();
@@ -369,14 +429,15 @@ void set_config(const Config &c)
     const Config old = s_stored.config;
     s_stored.config = c;
     s_stored.config.url = seerr::Client::normalize(c.url);
-    cJSON *root = load();
-    put_bool(root, "internet", c.internet);
-    cJSON *srv = child(child(root, "servers"), s_server.c_str());
-    put_bool(srv, "enabled", c.enabled);
-    put_str(srv, "url", seerr::Client::normalize(c.url));
-    put_str(child(child(root, "accounts"), s_account.c_str()), "auth", kAuthNames[(int)c.auth]);
-    save(root);
-    cJSON_Delete(root);
+    const Config n = s_stored.config;
+    const std::string server = s_server, account = s_account;
+    persist([n, server, account](cJSON *root) {
+        put_bool(root, "internet", n.internet);
+        cJSON *srv = child(child(root, "servers"), server.c_str());
+        put_bool(srv, "enabled", n.enabled);
+        put_str(srv, "url", n.url);
+        put_str(child(child(root, "accounts"), account.c_str()), "auth", kAuthNames[(int)n.auth]);
+    });
     if (c.enabled == old.enabled && seerr::Client::normalize(c.url) == old.url && c.auth == old.auth &&
         c.internet == old.internet)
         return;
