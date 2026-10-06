@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "app/seerr_service.h"
+#include "app/spawn.h"
 #include "app/i18n.h"
 #include "jf/jf_http.h"
 
@@ -102,7 +103,7 @@ void persist(std::function<void(cJSON *)> patch)
     if (s_writing)
         return;
     s_writing = true;
-    std::thread([] {
+    const bool started = jelly5::spawn([] {
         for (;;) {
             std::lock_guard<std::mutex> disk(s_disk_lock);
             std::vector<std::function<void(cJSON *)>> todo;
@@ -122,7 +123,9 @@ void persist(std::function<void(cJSON *)> patch)
             cJSON_Delete(root);
             evo_bt("seerr: seerr.json saved (%zu changes) in %.0f ms", todo.size(), now_ms() - t0);
         }
-    }).detach();
+    });
+    if (!started)
+        s_writing = false;   /* no thread: the next change tries again (the patch stays queued) */
 }
 
 /* parent[key], made when missing. */
@@ -367,7 +370,10 @@ void restart_locked()
     s_snap.state = State::Connecting;
     s_gen++;
     const unsigned epoch = s_epoch;
-    std::thread([epoch] { connect_worker(epoch); }).detach();
+    if (!jelly5::spawn([epoch] { connect_worker(epoch); })) {
+        s_snap.state = State::Unreachable;   /* no thread to connect on: say so, a later change retries */
+        s_snap.error = "no thread";
+    }
 }
 
 /* Private addresses: what the console reaches without Internet. */
@@ -580,7 +586,7 @@ void sign_in(const std::string &user, const std::string &password)
     s_snap.state = State::Connecting;
     s_gen++;
     const unsigned epoch = s_epoch;
-    std::thread([epoch, st, name, password] {
+    const bool started = jelly5::spawn([epoch, st, name, password] {
         auto cl = make_client(st.config, std::string());
         std::string version;
         seerr::PublicSettings ps;
@@ -598,7 +604,11 @@ void sign_in(const std::string &user, const std::string &password)
                                                       : cl->sign_in_jellyfin(name, password, &u);
         finish(epoch, cl, ok, u, version, ps, cl->last_unreachable() ? Why::AutoFailed : Why::WrongPassword,
                cl->last_error());
-    }).detach();
+    });
+    if (!started) {
+        s_snap.state = State::Unreachable;
+        s_snap.error = "no thread";
+    }
 }
 
 void sign_out()
@@ -617,7 +627,7 @@ void sign_out()
     s_gen++;
     evo_bt("seerr: signed out");
     if (cl)   /* ends the session on the server too */
-        std::thread([cl] { cl->sign_out(); }).detach();
+        jelly5::spawn([cl] { cl->sign_out(); });   /* best effort: the session is dropped here anyway */
 }
 
 void test()
@@ -633,7 +643,7 @@ void test()
         s_snap.testing = true;
         s_gen++;
     }
-    std::thread([epoch, st] {
+    const bool started = jelly5::spawn([epoch, st] {
         auto cl = make_client(st.config, st.cookies);
         std::string line, version;
         char buf[512];
@@ -663,7 +673,12 @@ void test()
             s.testing = false;
             s.test = line;
         });
-    }).detach();
+    });
+    if (!started) {
+        std::lock_guard<std::mutex> g(s_lock);
+        s_snap.testing = false;
+        s_gen++;
+    }
 }
 
 std::string image_url(const std::string &path, const char *size)

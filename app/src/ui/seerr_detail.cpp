@@ -6,6 +6,7 @@
  * title, meta line, glass buttons and focus drop.
  */
 #include "ui/seerr_detail.h"
+#include "app/spawn.h"
 #include "app/i18n.h"
 #include "app/seerr_service.h"
 
@@ -47,7 +48,7 @@ void SeerrDetail::activate()
         d->failed = !d->loaded;
         return;
     }
-    std::thread([d, c, id, tv] {
+    const bool started = jelly5::spawn([d, c, id, tv] {
         seerr::Detail det;
         const bool ok = tv ? c->tv(id, &det) : c->movie(id, &det);
         const int status = c->last_status();
@@ -72,7 +73,11 @@ void SeerrDetail::activate()
         for (int i = 0; i < 2; i++)
             if (!related[i].empty())
                 d->related[i] = std::move(related[i]);
-    }).detach();
+    });
+    if (!started) {   /* no thread: the page says it could not load (a later visit tries again) */
+        std::lock_guard<std::mutex> g(d->lock);
+        d->failed = !d->loaded;
+    }
 }
 
 bool SeerrDetail::can_request() const
@@ -209,11 +214,15 @@ Action SeerrDetail::input(uint32_t p)
             std::shared_ptr<Data> d = m_data;
             m_note = T("Trekker tilbake \xE2\x80\xA6");
             m_note_at = m_now;
-            std::thread([c, id, d] {   /* d, not this: the page may close meanwhile */
+            const bool started = jelly5::spawn([c, id, d] {   /* d, not this: the page may close meanwhile */
                 const bool ok = c->cancel_request(id);
                 std::lock_guard<std::mutex> g(d->lock);
                 d->cancel_result = ok ? 1 : -1;
-            }).detach();
+            });
+            if (!started) {
+                std::lock_guard<std::mutex> g(d->lock);
+                d->cancel_result = -1;
+            }
             break;
         }
         case TrailerButton: {   /* a QR code of the link: the phone plays it */

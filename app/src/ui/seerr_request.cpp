@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "ui/seerr_request.h"
+#include "app/spawn.h"
 #include "app/i18n.h"
 #include "app/seerr_service.h"
 
@@ -102,7 +103,7 @@ void RequestSheet::open(const seerr::Detail &d, const seerr::User &user, const s
         sh->loaded = true;
         return;
     }
-    std::thread([sh, c, tv, advanced, uid] {
+    const bool started = jelly5::spawn([sh, c, tv, advanced, uid] {
         std::vector<seerr::Server> list;
         if (advanced)
             for (const seerr::Server &s : c->servers(tv)) {
@@ -119,7 +120,11 @@ void RequestSheet::open(const seerr::Detail &d, const seerr::User &user, const s
         sh->quota = tv ? tq : mq;
         sh->have_quota = have_quota;
         sh->loaded = true;
-    }).detach();
+    });
+    if (!started) {   /* no thread: the sheet works with Seerr's defaults, without the quota */
+        std::lock_guard<std::mutex> g(sh->lock);
+        sh->loaded = true;
+    }
 }
 
 void RequestSheet::build_rows()
@@ -209,7 +214,7 @@ void RequestSheet::send()
         std::lock_guard<std::mutex> g(sh->lock);
         sh->sending = true;
     }
-    std::thread([sh, c, o] {
+    const bool started = jelly5::spawn([sh, c, o] {
         const seerr::RequestResult r = c->request(o);
         if (r.outcome == seerr::RequestResult::SignedOut)
             seerr_service::session_lost();
@@ -217,7 +222,12 @@ void RequestSheet::send()
         sh->sending = false;
         sh->sent = true;
         sh->result = r;
-    }).detach();
+    });
+    if (!started) {   /* no thread: nothing was sent; say so, the viewer can press again */
+        std::lock_guard<std::mutex> g(sh->lock);
+        sh->sending = false;
+        m_error = T("Kunne ikke sende forespørselen");
+    }
 }
 
 bool RequestSheet::take_done(seerr::RequestResult *out)

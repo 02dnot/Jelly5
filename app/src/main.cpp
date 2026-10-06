@@ -16,6 +16,7 @@
 #include "app/perf.h"
 #include "app/remote.h"
 #include "app/seerr_service.h"
+#include "app/spawn.h"
 #include "app/syncplay.h"
 #include "app/settings.h"
 #include "platform/ime.h"
@@ -651,7 +652,7 @@ void load_more_discover(unsigned session, int shelf, int page)
             return;
         s_state.discover_more_loading = true;
     }
-    std::thread([session, shelf, page] {
+    const bool started = jelly5::spawn([session, shelf, page] {
         using Shelf = seerr::Client::Shelf;
         const Shelf shelves[] = {Shelf::Trending, Shelf::PopularMovies, Shelf::PopularTv, Shelf::UpcomingMovies,
                                  Shelf::UpcomingTv};
@@ -678,7 +679,11 @@ void load_more_discover(unsigned session, int shelf, int page)
             r.more = added > 0;
             s_discover_version++;
         }
-    }).detach();
+    });
+    if (!started) {   /* no thread: try again on a later frame */
+        std::lock_guard<std::mutex> g(s_state.lock);
+        s_state.discover_more_loading = false;
+    }
 }
 
 void load_discover(unsigned session)
@@ -697,29 +702,22 @@ void load_discover(unsigned session)
     std::vector<seerr::Title> lists[5], mine;
     if (c) {
         seerr_service::load_genres();
-        std::vector<std::thread> jobs;
+        std::vector<std::function<void()>> jobs;
         for (int i = 0; i < 5; i++)
-            jobs.emplace_back([&, i] { lists[i] = c->discover(shelves[i]); });
+            jobs.push_back([&, i] { lists[i] = c->discover(shelves[i]); });
         const int uid = seerr_service::snapshot().user.id;
-        jobs.emplace_back([&] {   /* a request names a title; its page has the rest */
-            const std::vector<seerr::Request> reqs = c->requests(uid, 12);
-            std::vector<seerr::Title> titles(reqs.size());
-            std::vector<std::thread> pages;
-            for (size_t i = 0; i < reqs.size(); i++)
-                pages.emplace_back([&, i] {
-                    seerr::Detail d;
-                    if (reqs[i].tv ? c->tv(reqs[i].tmdb_id, &d) : c->movie(reqs[i].tmdb_id, &d))
-                        titles[i] = d.title;
-                });
-            for (auto &p : pages)
-                p.join();
+        jobs.push_back([&] {   /* a request names a title; its page has the rest (one after another) */
             std::set<std::string> seen;   /* a series asked for season by season: once */
-            for (const seerr::Title &t : titles)
-                if (t.id > 0 && seen.insert((t.tv ? "tv:" : "movie:") + std::to_string(t.id)).second)
-                    mine.push_back(t);
+            for (const seerr::Request &rq : c->requests(uid, 12)) {
+                const std::string key = (rq.tv ? "tv:" : "movie:") + std::to_string(rq.tmdb_id);
+                seerr::Detail d;
+                if (seen.count(key) || !(rq.tv ? c->tv(rq.tmdb_id, &d) : c->movie(rq.tmdb_id, &d)) || d.title.id <= 0)
+                    continue;
+                seen.insert(key);
+                mine.push_back(d.title);
+            }
         });
-        for (auto &j : jobs)
-            j.join();
+        jelly5::run_all(jobs);   /* side by side; a job without a thread runs here */
         const int status = c->last_status();
         if (status == 401 || status == 403)
             seerr_service::session_lost();
@@ -776,7 +774,7 @@ void refresh_discover(double max_age, bool force = false)
             return;
     }
     const unsigned session = s_session;
-    std::thread([session] { load_discover(session); }).detach();
+    jelly5::spawn([session] { load_discover(session); });   /* no thread: the tab's next opening tries again */
 }
 
 /* Signs in with a saved account (off the main thread): check the token, then

@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "ui/search.h"
+#include "app/spawn.h"
 #include "app/i18n.h"
 #include "app/seerr_service.h"
 
@@ -173,7 +174,7 @@ void Search::more_seerr()
         d->seerr_more_loading = false;
         return;
     }
-    std::thread([d, sc, q, seq, page] {
+    const bool started = jelly5::spawn([d, sc, q, seq, page] {
         const std::vector<seerr::Title> found = sc->search(q, page);
         std::lock_guard<std::mutex> g(d->lock);
         d->seerr_more_loading = false;
@@ -193,7 +194,11 @@ void Search::more_seerr()
         d->seerr_page = page;
         d->seerr_more = added > 0;
         merge(*d);
-    }).detach();
+    });
+    if (!started) {   /* no thread: a later frame asks again */
+        std::lock_guard<std::mutex> g(d->lock);
+        d->seerr_more_loading = false;
+    }
 }
 
 void Search::start_search()
@@ -213,7 +218,7 @@ void Search::start_search()
         d->seerr_more = true;
     }
     if (sc) {
-        std::thread([d, sc, q, seq] {
+        const bool started = jelly5::spawn([d, sc, q, seq] {
             std::vector<jf::Item> found;
             for (const seerr::Title &t : sc->search(q))
                 found.push_back(seerr_service::to_item(t));
@@ -228,19 +233,24 @@ void Search::start_search()
             d->seerr_pending = false;
             d->seerr_failed = status < 200 || status >= 300;
             merge(*d);
-        }).detach();
+        });
+        if (!started) {   /* no thread: Seerr's part says it failed; the library's still comes */
+            std::lock_guard<std::mutex> g(d->lock);
+            d->seerr_pending = false;
+            d->seerr_failed = true;
+            d->for_seerr = q;
+        }
     }
-    std::thread([d, c, q, seq] {
+    jelly5::spawn([d, c, q, seq] {   /* no thread: the next keystroke searches again */
         std::vector<jf::Item> r;
         if (q.empty()) {
             r = c->library("", "Movie,Series", "Random", false, 0, 16).items;
         } else {
             /* Titles and people side by side (people take the server longer); shown
              * titles first, then people, albums and episodes. */
-            std::vector<jf::Item> people;
-            std::thread pt([&] { people = c->search(q, "Person", 12); });
-            std::vector<jf::Item> found = c->search(q, "Movie,Series,MusicArtist,MusicAlbum,Episode", 36);
-            pt.join();
+            std::vector<jf::Item> people, found;
+            jelly5::run_all({[&] { people = c->search(q, "Person", 12); },
+                             [&] { found = c->search(q, "Movie,Series,MusicArtist,MusicAlbum,Episode", 36); }});
             for (const char *type : {"Movie|Series", "Person", "MusicArtist", "MusicAlbum", "Episode"}) {
                 const std::string t = type;
                 for (const jf::Item &it : t == "Person" ? people : found)
@@ -254,7 +264,7 @@ void Search::start_search()
         d->items = std::move(r);
         d->for_query = q;
         merge(*d);
-    }).detach();
+    });
 }
 
 Action Search::input(uint32_t p)

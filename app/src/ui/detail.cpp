@@ -6,6 +6,7 @@
  * .card.ep, .card.cast).
  */
 #include "ui/detail.h"
+#include "app/spawn.h"
 #include "jelly5_playback.h"
 #include "app/i18n.h"
 #include "app/seerr_service.h"
@@ -983,7 +984,7 @@ void Detail::draw(double now, float dt)
         m_note_at = now;
         std::shared_ptr<Data> d = m_data;
         const jf::Item series = m_view.item;
-        std::thread([d, series] { look_up_in_seerr(d, series); }).detach();
+        jelly5::spawn([d, series] { look_up_in_seerr(d, series); });   /* no thread: the button stays as it was */
     }
     const jf::Item &it = m_view.item;
 
