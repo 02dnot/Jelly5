@@ -111,6 +111,7 @@ private:
 
     seerr::Detail m_seerr;              /* this frame's copy */
     bool m_have_seerr = false;
+    bool m_seerr_asked_late = false;    /* looked up again once Seerr came up after the page */
     RequestSheet m_sheet;
     ItemMenu m_menu;                    /* Options: the focused season's or episode's menu (PS5's way) */
     int m_menu_zone = -1;               /* the zone it was opened in */

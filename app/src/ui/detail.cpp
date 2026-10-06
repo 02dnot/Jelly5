@@ -974,6 +974,15 @@ void Detail::draw(double now, float dt)
         m_have_seerr = m_data->have_seerr;
         seerr_pending = m_data->seerr_pending;
     }
+    /* Seerr signed in after the page loaded (just after launch, say): look the
+     * series up now, once, so its Options menu offers more seasons. */
+    if (!m_have_seerr && !seerr_pending && !m_seerr_asked_late && m_view.item.type == "Series" &&
+        !m_view.item.id.empty() && seerr_service::ready()) {
+        m_seerr_asked_late = true;
+        std::shared_ptr<Data> d = m_data;
+        const jf::Item series = m_view.item;
+        jelly5::spawn([d, series] { look_up_in_seerr(d, series); });
+    }
     if (seerr_pending)
         m_animating = true;   /* the request button shows as soon as Seerr answers */
     seerr::RequestResult done;
