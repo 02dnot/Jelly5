@@ -54,7 +54,9 @@ struct Item {
      * the server's own item when it has the title. Empty for the server's items. */
     struct External {
         int tmdb_id = 0;
-        int status = 0;
+        int status = 0;                       /* Seerr's (also on a library item Discover shows) */
+        int request = 0;                      /* "Mine forespørsler": the request's own state (seerr::RequestStatus) */
+        int tmdb_ref = 0;                     /* a library item Discover shows: its TMDB id (not external) */
         std::string poster, backdrop, thumb;
         std::string jellyfin_id;
     } ext;

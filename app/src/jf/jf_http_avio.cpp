@@ -95,9 +95,18 @@ HttpResponse http_request(const std::string &method, const std::string &url,
     }
     unsigned char buf[16384];
     int n;
-    while ((n = avio_read(io, buf, sizeof buf)) > 0)
+    /* At most 16 MB: a wrong address that serves something huge (or endless)
+     * must not take the console's memory (an allocation failure aborts). */
+    constexpr size_t kMaxBody = 16u << 20;
+    while (res.body.size() < kMaxBody && (n = avio_read(io, buf, sizeof buf)) > 0)
         res.body.append((const char *)buf, (size_t)n);
     avio_closep(&io);
+    if (res.body.size() >= kMaxBody) {   /* cut short: not an answer to read as one */
+        res.body.clear();
+        res.status = 0;
+        res.error = "response larger than 16 MB";
+        return res;
+    }
     res.status = 200;   /* avio exposes no 2xx detail; 204 arrives as an empty 200 */
     return res;
 }

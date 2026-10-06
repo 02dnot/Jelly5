@@ -153,11 +153,17 @@ const char *seerr_status_label(int status, bool full = false);
 uint32_t seerr_status_color(int status);
 /* The status chip, its top left at (x, y); size is the type's. Returns the width (0: none). */
 float draw_status_chip(float x, float y, int status, float opacity, float size = 15.f);
+/* The same chip with a label and a dot of its own ("Avslått" ...). */
+float draw_label_chip(float x, float y, const char *label, uint32_t color, float opacity, float size = 15.f);
 /* A note at the top of the screen on a pill of glass (how a request went):
  * opacity 0 draws nothing. */
 void draw_note(const std::string &text, float opacity, uint32_t dot = 0xff30d158u);
 /* A card for a title without a picture: colours picked by seed, the name on it. */
 void draw_title_card(const gfx::Rect &r, const std::string &title, int seed, float radius, float opacity);
+/* Where a Seerr title's picture has not come (yet): a pane of glass, as the
+ * small chips are made (tint, sheen, lit rim; no blur: there are dozens on screen).
+ * TMDB has no BlurHash to show meanwhile. */
+void draw_glass_placeholder(const gfx::Rect &r, float radius, float opacity);
 
 /* The ambient background: the focused title's backdrop as a blur (its
  * BlurHash, upscaled), dimmed, cross-faded as focus moves. */

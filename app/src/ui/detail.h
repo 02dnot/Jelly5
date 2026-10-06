@@ -17,6 +17,7 @@
 
 #include "seerr/seerr_client.h"
 #include "ui/screen.h"
+#include "ui/item_menu.h"
 #include "ui/seerr_request.h"
 
 #include <memory>
@@ -55,11 +56,11 @@ public:
     bool animating() const override { return m_animating; }
     float nav_alpha() const override { return 0.f; }
     float enter() const override { return m_enter.value; }
-    bool modal() const override { return m_sheet.active(); }
+    bool modal() const override { return m_sheet.active() || m_menu.active(); }
 
 private:
     enum Zone { Buttons, Seasons, Episodes, Extras, Cast, Similar, ZoneCount };
-    enum Button { PlayButton, RestartButton, TrailerButton, WatchedButton, FavouriteButton, RequestButton };
+    enum Button { PlayButton, RestartButton, TrailerButton, WatchedButton, FavouriteButton };
 
     struct Data {
         std::mutex lock;
@@ -77,6 +78,8 @@ private:
     static Content fetch(jf::Client &client, const jf::Item &base);
     std::vector<Zone> zones() const;
     std::vector<Button> buttons() const;
+    void sync_button();
+    bool can_ask_seerr() const;   /* Seerr has seasons of this series to ask for (a menu entry) */
     float zone_top(Zone z) const;     /* page y of a section */
 
     void draw_top(float y0, float dt);
@@ -88,6 +91,9 @@ private:
 
     Zone m_zone = Buttons;
     int m_button = 0;
+    /* Which button has the focus (its index can change: "Be om flere sesonger"
+     * comes and goes when Seerr answers). sync_button() maps it back each time. */
+    int m_button_id = -1;
     int m_season = 0, m_episode = 0, m_extra = 0, m_cast = 0, m_similar = 0;
     double m_now = 0;
     bool m_season_picked = false;      /* the viewer moved the picker (else follow the target) */
@@ -105,8 +111,12 @@ private:
 
     seerr::Detail m_seerr;              /* this frame's copy */
     bool m_have_seerr = false;
+    bool m_seerr_asked_late = false;    /* looked up again once Seerr came up after the page */
     RequestSheet m_sheet;
+    ItemMenu m_menu;                    /* Options: the focused season's or episode's menu (PS5's way) */
+    int m_menu_zone = -1;               /* the zone it was opened in */
     std::string m_note;                 /* how a request went, shown for a few seconds */
+    uint32_t m_note_dot = 0xff30d158u;      /* its dot: green done, amber failed, grey neither */
     double m_note_at = -100;
     Anim m_note_a;
 };

@@ -24,6 +24,12 @@ void apply_change(jf::Item &it, const UserDataChange &c);
 class ItemMenu {
 public:
     void open(const jf::Item &item, bool in_resume_row);
+    /* A page's own menu for a part of it (a season, an episode, the series): no
+     * "Mer info" (the page is it). played: offer marking it; ask_seerr: offer
+     * "Be om flere sesonger" (take_ask() says it was chosen). Nothing to offer:
+     * it stays closed. */
+    void open_actions(const jf::Item &item, bool played, bool ask_seerr);
+    bool take_ask();
     bool active() const { return m_open; }
     /* 0..1 as it fades: the screen hides its top navigation under it. */
     float visibility() const { return m_alpha.value; }
@@ -35,12 +41,13 @@ public:
     void draw(float dt, bool *animating);
 
 private:
-    enum Option { Info, List, Played, Resume };
+    enum Option { Info, List, Played, Resume, AskSeerr };
 
     jf::Item m_item;
     std::vector<Option> m_options;
     int m_focus = 0;
     bool m_open = false;
+    bool m_asked = false;
     Anim m_alpha;
     Drop m_drop;                        /* the focus */
 };

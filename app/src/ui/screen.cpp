@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "ui/screen.h"
+#include "app/seerr_service.h"
 #include "app/i18n.h"
 #include "seerr/seerr_client.h"
 
@@ -330,13 +331,30 @@ void draw_poster(jf::Client &c, const jf::Item &it, const gfx::Rect &base, float
     const gfx::Rect r{base.x - base.w * (k - 1) / 2, base.y - base.h * (k - 1) / 2, base.w * k, base.h * k};
     if (lift > 0.01f)
         gfx::shadow(r, 14 * k, 26, 0.3f * lift * opacity, 10 * lift);
-    if (it.external()) {   /* the name on its own colours, the picture fading in over it */
-        draw_title_card(r, it.name, it.ext.tmdb_id, 14 * k, opacity);
+    if (it.external()) {   /* glass, the picture fading in over it (TMDB has no BlurHash) */
+        draw_glass_placeholder(r, 14 * k, opacity);
+        if (it.ext.poster.empty() || art::failed(it.ext.poster)) {   /* none to come: its name on the glass */
+            const float size = std::max(18.f, std::min(28.f, r.w / 9.f)), pad = std::max(14.f, r.w * 0.08f);
+            /* At the top, as far in as from the sides; under the status chip when there is one. */
+            const bool chip = it.ext.request == (int)seerr::RequestStatus::Declined ||
+                              it.ext.request == (int)seerr::RequestStatus::Failed ||
+                              *seerr_status_label(seerr_service::status_of(it));
+            const float top = chip ? 10 + 30 + 12 : pad;   /* the chip: 10 in, 30 high */
+            gfx::text(r.x + pad, r.y + top + size, it.name, {gfx::Bold, size, r.w - 2 * pad, 4, size * 1.22f},
+                      alpha(kText2, opacity));
+        }
         art::draw(r, it.ext.poster, "", 480, 720, 14 * k, opacity, 0);
-        draw_status_chip(r.x + 10, r.y + 10, it.ext.status, opacity);
     } else {
         art::draw(r, poster_url(c, it, 480), it.primary_blurhash, 480, 720, 14 * k, opacity);
     }
+    /* Where it stands in Seerr (a library item on Seerr's tab too). */
+    using RS = seerr::RequestStatus;
+    if (it.ext.request == (int)RS::Declined)   /* "Mine forespørsler": the request's own fate */
+        draw_label_chip(r.x + 10, r.y + 10, T("Avslått"), 0xffff453au, opacity);
+    else if (it.ext.request == (int)RS::Failed)
+        draw_label_chip(r.x + 10, r.y + 10, T("Feilet"), 0xffff453au, opacity);
+    else if (it.external() || it.ext.tmdb_ref)
+        draw_status_chip(r.x + 10, r.y + 10, seerr_service::status_of(it), opacity);
     /* Watched: a check; a series with episodes left: how many. Both on a small piece
      * of glass (tint, sheen, lit rim - no blur: there are dozens on screen). */
     auto chip = [&](const gfx::Rect &b) {
@@ -379,6 +397,7 @@ const char *seerr_status_label(int status, bool full)
     case seerr::Status::PartiallyAvailable: return T("Delvis tilgjengelig");
     case seerr::Status::Available: return T("Tilgjengelig");
     case seerr::Status::Blocklisted: return T("Blokkert");
+    case seerr::Status::Deleted: return T("Slettet");   /* was there, removed since (it can be asked for again) */
     default: return full ? T("Ikke forespurt") : "";
     }
 }
@@ -391,6 +410,7 @@ uint32_t seerr_status_color(int status)
     case seerr::Status::PartiallyAvailable: return 0xff7fd8a4u;
     case seerr::Status::Available: return 0xff30d158u;
     case seerr::Status::Blocklisted: return 0xffff453au;
+    case seerr::Status::Deleted: return 0xffff6961u;              /* red, as Seerr's own badge */
     default: return kText3;
     }
 }
@@ -400,7 +420,12 @@ float draw_status_chip(float x, float y, int status, float a, float size)
     const char *label = seerr_status_label(status);
     if (!*label)
         return 0;
-    /* The poster chips' glass (a tint, a sheen, a lit rim; no blur), a dot of the status' colour. */
+    return draw_label_chip(x, y, label, seerr_status_color(status), a, size);
+}
+
+float draw_label_chip(float x, float y, const char *label, uint32_t color, float a, float size)
+{
+    /* The poster chips' glass (a tint, a sheen, a lit rim; no blur), a dot of its colour. */
     const gfx::TextStyle ts{gfx::SemiBold, size};
     const float h = size * 2.f, d = size * 0.6f, pad = h * 0.42f;
     const float w = pad + d + 8 + gfx::text_width(label, ts) + pad;
@@ -408,7 +433,7 @@ float draw_status_chip(float x, float y, int status, float a, float size)
     gfx::fill(b, alpha(0x99101014u, a), h / 2);
     gfx::fill_vgradient(b, alpha(0x3cffffffu, a), 0x00000000u, h / 2);
     gfx::rim(b, h / 2, 0.8f * a);
-    gfx::fill({x + pad, y + h / 2 - d / 2, d, d}, alpha(seerr_status_color(status), a), d / 2);
+    gfx::fill({x + pad, y + h / 2 - d / 2, d, d}, alpha(color, a), d / 2);
     gfx::text(x + pad + d + 8, y + h / 2 + size * 0.36f, label, ts, alpha(kText, a));
     return w;
 }
@@ -423,6 +448,13 @@ void draw_note(const std::string &text, float a, uint32_t dot)
     glass_panel(r, 30, a, true);
     gfx::fill({r.x + 26, r.y + 25, 10, 10}, alpha(dot, a), 5);
     gfx::text(r.x + 48, r.y + 39, text, ts, alpha(kText, a));
+}
+
+void draw_glass_placeholder(const gfx::Rect &r, float radius, float a)
+{
+    gfx::fill(r, alpha(0x59141418u, a), radius);
+    gfx::fill_vgradient(r, alpha(0x1fffffffu, a), 0x00000000u, radius);   /* sheen from above */
+    gfx::rim(r, radius, 0.75f * a);
 }
 
 void draw_title_card(const gfx::Rect &r, const std::string &title, int seed, float radius, float a)

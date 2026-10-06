@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "ui/seerr_request.h"
+#include "app/spawn.h"
 #include "app/i18n.h"
 #include "app/seerr_service.h"
 
@@ -44,7 +45,8 @@ void checkbox(float x, float cy, bool on, bool enabled, float a)
 
 bool RequestSheet::requestable(const seerr::Season &s, const seerr::PublicSettings &ps)
 {
-    if ((s.number == 0 && !ps.special_episodes) || s.requested)
+    /* Not one with no episodes yet (announced), as Seerr's own page. */
+    if ((s.number == 0 && !ps.special_episodes) || s.requested || s.episodes <= 0)
         return false;
     return s.status == seerr::Status::Unknown || s.status == seerr::Status::Deleted;
 }
@@ -55,6 +57,11 @@ std::string request_note(const seerr::RequestResult &r)
     return r.outcome == R::Approved  ? T("Forespørselen er godkjent \xE2\x80\x93 den hentes snart")
            : r.outcome == R::Pending ? T("Forespørselen er sendt \xE2\x80\x93 venter på godkjenning")
                                      : T("Ingenting å be om: alt er der eller forespurt allerede");
+}
+
+uint32_t request_note_dot(const seerr::RequestResult &r)
+{
+    return r.outcome == seerr::RequestResult::NothingToRequest ? kText3 : 0xff30d158u;
 }
 
 bool RequestSheet::offers(const seerr::Detail &d, const seerr::User &user, const seerr::PublicSettings &ps)
@@ -102,7 +109,7 @@ void RequestSheet::open(const seerr::Detail &d, const seerr::User &user, const s
         sh->loaded = true;
         return;
     }
-    std::thread([sh, c, tv, advanced, uid] {
+    const bool started = jelly5::spawn([sh, c, tv, advanced, uid] {
         std::vector<seerr::Server> list;
         if (advanced)
             for (const seerr::Server &s : c->servers(tv)) {
@@ -119,7 +126,11 @@ void RequestSheet::open(const seerr::Detail &d, const seerr::User &user, const s
         sh->quota = tv ? tq : mq;
         sh->have_quota = have_quota;
         sh->loaded = true;
-    }).detach();
+    });
+    if (!started) {   /* no thread: the sheet works with Seerr's defaults, without the quota */
+        std::lock_guard<std::mutex> g(sh->lock);
+        sh->loaded = true;
+    }
 }
 
 void RequestSheet::build_rows()
@@ -174,21 +185,22 @@ void RequestSheet::send()
     o.tv = m_detail.title.tv;
     o.tvdb_id = m_detail.tvdb_id;
     if (o.tv) {
-        bool all = true;
-        for (size_t i = 0; i < m_detail.seasons.size(); i++) {
-            if (!requestable(m_detail.seasons[i], m_settings))
-                continue;
-            if (m_picked[i])
+        for (size_t i = 0; i < m_detail.seasons.size(); i++)
+            if (requestable(m_detail.seasons[i], m_settings) && m_picked[i])
                 o.seasons.push_back(m_detail.seasons[i].number);
-            else
-                all = false;
-        }
         if (o.seasons.empty()) {
             m_error = T("Velg minst én sesong");
+            m_retry = false;
             return;
         }
-        if (all || !m_settings.partial_requests)
-            o.seasons.clear();   /* every missing season: Seerr's "all" */
+        /* Always the seasons themselves, as Seerr's own page sends them: its "all"
+         * leaves the specials out. Season by season off: every requestable one. */
+        if (!m_settings.partial_requests) {
+            o.seasons.clear();
+            for (const seerr::Season &s : m_detail.seasons)
+                if (requestable(s, m_settings))
+                    o.seasons.push_back(s.number);
+        }
     }
     if (m_touched)
         if (const seerr::Server *s = server()) {   /* chosen: say so (else Seerr decides) */
@@ -198,9 +210,28 @@ void RequestSheet::send()
             if (m_folder < (int)s->folders.size())
                 o.root_folder = s->folders[m_folder].path;
         }
+    {   /* Over the quota: say so here, as Seerr's own page does, not after a refusal. */
+        std::lock_guard<std::mutex> g(m_shared->lock);
+        const seerr::Quota &q = m_shared->quota;
+        if (m_shared->have_quota && q.limit > 0) {
+            char b[160];
+            if (o.tv && (int)o.seasons.size() > q.remaining) {
+                std::snprintf(b, sizeof b, T("Kvoten din gir plass til %d sesonger til"), std::max(0, q.remaining));
+                m_error = b;
+                m_retry = false;
+                return;
+            }
+            if (!o.tv && (q.restricted || q.remaining <= 0)) {
+                m_error = T("Kvoten din er brukt opp");
+                m_retry = false;
+                return;
+            }
+        }
+    }
     std::shared_ptr<seerr::Client> c = seerr_service::client();
     if (!c) {
         m_error = T("Seerr svarer ikke");
+        m_retry = true;
         return;
     }
     m_error.clear();
@@ -209,7 +240,7 @@ void RequestSheet::send()
         std::lock_guard<std::mutex> g(sh->lock);
         sh->sending = true;
     }
-    std::thread([sh, c, o] {
+    const bool started = jelly5::spawn([sh, c, o] {
         const seerr::RequestResult r = c->request(o);
         if (r.outcome == seerr::RequestResult::SignedOut)
             seerr_service::session_lost();
@@ -217,7 +248,13 @@ void RequestSheet::send()
         sh->sending = false;
         sh->sent = true;
         sh->result = r;
-    }).detach();
+    });
+    if (!started) {   /* no thread: nothing was sent; say so, the viewer can press again */
+        std::lock_guard<std::mutex> g(sh->lock);
+        sh->sending = false;
+        m_error = T("Kunne ikke sende forespørselen");
+        m_retry = true;
+    }
 }
 
 bool RequestSheet::take_done(seerr::RequestResult *out)
@@ -278,6 +315,7 @@ void RequestSheet::input(uint32_t p)
             m_folder = cycle(m_folder, (int)s->folders.size());
         }
         m_touched = true;
+        m_error.clear();   /* a new choice: the last try's message goes */
     } else if (p & NUVIO_BTN_CROSS) {
         if (row.kind == AllSeasons) {
             bool all = true;
@@ -286,8 +324,10 @@ void RequestSheet::input(uint32_t p)
                     all = false;
             for (size_t i = 0; i < m_picked.size(); i++)
                 m_picked[i] = !all && requestable(m_detail.seasons[i], m_settings);
+            m_error.clear();
         } else if (row.kind == OneSeason) {
             m_picked[row.season] = !m_picked[row.season];
+            m_error.clear();
         } else if (row.kind == Buttons) {
             if (m_button == 0) {
                 send();
@@ -331,10 +371,17 @@ void RequestSheet::draw(float dt, bool *animating)
             if (r.outcome == R::Approved || r.outcome == R::Pending || r.outcome == R::NothingToRequest) {
                 m_result = r;
                 m_done = true;
+                if (r.outcome != R::NothingToRequest)   /* shown everywhere at once, before Seerr is read again */
+                    seerr_service::note_status(m_detail.title.id, m_detail.title.tv,
+                                               (int)(r.outcome == R::Approved ? seerr::Status::Processing
+                                                                              : seerr::Status::Pending));
                 m_open = false;
                 m_alpha.to(0.f);
             } else {
                 m_error = message(r);
+                /* Again as it is only when it may go through then (not over the quota,
+                 * not allowed, asked for already). */
+                m_retry = r.outcome == R::Unreachable || r.outcome == R::SignedOut || r.outcome == R::Failed;
             }
         }
     }
@@ -365,8 +412,14 @@ void RequestSheet::draw(float dt, bool *animating)
         notes.push_back({T("En administrator må godkjenne den"), kText2});
     if (have_quota && quota.limit > 0) {
         char b[160];
-        std::snprintf(b, sizeof b, T("%d av %d forespørsler brukt (siste %d dager)"), quota.used, quota.limit,
-                      quota.days);
+        /* A series' quota counts seasons (Seerr's); a window only when it has one. */
+        if (quota.days > 0)
+            std::snprintf(b, sizeof b, tv ? T("%d av %d sesonger brukt (siste %d dager)")
+                                          : T("%d av %d forespørsler brukt (siste %d dager)"),
+                          quota.used, quota.limit, quota.days);
+        else
+            std::snprintf(b, sizeof b, tv ? T("%d av %d sesonger brukt") : T("%d av %d forespørsler brukt"),
+                          quota.used, quota.limit);
         notes.push_back({b, quota.restricted ? 0xffff9f0au : kText2});
     }
     if (m_user.advanced() && !loaded)
@@ -501,7 +554,7 @@ void RequestSheet::draw(float dt, bool *animating)
 
     /* The buttons: Request (or Try again) and Cancel; the drop when the focus is here. */
     const bool on_buttons = m_rows[m_focus].kind == Buttons;
-    const std::string send_label = m_error.empty() ? T("Be om") : T("Prøv igjen");
+    const std::string send_label = !m_error.empty() && m_retry ? T("Prøv igjen") : T("Be om");
     const gfx::TextStyle bt{gfx::Bold, 26};
     const float bw0 = gfx::text_width(send_label, bt) + 96, bw1 = gfx::text_width(T("Avbryt"), bt) + 80;
     const gfx::Rect b0{r.x + 48, y, bw0, 76}, b1{r.x + 48 + bw0 + 20, y, bw1, 76};

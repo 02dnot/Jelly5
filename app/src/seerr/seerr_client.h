@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <thread>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -51,6 +52,7 @@ enum Permission : uint32_t {
     kRequestAdvanced = 8192,
     kRequestMovie = 262144,
     kRequestTv = 524288,
+    kManageBlocklist = 268435456,
 };
 
 struct User {
@@ -62,7 +64,11 @@ struct User {
     bool can_request(bool tv) const { return has(kRequest) || has(tv ? kRequestTv : kRequestMovie); }
     /* May choose the server, quality profile and folder of a request. */
     bool advanced() const { return has(kManageRequests) || has(kRequestAdvanced); }
-    bool auto_approved(bool tv) const { return has(kAutoApprove) || has(tv ? kAutoApproveTv : kAutoApproveMovie); }
+    /* As Seerr's server: managing requests approves one's own as well. */
+    bool auto_approved(bool tv) const
+    {
+        return has(kAutoApprove) || has(tv ? kAutoApproveTv : kAutoApproveMovie) || has(kManageRequests);
+    }
 };
 
 /* What the server lets everyone know (/settings/public). */
@@ -73,6 +79,9 @@ struct PublicSettings {
     bool partial_requests = true;       /* a series' seasons can be requested one by one */
     bool special_episodes = false;      /* season 0 can be requested */
     std::string youtube_url;            /* where trailers open, when set (an Invidious, say) */
+    /* The administrator's "hide" choices for Discover and search (Seerr's own
+     * pages apply them as seerr_service::visible does). */
+    bool hide_available = false, hide_blocklisted = false, hide_requested = false;
 };
 
 /* A film or series, as search and discover list them. */
@@ -86,6 +95,7 @@ struct Title {
     double vote = 0;                    /* TMDB's average, 0-10 */
     std::vector<int> genre_ids;
     Status status = Status::Unknown;
+    bool active_request = false;        /* a request pending or approved (mediaInfo.hasActiveRequest) */
     std::string jellyfin_id;            /* the media server's item, when it has the title */
 };
 
@@ -113,6 +123,12 @@ struct Detail {
     std::vector<Video> videos;
     int tvdb_id = 0;                    /* series */
     bool anime = false;                 /* TMDB's "anime" keyword: Sonarr's anime defaults apply */
+    /* Requests for it still waiting for approval: theirs, and who asked (a user
+     * may withdraw their own: Client::cancel_request). */
+    struct Waiting {
+        int id = 0, user = 0;
+    };
+    std::vector<Waiting> waiting;
     /* The video to offer as the trailer, as Seerr's own page picks it (its
      * largest trailer; else any video it has), or null. */
     const Video *trailer() const;
@@ -187,14 +203,6 @@ struct RequestResult {
     int id = 0;                         /* the new request's */
 };
 
-class Client;
-
-/* Where the console loads a TMDB picture from. Without Internet (the default):
- * Seerr's image cache, always, never TMDB. With Internet on the console and
- * Seerr's cache not answering: TMDB itself. */
-std::string image_url_for(const Client &c, const std::string &path, const char *size, bool internet,
-                          bool cache_works);
-
 class Client {
 public:
     explicit Client(const std::string &url = std::string());
@@ -235,9 +243,12 @@ public:
     bool sign_in_local(const std::string &email, const std::string &password, User *out);
     void sign_out();
 
-    std::vector<Title> search(const std::string &query, int page = 1);
+    /* pages: Seerr's total (totalPages), when wanted: the end of the list, as its own pages read it. */
+    std::vector<Title> search(const std::string &query, int page = 1, int *pages = nullptr);
     enum class Shelf { Trending, PopularMovies, PopularTv, UpcomingMovies, UpcomingTv };
-    std::vector<Title> discover(Shelf shelf, int page = 1);
+    std::vector<Title> discover(Shelf shelf, int page = 1, int *pages = nullptr);
+    /* A title's recommendations, or (similar) the titles like it: TMDB's lists, through Seerr. */
+    std::vector<Title> related(int tmdb_id, bool tv, bool similar, int page = 1);
     bool movie(int tmdb_id, Detail *out);
     bool tv(int tmdb_id, Detail *out);
     /* TMDB's genre names for films or series, by id (in the language set). */
@@ -252,16 +263,13 @@ public:
     /* The body request() sends (shown as is by the host test's dry run). */
     static std::string request_json(const RequestOptions &o);
     RequestResult request(const RequestOptions &o);
+    /* Withdraws a request still waiting for approval (DELETE /request/{id}). */
+    bool cancel_request(int request_id);
 
     /* Through Seerr's image cache: /imageproxy/tmdb/... is always served (the
      * "cache images" setting only changes Seerr's own web pages) and needs no
      * sign-in. size: TMDB's, "w342", "w780", "original" ... Empty path: "". */
     std::string image_url(const std::string &path, const char *size) const;
-    /* Straight from TMDB (only with Internet on the console). */
-    static std::string tmdb_image_url(const std::string &path, const char *size);
-    /* Whether Seerr's image cache answers: a poster from its trending titles,
-     * fetched through it (needs the session). */
-    bool image_cache_works();
 
 private:
     struct Reply {
@@ -273,16 +281,24 @@ private:
     bool post(const std::string &path, const std::string &json, std::string *body);
     std::string with_language(const std::string &path) const;
     bool user_from(const std::string &body, User *out);
-    std::vector<Title> titles_from(const std::string &body);
+    std::vector<Title> titles_from(const std::string &body, int *pages = nullptr);
     void set_error(std::string e);
 
     std::string url_, language_;
     int timeout_ = 6;
-    mutable std::mutex lock_;           /* the cookies and the last error */
+    mutable std::mutex lock_;           /* the cookies and the last calls */
     std::map<std::string, std::string> cookies_;
-    std::string error_;
-    bool unreachable_ = false;
-    int status_ = 0;
+    /* How the last call went, per thread: screens share the client, and a status
+     * read after one's own call must be that call's, not a neighbour's. */
+    struct Last {
+        std::string error;
+        bool unreachable = false;
+        int status = 0;
+        unsigned long used = 0;         /* last_use_ when last touched */
+    };
+    std::map<std::thread::id, Last> last_;
+    unsigned long last_use_ = 0;
+    Last &last_here();                  /* with lock_ held */
 };
 
 } // namespace seerr

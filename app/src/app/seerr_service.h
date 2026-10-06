@@ -42,6 +42,9 @@ enum class Why {
     None,
     NeedPassword,   /* the method is a password: the viewer types it */
     AutoFailed,     /* Quick Connect did not work (Seerr before 3.4, Quick Connect off ...) */
+    NeedApproval,   /* Quick Connect not yet approved by the viewer for this address */
+    MethodOff,      /* Seerr has this way of signing in switched off (its Jellyfin or local login) */
+    NotInSeerr,     /* the Jellyfin user is not one of Seerr's (not imported, new sign-ins off) */
     WrongPassword,
     SignedOut,      /* the viewer signed out: nothing automatic until they sign in */
 };
@@ -50,7 +53,6 @@ struct Config {
     bool enabled = false;           /* for this Jellyfin server */
     std::string url;
     Auth auth = Auth::QuickConnect; /* for this account */
-    bool internet = false;          /* the console has Internet (all accounts) */
 };
 
 struct Snapshot {
@@ -62,15 +64,27 @@ struct Snapshot {
     std::string error;              /* why it is not Ready, for the log */
     bool testing = false;
     std::string test;               /* the last connection test, in the interface's language */
-    /* Internet mode: Seerr's image cache answered when it connected (else posters
-     * come straight from TMDB). Always true without Internet: nothing else is tried. */
-    bool image_cache = true;
 };
 
 /* After a Jellyfin sign-in: loads this account's settings and connects if Seerr is on. */
 void attach(jf::Client *client);
 /* The account is going away (switch, sign-out): its requests' results are dropped. */
 void detach();
+
+/* A title's status as this session knows it: a request or a withdrawal made
+ * here moves it at once, before Seerr's lists are read again. it: a Seerr item
+ * (jf::Item::external()). */
+int status_of(const jf::Item &it);
+/* After a request or a withdrawal here: the title's new status (seerr::Status),
+ * shown everywhere at once; bumps changes(). */
+void note_status(int tmdb_id, bool tv, int status);
+/* Bumped by note_status: the lists that show statuses read them again. */
+unsigned changes();
+
+/* Discover's rows and a page's "Anbefalt"/"Mer som dette", without the titles
+ * the administrator hides (available, requested, blocklisted: Seerr's own
+ * rules). Search shows everything, as Seerr's does. */
+std::vector<seerr::Title> visible(std::vector<seerr::Title> titles);
 
 Config config();
 /* Saves; connects again when the address, the sign-in or "on" changed. */
@@ -92,8 +106,14 @@ std::string suggested_url();
 
 /* Connects again (and signs in by Quick Connect when that is the method). */
 void reconnect();
+/* The viewer approves Quick Connect for the Seerr address in the settings (the
+ * account row): from then on, and only for that address, the console approves
+ * Seerr's Quick Connect codes with this Jellyfin account by itself. */
+void approve_quick_connect();
 /* A request found the session gone (Seerr: 401/403): sign in again. */
 void session_lost();
+/* Each frame: signs in again a minute after session_lost() gave up (cheap). */
+void poll();
 /* The Jellyfin password (user empty: the account's own name) or a local account. */
 void sign_in(const std::string &user, const std::string &password);
 void sign_out();
@@ -105,9 +125,7 @@ void set_language();
 /* TMDB's genre names, for to_item (blocking: call from a worker; kept per language). */
 void load_genres();
 
-/* A TMDB picture as the console may load it: through Seerr's image cache
- * (seerr::image_url_for: TMDB itself only in Internet mode, when that cache
- * did not answer). */
+/* A TMDB picture as the console may load it: through Seerr's image cache. */
 std::string image_url(const std::string &path, const char *size);
 
 /* A Seerr title as the app's screens draw it: a jf::Item with ext filled in

@@ -6,6 +6,7 @@
  * title, meta line, glass buttons and focus drop.
  */
 #include "ui/seerr_detail.h"
+#include "app/spawn.h"
 #include "app/i18n.h"
 #include "app/seerr_service.h"
 
@@ -34,7 +35,7 @@ std::string minutes_label(int min)
 
 } // namespace
 
-SeerrDetail::SeerrDetail(const jf::Item &item) : m_item(item) {}
+SeerrDetail::SeerrDetail(jf::Client &client, const jf::Item &item) : m_client(client), m_item(item) {}
 
 void SeerrDetail::activate()
 {
@@ -47,21 +48,38 @@ void SeerrDetail::activate()
         d->failed = !d->loaded;
         return;
     }
-    std::thread([d, c, id, tv] {
+    const bool started = jelly5::spawn([d, c, id, tv] {
         seerr::Detail det;
         const bool ok = tv ? c->tv(id, &det) : c->movie(id, &det);
         const int status = c->last_status();
         if (!ok && (status == 401 || status == 403))
             seerr_service::session_lost();
-        std::lock_guard<std::mutex> g(d->lock);
-        if (ok) {
-            d->detail = std::move(det);
-            d->loaded = true;
-            d->failed = false;
-        } else if (!d->loaded) {
-            d->failed = true;
+        {
+            std::lock_guard<std::mutex> g(d->lock);
+            if (ok) {
+                d->detail = std::move(det);
+                d->loaded = true;
+                d->loads++;
+                d->failed = false;
+            } else if (!d->loaded) {
+                d->failed = true;
+            }
         }
-    }).detach();
+        if (!ok)
+            return;
+        /* The rows under the page, once the details show (on this thread: no
+         * second one to start, which can fail and abort). */
+        std::vector<seerr::Title> related[2] = {seerr_service::visible(c->related(id, tv, false)),
+                                                seerr_service::visible(c->related(id, tv, true))};
+        std::lock_guard<std::mutex> g(d->lock);
+        for (int i = 0; i < 2; i++)
+            if (!related[i].empty())
+                d->related[i] = std::move(related[i]);
+    });
+    if (!started) {   /* no thread: the page says it could not load (a later visit tries again) */
+        std::lock_guard<std::mutex> g(d->lock);
+        d->failed = !d->loaded;
+    }
 }
 
 bool SeerrDetail::can_request() const
@@ -70,11 +88,31 @@ bool SeerrDetail::can_request() const
     return m_loaded && s.state == seerr_service::State::Ready && RequestSheet::offers(m_detail, s.user, s.settings);
 }
 
+std::vector<int> SeerrDetail::my_waiting_requests() const
+{
+    std::vector<int> ids;
+    if (!m_loaded)
+        return ids;
+    const seerr_service::Snapshot s = seerr_service::snapshot();
+    if (s.state != seerr_service::State::Ready)
+        return ids;
+    for (const seerr::Detail::Waiting &w : m_detail.waiting)   /* a series asked for season by season: several */
+        if (w.user == s.user.id)
+            ids.push_back(w.id);
+    return ids;
+}
+
 std::vector<SeerrDetail::Button> SeerrDetail::buttons() const
 {
     std::vector<Button> b;
+    if (m_failed && !m_loaded) {   /* the details did not come: something to press */
+        b.push_back(RetryButton);
+        return b;
+    }
     if (can_request())
         b.push_back(RequestButton);
+    if (!my_waiting_requests().empty() || m_cancelling)
+        b.push_back(CancelButton);
     const std::string &jid = m_loaded && !m_detail.title.jellyfin_id.empty() ? m_detail.title.jellyfin_id
                                                                              : m_item.ext.jellyfin_id;
     if (!jid.empty())
@@ -82,6 +120,21 @@ std::vector<SeerrDetail::Button> SeerrDetail::buttons() const
     if (m_loaded && !m_detail.trailer_url(seerr_service::snapshot().settings.youtube_url).empty())
         b.push_back(TrailerButton);
     return b;
+}
+
+void SeerrDetail::sync_button()
+{
+    const std::vector<Button> b = buttons();
+    if (b.empty())
+        return;
+    if (m_button_id >= 0) {
+        const auto it = std::find(b.begin(), b.end(), (Button)m_button_id);
+        m_button = it != b.end() ? (int)(it - b.begin()) : 0;
+    }
+    m_button = std::max(0, std::min(m_button, (int)b.size() - 1));
+    m_button_id = (int)b[m_button];
+    if (m_button_id != CancelButton)
+        m_cancel_armed = false;   /* the button went: its prompt with it */
 }
 
 Action SeerrDetail::input(uint32_t p)
@@ -96,18 +149,54 @@ Action SeerrDetail::input(uint32_t p)
             m_qr_open = false;
         return a;
     }
+    if (!(p & NUVIO_BTN_CROSS))
+        m_cancel_armed = false;   /* the focus moved (or back): "Trekk tilbake" asks again */
+    sync_button();
     const std::vector<Button> bs = buttons();
     m_button = std::min(m_button, std::max(0, (int)bs.size() - 1));
+    auto next_row = [&](int from, int d) {   /* the next row with titles, or -1 (the buttons) */
+        for (int r = from + d; r >= 0 && r < 2; r += d)
+            if (!m_rows[r].empty())
+                return r;
+        return d > 0 ? from : -1;
+    };
+    if (m_row >= 0) {   /* in "Anbefalt" or "Lignende" */
+        std::vector<jf::Item> &row = m_rows[m_row];
+        int &col = m_cols[m_row];
+        if (p & NUVIO_BTN_CIRCLE) {
+            m_row = -1;   /* back to the buttons first */
+        } else if (p & NUVIO_BTN_UP) {
+            m_row = next_row(m_row, -1);
+        } else if (p & NUVIO_BTN_DOWN) {
+            m_row = next_row(m_row, 1);
+        } else if (p & NUVIO_BTN_LEFT) {
+            if (col > 0)
+                col--;
+        } else if (p & NUVIO_BTN_RIGHT) {
+            if (col + 1 < (int)row.size())
+                col++;
+        } else if ((p & NUVIO_BTN_CROSS) && col < (int)row.size()) {
+            a.kind = Action::Open;   /* its own Seerr page, or the library's when the server has it */
+            a.item = row[col];
+        }
+        return a;
+    }
+    if (p & NUVIO_BTN_DOWN) {
+        m_row = next_row(-1, 1);
+        if (m_row < 0 || m_rows[m_row].empty())
+            m_row = -1;
+        return a;
+    }
     if (p & NUVIO_BTN_CIRCLE) {
         a.kind = Action::Back;
     } else if (p & NUVIO_BTN_RIGHT) {
         if (m_button + 1 < (int)bs.size())
-            m_button++;
+            m_button_id = (int)bs[++m_button];
         else
             m_bump = true;
     } else if (p & NUVIO_BTN_LEFT) {
         if (m_button > 0)
-            m_button--;
+            m_button_id = (int)bs[--m_button];
         else
             m_bump = true;
     } else if ((p & NUVIO_BTN_CROSS) && !bs.empty()) {
@@ -121,6 +210,45 @@ Action SeerrDetail::input(uint32_t p)
             a.item.id = !m_detail.title.jellyfin_id.empty() ? m_detail.title.jellyfin_id : m_item.ext.jellyfin_id;
             a.item.type = m_item.type;
             a.item.name = m_item.name;
+            break;
+        }
+        case CancelButton: {   /* withdraw the viewer's requests: a second press confirms */
+            if (m_cancelling)
+                break;   /* on its way */
+            if (!m_cancel_armed) {
+                m_cancel_armed = true;   /* until the focus moves (as removing an account) */
+                break;
+            }
+            m_cancel_armed = false;
+            const std::vector<int> ids = my_waiting_requests();
+            std::shared_ptr<seerr::Client> c = seerr_service::client();
+            if (ids.empty() || !c)
+                break;
+            std::shared_ptr<Data> d = m_data;
+            m_cancelling = true;
+            m_note = T("Trekker tilbake \xE2\x80\xA6");
+            m_note_dot = kText3;
+            m_note_at = m_now;
+            const bool started = jelly5::spawn([c, ids, d] {   /* d, not this: the page may close meanwhile */
+                bool ok = true;
+                for (int id : ids)
+                    ok = c->cancel_request(id) && ok;
+                std::lock_guard<std::mutex> g(d->lock);
+                d->cancel_result = ok ? 1 : -1;
+            });
+            if (!started) {
+                std::lock_guard<std::mutex> g(d->lock);
+                d->cancel_result = -1;
+            }
+            break;
+        }
+        case RetryButton: {   /* the details again */
+            {
+                std::lock_guard<std::mutex> g(m_data->lock);
+                m_data->failed = false;
+            }
+            m_failed = false;
+            activate();
             break;
         }
         case TrailerButton: {   /* a QR code of the link: the phone plays it */
@@ -184,11 +312,39 @@ void SeerrDetail::draw(double now, float dt)
         m_failed = m_data->failed;
         if (m_loaded)
             m_detail = m_data->detail;
+        if (m_note_after_load && m_data->loads >= m_note_after_load && m_loaded) {
+            m_note_after_load = 0;
+            seerr_service::note_status(m_item.ext.tmdb_id, m_item.type == "Series", (int)m_detail.title.status);
+        }
+        for (int i = 0; i < 2; i++)
+            if (m_rows[i].size() != m_data->related[i].size()) {
+                m_rows[i].clear();
+                for (const seerr::Title &t : m_data->related[i])
+                    m_rows[i].push_back(seerr_service::to_item(t));
+            }
     }
     /* A request went through: say how, and read the page again (its status moved). */
     seerr::RequestResult done;
     if (m_sheet.take_done(&done)) {
         m_note = request_note(done);
+        m_note_dot = request_note_dot(done);
+        m_note_at = now;
+        activate();
+    }
+    int cancelled = 0;
+    {
+        std::lock_guard<std::mutex> g(m_data->lock);
+        std::swap(cancelled, m_data->cancel_result);
+    }
+    if (cancelled)
+        m_cancelling = false;
+    if (cancelled > 0) {   /* the title's status as Seerr has it now (others may still ask for it): after the reload */
+        std::lock_guard<std::mutex> g(m_data->lock);
+        m_note_after_load = m_data->loads + 1;
+    }
+    if (cancelled) {   /* withdrawn (or not): say so, and read the page again */
+        m_note = cancelled > 0 ? T("Forespørselen er trukket tilbake") : T("Kunne ikke trekke tilbake forespørselen");
+        m_note_dot = cancelled > 0 ? 0xff30d158u : 0xffff9f0au;
         m_note_at = now;
         activate();
     }
@@ -197,14 +353,18 @@ void SeerrDetail::draw(double now, float dt)
     const seerr::Title &t = m_loaded ? m_detail.title : seerr::Title();
     const std::string &name = m_loaded ? t.name : m_item.name;
     const bool tv = m_item.type == "Series";
-    const int status = m_loaded ? (int)t.status : m_item.ext.status;
+    const int status = m_loaded ? (int)t.status : seerr_service::status_of(m_item);
 
     /* Backdrop and scrims, as the library's page. */
     const gfx::Rect full{0, 0, gfx::W, gfx::H};
     gfx::fill(full, kBg);
-    std::string backdrop = m_item.ext.backdrop;
-    if (backdrop.empty() && m_loaded)
-        backdrop = seerr_service::image_url(t.backdrop, "w1280");
+    /* The page's own backdrop at full size (the screen is 4K; w1280 was three times
+     * enlarged); the row's lighter one until the details come. */
+    std::string backdrop = m_loaded && !t.backdrop.empty() ? seerr_service::image_url(t.backdrop, "original")
+                                                           : m_item.ext.backdrop;
+    if (m_loaded && (art::failed(backdrop) || !art::get(backdrop, 1920, 1080)) && !m_item.ext.backdrop.empty() &&
+        art::get(m_item.ext.backdrop, 1920, 1080))
+        backdrop = m_item.ext.backdrop;   /* the full one still on its way: keep showing the row's */
     if (backdrop.empty() || art::failed(backdrop))
         draw_title_card(full, "", m_item.ext.tmdb_id, 0, 0.6f);   /* its colours, at least */
     else
@@ -222,10 +382,14 @@ void SeerrDetail::draw(double now, float dt)
         m_animating = true;
     gfx::push_opacity(m_content.value);
 
-    gfx::text(kPad, 360, name, {gfx::Bold, 84, 1500}, kText);
+    /* The page scrolls up when the rows under it have the focus. */
+    if (m_page.step(dt, 10.f))
+        m_animating = true;
+    const float off = m_page.value;
+    gfx::text(kPad, 360 - off, name, {gfx::Bold, 84, 1500}, kText);
 
     /* Meta: rating, year, runtime or seasons, genres; then where it stands. */
-    const float my = 440;
+    const float my = 440 - off;
     float x = kPad;
     const gfx::TextStyle meta{gfx::Medium, 24};
     bool first = true;
@@ -283,15 +447,20 @@ void SeerrDetail::draw(double now, float dt)
     gfx::text(kPad, y, m_loaded ? t.overview : m_item.overview, {gfx::Regular, 26, 860, 3, 37.7f}, kText2);
 
     /* Buttons: glass panes, the focus drop over them, then the labels. */
-    const float by = 668;
+    const float by = 668 - off;
+    sync_button();
     const std::vector<Button> bs = buttons();
     m_button = std::min(m_button, std::max(0, (int)bs.size() - 1));
     const bool sheet = m_sheet.active() || m_qr_open;
-    if (bs.empty() || sheet || !m_focused)
+    if (bs.empty() || sheet || !m_focused || m_row >= 0)
         m_drop.hide();
     const gfx::TextStyle st{gfx::Bold, 26};
     auto label_of = [](Button b) -> std::string {
-        return b == RequestButton ? T("Be om") : b == LibraryButton ? T("Se i biblioteket") : T("Trailer");
+        return b == RequestButton  ? T("Be om")
+               : b == LibraryButton ? T("Se i biblioteket")
+               : b == CancelButton  ? T("Trekk tilbake forespørselen")
+               : b == RetryButton   ? T("Prøv igjen")
+                                    : T("Trailer");
     };
     for (int pass = 0; pass < 2; pass++) {
         if (pass == 1)
@@ -305,7 +474,7 @@ void SeerrDetail::draw(double now, float dt)
             bx += w + 20;
             if (pass == 0) {
                 glass_panel(r, 16, 1.f, false);
-                if ((int)i == m_button && !sheet)
+                if ((int)i == m_button && !sheet && m_row < 0)
                     m_drop.to(r, (int)bs[i], 0, by);
                 continue;
             }
@@ -322,8 +491,18 @@ void SeerrDetail::draw(double now, float dt)
     /* Under the buttons: why there is no request button, the cast, the seasons. */
     float cy = by + (bs.empty() ? 30 : 76 + 46);
     const seerr_service::Snapshot snap = seerr_service::snapshot();
+    if (m_cancel_armed) {   /* as removing an account: a red line says what the next press does */
+        gfx::text(kPad, cy, T("Trykk \xE2\x9C\x95 igjen for å trekke tilbake forespørselen"), {gfx::Medium, 22, 1200},
+                  0xffff6b6bu);
+        cy += 46;
+    }
     std::string why;
-    if (m_failed)
+    if (snap.state != seerr_service::State::Ready && !m_loaded)   /* why it cannot load, first */
+        why = snap.state == seerr_service::State::Unreachable ? T("Seerr svarer ikke")
+                                                              : T("Ikke pålogget Seerr \xE2\x80\x93 se Innstillinger");
+    else if (!m_loaded && !m_failed)
+        why = T("Henter \xE2\x80\xA6");   /* the details on their way (no buttons yet) */
+    else if (m_failed)
         why = T("Kunne ikke hente detaljene fra Seerr");
     else if (snap.state != seerr_service::State::Ready)
         why = snap.state == seerr_service::State::Unreachable ? T("Seerr svarer ikke")
@@ -351,10 +530,14 @@ void SeerrDetail::draw(double now, float dt)
         for (const seerr::Season &s : m_detail.seasons) {
             if (s.number == 0 && s.status == seerr::Status::Unknown && !s.requested)
                 continue;   /* specials nobody asked for */
-            char b[48];
-            std::snprintf(b, sizeof b, T("Sesong %d"), s.number);
+            char num[48];
+            std::snprintf(num, sizeof num, T("Sesong %d"), s.number);
             const int st_of = s.status == seerr::Status::Unknown && s.requested ? (int)seerr::Status::Processing
                                                                                  : (int)s.status;
+            /* Not by colour alone: the status in words, but for "there" and "not asked for". */
+            std::string b = num;
+            if (st_of != (int)seerr::Status::Available && st_of != (int)seerr::Status::Unknown)
+                b += std::string(" \xC2\xB7 ") + seerr_status_label(st_of);
             const float w = 18 + 10 + 10 + gfx::text_width(b, cs) + 18;
             if (sx + w > gfx::W - kPad) {
                 sx = kPad;
@@ -368,13 +551,51 @@ void SeerrDetail::draw(double now, float dt)
             sx += w + 12;
         }
     }
+    /* "Anbefalt" and "Lignende": posters, as on Seerr's own pages. */
+    {
+        const float pw = 210, ph = 315, gap = 32, rowh = 470;
+        float ry = cy + 90;
+        const float rows_top = ry + off;   /* unscrolled */
+        int shown = 0;
+        for (int r = 0; r < 2; r++) {
+            if (m_rows[r].empty())
+                continue;
+            if (m_row == r)   /* the focused row's posters under the top third of the screen */
+                m_page.to(std::max(0.f, rows_top + shown * rowh - 300));
+            shown++;
+            gfx::text(kPad, ry, r == 0 ? T("Anbefalt") : T("Mer som dette"), {gfx::Bold, 30}, alpha(0xebffffffu, 1.f));
+            const int col = std::min(m_cols[r], (int)m_rows[r].size() - 1);
+            const float max_scroll = std::max(0.f, m_rows[r].size() * (pw + gap) - gap - (gfx::W - 2 * kPad));
+            m_rscroll[r].to(std::min(max_scroll, std::max(0.f, (col - 1) * (pw + gap))));
+            if (m_rscroll[r].step(dt, 12.f))
+                m_animating = true;
+            const float py = ry + 42;
+            for (int pass = 0; pass < 2; pass++)   /* the focused poster last, over its neighbours */
+                for (size_t i = 0; i < m_rows[r].size(); i++) {
+                    const bool focus = m_focused && m_row == r && (int)i == col;
+                    if (focus != (pass == 1))
+                        continue;
+                    const float px = kPad + i * (pw + gap) - m_rscroll[r].value;
+                    if (px > gfx::W + 20 || px + pw < -60)
+                        continue;
+                    Anim &lift = m_lift[std::to_string(r) + "@" + std::to_string(m_rows[r][i].ext.tmdb_id)];
+                    lift.to(focus ? 1.f : 0.f);
+                    if (lift.step(dt, 14.f))
+                        m_animating = true;
+                    draw_poster(m_client, m_rows[r][i], {px, py, pw, ph}, lift.value, 1.f);
+                }
+            ry += rowh;
+        }
+        if (m_row < 0)
+            m_page.to(0.f);
+    }
     gfx::pop_opacity();
 
     /* How a request went: a note at the top for a few seconds. */
     m_note_a.to(now - m_note_at < 4.0 ? 1.f : 0.f);
     if (m_note_a.step(dt, 10.f) || m_note_a.target > 0)
         m_animating = true;
-    draw_note(m_note, m_note_a.value);
+    draw_note(m_note, m_note_a.value, m_note_dot);
 
     m_sheet.draw(dt, &m_animating);
     draw_qr(dt);

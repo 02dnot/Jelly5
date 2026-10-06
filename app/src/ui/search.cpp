@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "ui/search.h"
+#include "app/spawn.h"
 #include "app/i18n.h"
 #include "app/seerr_service.h"
 
@@ -150,6 +151,68 @@ Search::Grid Search::grid()
     return {(int)m_data->items.size(), (int)m_data->seerr_shown.size()};
 }
 
+void Search::more_seerr()
+{
+    std::shared_ptr<Data> d = m_data;
+    std::string q;
+    unsigned seq;
+    int page;
+    {
+        std::lock_guard<std::mutex> g(d->lock);
+        const int library = (int)d->items.size(), shown = (int)d->seerr_shown.size();
+        if (d->seerr_more_failed) {   /* the last page failed: asked again in five seconds */
+            d->seerr_more_failed = false;
+            d->seerr_more_retry_at = m_now + 5.0;
+        }
+        if (!m_in_results || m_result < library || m_result < library + shown - 8 || !d->seerr_more ||
+            d->seerr_more_loading || d->seerr_pending || d->for_seerr != d->for_query || d->for_seerr.empty() ||
+            m_now < d->seerr_more_retry_at)
+            return;
+        d->seerr_more_loading = true;
+        q = d->for_seerr;
+        seq = d->seq;
+        page = d->seerr_page + 1;
+    }
+    std::shared_ptr<seerr::Client> sc = seerr_service::client();
+    if (!sc) {
+        std::lock_guard<std::mutex> g(d->lock);
+        d->seerr_more_loading = false;
+        return;
+    }
+    const bool started = jelly5::spawn([d, sc, q, seq, page] {
+        int pages = 0;
+        const std::vector<seerr::Title> found = sc->search(q, page, &pages);
+        const int status = sc->last_status();
+        std::lock_guard<std::mutex> g(d->lock);
+        d->seerr_more_loading = false;
+        if (seq != d->seq)
+            return;   /* the query moved on */
+        std::set<std::string> have;
+        for (const jf::Item &it : d->seerr)
+            have.insert(it.type + std::to_string(it.ext.tmdb_id));
+        size_t added = 0;
+        for (const seerr::Title &t : found) {
+            jf::Item it = seerr_service::to_item(t);
+            if (have.insert(it.type + std::to_string(it.ext.tmdb_id)).second) {
+                d->seerr.push_back(std::move(it));
+                added++;
+            }
+        }
+        (void)added;
+        if (status < 200 || status >= 300) {   /* failed: the render thread sets when to ask again */
+            d->seerr_more_failed = true;
+            return;
+        }
+        d->seerr_page = page;
+        d->seerr_more = page < pages;   /* Seerr's total (a page of only people still has a next) */
+        merge(*d);
+    });
+    if (!started) {   /* no thread: a later frame asks again */
+        std::lock_guard<std::mutex> g(d->lock);
+        d->seerr_more_loading = false;
+    }
+}
+
 void Search::start_search()
 {
     std::shared_ptr<Data> d = m_data;
@@ -163,9 +226,13 @@ void Search::start_search()
         seq = ++d->seq;
         d->seerr_pending = sc != nullptr;
         d->seerr_failed = false;
+        d->seerr_page = 1;
+        d->seerr_more = true;
+        d->seerr_more_failed = false;
+        d->seerr_more_retry_at = 0;
     }
     if (sc) {
-        std::thread([d, sc, q, seq] {
+        const bool started = jelly5::spawn([d, sc, q, seq] {
             std::vector<jf::Item> found;
             for (const seerr::Title &t : sc->search(q))
                 found.push_back(seerr_service::to_item(t));
@@ -180,19 +247,24 @@ void Search::start_search()
             d->seerr_pending = false;
             d->seerr_failed = status < 200 || status >= 300;
             merge(*d);
-        }).detach();
+        });
+        if (!started) {   /* no thread: Seerr's part says it failed; the library's still comes */
+            std::lock_guard<std::mutex> g(d->lock);
+            d->seerr_pending = false;
+            d->seerr_failed = true;
+            d->for_seerr = q;
+        }
     }
-    std::thread([d, c, q, seq] {
+    jelly5::spawn([d, c, q, seq] {   /* no thread: the next keystroke searches again */
         std::vector<jf::Item> r;
         if (q.empty()) {
             r = c->library("", "Movie,Series", "Random", false, 0, 16).items;
         } else {
             /* Titles and people side by side (people take the server longer); shown
              * titles first, then people, albums and episodes. */
-            std::vector<jf::Item> people;
-            std::thread pt([&] { people = c->search(q, "Person", 12); });
-            std::vector<jf::Item> found = c->search(q, "Movie,Series,MusicArtist,MusicAlbum,Episode", 36);
-            pt.join();
+            std::vector<jf::Item> people, found;
+            jelly5::run_all({[&] { people = c->search(q, "Person", 12); },
+                             [&] { found = c->search(q, "Movie,Series,MusicArtist,MusicAlbum,Episode", 36); }});
             for (const char *type : {"Movie|Series", "Person", "MusicArtist", "MusicAlbum", "Episode"}) {
                 const std::string t = type;
                 for (const jf::Item &it : t == "Person" ? people : found)
@@ -206,7 +278,7 @@ void Search::start_search()
         d->items = std::move(r);
         d->for_query = q;
         merge(*d);
-    }).detach();
+    });
 }
 
 Action Search::input(uint32_t p)
@@ -295,6 +367,7 @@ void Search::draw(double now, float dt)
         m_pending = false;
         start_search();
     }
+    more_seerr();
     std::vector<jf::Item> items, seerr;
     std::string for_query;
     bool seerr_pending, seerr_failed, seerr_asked;

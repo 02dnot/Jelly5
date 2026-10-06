@@ -6,6 +6,7 @@
  * .card.ep, .card.cast).
  */
 #include "ui/detail.h"
+#include "app/spawn.h"
 #include "jelly5_playback.h"
 #include "app/i18n.h"
 #include "app/seerr_service.h"
@@ -243,7 +244,12 @@ void Detail::activate()
     std::shared_ptr<Data> d = m_data;
     jf::Client *c = &m_client;
     const jf::Item base = m_view.item;
-    std::thread([d, c, base] {
+    const bool seerr = base.type == "Series" && seerr_service::ready();
+    if (seerr) {   /* from now: a frame before the page has loaded must not look it up as well */
+        std::lock_guard<std::mutex> g(d->lock);
+        d->seerr_pending = true;
+    }
+    const bool started = jelly5::spawn([d, c, base, seerr] {
         jelly5_wait_reports(4000);   /* back from playing: the stop report first */
         Content fresh = fetch(*c, base);
         cache_put(cache_key(*c, base.id), fresh);
@@ -254,7 +260,15 @@ void Detail::activate()
         }
         if (item.type == "Series")   /* after the page: Seerr never holds it up */
             look_up_in_seerr(d, item);
-    }).detach();
+        else if (seerr) {
+            std::lock_guard<std::mutex> g(d->lock);
+            d->seerr_pending = false;
+        }
+    });
+    if (!started && seerr) {   /* no thread: the page keeps what it has */
+        std::lock_guard<std::mutex> g(d->lock);
+        d->seerr_pending = false;
+    }
 }
 
 /* The series in Seerr, by its TMDB id (or by its TVDB id, which Seerr's search
@@ -262,11 +276,11 @@ void Detail::activate()
 void Detail::look_up_in_seerr(const std::shared_ptr<Data> &d, const jf::Item &series)
 {
     std::shared_ptr<seerr::Client> sc = seerr_service::client();
-    if (!sc || (series.tmdb_id.empty() && series.tvdb_id.empty()))
-        return;
     {
         std::lock_guard<std::mutex> g(d->lock);
-        d->seerr_pending = true;
+        d->seerr_pending = sc && !(series.tmdb_id.empty() && series.tvdb_id.empty());
+        if (!d->seerr_pending)
+            return;   /* (pending ends on every way out) */
     }
     int tmdb = std::atoi(series.tmdb_id.c_str());
     if (tmdb <= 0)
@@ -328,6 +342,16 @@ std::vector<Detail::Zone> Detail::zones() const
     return z;
 }
 
+bool Detail::can_ask_seerr() const
+{
+    if (!m_have_seerr || m_view.item.type != "Series")
+        return false;
+    const seerr_service::Snapshot s = seerr_service::snapshot();
+    return s.state == seerr_service::State::Ready && RequestSheet::offers(m_seerr, s.user, s.settings);
+}
+
+/* The buttons never change with Seerr's answer: asking for more seasons is in
+ * Options' menu (the PS5's way), not a button that comes and goes. */
 std::vector<Detail::Button> Detail::buttons() const
 {
     std::vector<Button> b;
@@ -342,15 +366,26 @@ std::vector<Detail::Button> Detail::buttons() const
         b.push_back(RestartButton);
     if (m_view.have_trailer)
         b.push_back(TrailerButton);
-    if (m_have_seerr && m_view.item.type == "Series") {   /* seasons Seerr can still get */
-        const seerr_service::Snapshot s = seerr_service::snapshot();
-        if (s.state == seerr_service::State::Ready && RequestSheet::offers(m_seerr, s.user, s.settings))
-            b.push_back(RequestButton);
-    }
     if (m_view.item.type != "BoxSet")
         b.push_back(WatchedButton);
     b.push_back(FavouriteButton);
     return b;
+}
+
+/* The focus stays on the same button when the row changes under it; when that
+ * button goes, on the first (Play), never on one to its right (a press there
+ * could mark the series watched). */
+void Detail::sync_button()
+{
+    const std::vector<Button> b = buttons();
+    if (b.empty())
+        return;
+    if (m_button_id >= 0) {
+        const auto it = std::find(b.begin(), b.end(), (Button)m_button_id);
+        m_button = it != b.end() ? (int)(it - b.begin()) : 0;
+    }
+    m_button = std::max(0, std::min(m_button, (int)b.size() - 1));
+    m_button_id = (int)b[m_button];
 }
 
 float Detail::zone_top(Zone z) const
@@ -395,6 +430,45 @@ Action Detail::input(uint32_t p)
         m_sheet.input(p);
         return a;
     }
+    if (m_menu.active()) {   /* Options' menu: mark as seen, or ask Seerr for more seasons */
+        m_menu.input(p, &a);
+        if (m_menu.take_ask()) {
+            const seerr_service::Snapshot s = seerr_service::snapshot();
+            m_sheet.open(m_seerr, s.user, s.settings);
+        } else if (a.kind == Action::Changed) {
+            if (m_menu_zone == Episodes) {
+                apply_local(a.change, false);
+            } else if (m_menu_zone == Seasons) {
+                /* The whole season: Jellyfin marks every episode in it. Into the page's
+                 * data (each frame copies it): the view alone forgot it at once. By its
+                 * id: the data may have been reloaded since the menu opened. */
+                std::lock_guard<std::mutex> g(m_data->lock);
+                Content &c = m_data->c;
+                const auto season = std::find_if(c.seasons.begin(), c.seasons.end(),
+                                                 [&](const jf::Item &s) { return s.id == a.change.id; });
+                if (season != c.seasons.end()) {
+                    season->played = a.change.played;
+                    auto in_season = [&](const jf::Item &e) {
+                        return e.season_id == season->id || (e.season_id.empty() && e.parent_index == season->index);
+                    };
+                    auto mark = [&](jf::Item &e) {
+                        e.played = a.change.played;
+                        if (a.change.played)
+                            e.played_percent = 0, e.position_ticks = 0;
+                    };
+                    for (jf::Item &e : c.all_episodes)
+                        if (in_season(e))
+                            mark(e);
+                    if (c.have_target && in_season(c.target))   /* "Fortsett"/"Spill av" names it too */
+                        mark(c.target);
+                    m_view = c;
+                    select_episodes();
+                }
+            }
+        }
+        return a;
+    }
+    sync_button();
     const std::vector<Zone> zs = zones();
     const auto zi = std::find(zs.begin(), zs.end(), m_zone) - zs.begin();
     const int nb = (int)buttons().size();
@@ -413,7 +487,11 @@ Action Detail::input(uint32_t p)
         const int d = (p & NUVIO_BTN_RIGHT) ? 1 : -1;
         auto move = [d](int &i, int n) { i = std::max(0, std::min(n - 1, i + d)); };
         switch (m_zone) {
-        case Buttons: move(m_button, nb); break;
+        case Buttons:
+            move(m_button, nb);
+            if (m_button < nb)
+                m_button_id = (int)buttons()[m_button];
+            break;
         case Seasons: {
             const int before = m_season;
             move(m_season, (int)m_view.seasons.size());
@@ -431,28 +509,14 @@ Action Detail::input(uint32_t p)
         case Similar: move(m_similar, (int)m_view.similar.size()); break;
         default: break;
         }
-    } else if ((p & NUVIO_BTN_OPTIONS) && m_zone == Episodes && m_episode < (int)m_eps.size()) {
-        const jf::Item &e = m_eps[m_episode];
-        a.change.id = e.id;
-        a.change.played_set = true;
-        a.change.played = !e.played;
-        a.kind = Action::Changed;
-        a.item = e;
-        apply_local(a.change, false);
-    } else if ((p & NUVIO_BTN_OPTIONS) && m_zone == Seasons && m_season < (int)m_view.seasons.size()) {
-        /* The whole season: Jellyfin marks every episode in it. */
-        jf::Item &season = m_view.seasons[m_season];
-        a.change.id = season.id;
-        a.change.played_set = true;
-        a.change.played = !season.played;
-        a.kind = Action::Changed;
-        a.item = season;
-        season.played = a.change.played;
-        for (jf::Item &e : m_eps) {
-            e.played = a.change.played;
-            if (a.change.played)
-                e.played_percent = 0, e.position_ticks = 0;
-        }
+    } else if (p & NUVIO_BTN_OPTIONS) {   /* the focused part's menu */
+        m_menu_zone = m_zone;
+        if (m_zone == Episodes && m_episode < (int)m_eps.size())
+            m_menu.open_actions(m_eps[m_episode], true, can_ask_seerr());
+        else if (m_zone == Seasons && m_season < (int)m_view.seasons.size())
+            m_menu.open_actions(m_view.seasons[m_season], true, can_ask_seerr());
+        else if (m_zone == Buttons)   /* "Merk som sett" is a button here: only Seerr's */
+            m_menu.open_actions(m_view.item, false, can_ask_seerr());
     } else if (p & NUVIO_BTN_CROSS) {
         switch (m_zone) {
         case Buttons: {
@@ -475,9 +539,6 @@ Action Detail::input(uint32_t p)
             } else if (btn == TrailerButton) {
                 a.kind = Action::PlayFromStart;
                 a.item = m_view.trailer;
-            } else if (btn == RequestButton) {
-                const seerr_service::Snapshot s = seerr_service::snapshot();
-                m_sheet.open(m_seerr, s.user, s.settings);
             } else if (m_view.have_target) {
                 a.kind = btn == RestartButton ? Action::PlayFromStart : Action::Play;
                 a.item = m_view.target;
@@ -603,6 +664,7 @@ void Detail::draw_top(float y0, float dt)
 
     /* Buttons. */
     const float by = y0 + 668;
+    sync_button();
     const std::vector<Button> bs = buttons();
     /* Glass buttons: the panes, then the focus drop over them, then their labels. */
     if (m_zone != Buttons || m_sheet.active())
@@ -635,8 +697,6 @@ void Detail::draw_top(float y0, float dt)
             w = gfx::text_width(T("Fra start"), st) + 64;
         if (bs[i] == TrailerButton)
             w = gfx::text_width("Trailer", st) + 64;
-        if (bs[i] == RequestButton)
-            w = gfx::text_width(T("Be om flere sesonger"), st) + 64 + 34;
         if (bs[i] == PlayButton)
             w = 40 + 30 + 14 + gfx::text_width(label, st) + (pct >= 0 ? 14 + 90 + 14 + gfx::text_width(sub, {gfx::Medium, 24}) : 0) + 40;
         const float k = 1.f;
@@ -665,10 +725,6 @@ void Detail::draw_top(float y0, float dt)
             gfx::text(r.x + r.w / 2, cy + 9, T("Fra start"), st, fg, 1);
         } else if (bs[i] == TrailerButton) {
             gfx::text(r.x + r.w / 2, cy + 9, "Trailer", st, fg, 1);
-        } else if (bs[i] == RequestButton) {   /* a plus, then the label */
-            gfx::fill({r.x + 32, cy - 1.75f, 20, 3.5f}, fg, 1.5f);
-            gfx::fill({r.x + 40.25f, cy - 10, 3.5f, 20}, fg, 1.5f);
-            gfx::text(r.x + 32 + 34, cy + 9, T("Be om flere sesonger"), st, fg);
         } else if (bs[i] == WatchedButton) {
             /* A check from small squares along its two strokes. */
             const bool seen = m_view.item.played;
@@ -739,8 +795,7 @@ void Detail::draw_sections(float dt)
                 total += pw[i] + 6;
             }
             float hint_w = 0;
-            for (const char *h : {"Merk sesongen som usett", "Merk sesongen som sett", "Merk som usett", "Merk som sett"})
-                hint_w = std::max(hint_w, pad_hint_width(PadButton::Options, T(h), 26));
+            hint_w = pad_hint_width(PadButton::Options, T("Valg"), 26);   /* Options: the menu (as the PS5 calls it) */
             const float bar_w = std::min(total + 6, gfx::W - 2 * kPad - hint_w - 34);   /* 40 clear of the hint */
             const float inner = bar_w - 12;   /* where the pills show */
             const float pick = px[std::min((size_t)m_season, n - 1)] + pw[std::min((size_t)m_season, n - 1)] / 2;
@@ -774,11 +829,8 @@ void Detail::draw_sections(float dt)
                 gfx::pop_scissor();
             }
             if ((m_zone == Episodes && m_episode < (int)m_eps.size()) ||
-                (m_zone == Seasons && m_season < (int)m_view.seasons.size())) {   /* what Options does here */
-                const std::string what = m_zone == Seasons
-                                             ? (m_view.seasons[m_season].played ? T("Merk sesongen som usett")
-                                                                                 : T("Merk sesongen som sett"))
-                                             : m_eps[m_episode].played ? T("Merk som usett") : T("Merk som sett");
+                (m_zone == Seasons && m_season < (int)m_view.seasons.size())) {   /* Options opens the menu here */
+                const std::string what = T("Valg");
                 draw_pad_hint(gfx::W - kPad - pad_hint_width(PadButton::Options, what, 26), y + 27,
                               PadButton::Options, what, 26);
             }
@@ -944,15 +996,25 @@ void Detail::draw(double now, float dt)
         m_have_seerr = m_data->have_seerr;
         seerr_pending = m_data->seerr_pending;
     }
+    /* Seerr signed in after the page loaded (just after launch, say): look the
+     * series up now, once, so its Options menu offers more seasons. */
+    if (!m_have_seerr && !seerr_pending && !m_seerr_asked_late && m_view.item.type == "Series" &&
+        !m_view.item.id.empty() && seerr_service::ready()) {
+        m_seerr_asked_late = true;
+        std::shared_ptr<Data> d = m_data;
+        const jf::Item series = m_view.item;
+        jelly5::spawn([d, series] { look_up_in_seerr(d, series); });
+    }
     if (seerr_pending)
         m_animating = true;   /* the request button shows as soon as Seerr answers */
     seerr::RequestResult done;
     if (m_sheet.take_done(&done)) {   /* say how it went, and ask Seerr again (seasons moved) */
         m_note = request_note(done);
+        m_note_dot = request_note_dot(done);
         m_note_at = now;
         std::shared_ptr<Data> d = m_data;
         const jf::Item series = m_view.item;
-        std::thread([d, series] { look_up_in_seerr(d, series); }).detach();
+        jelly5::spawn([d, series] { look_up_in_seerr(d, series); });   /* no thread: the button stays as it was */
     }
     const jf::Item &it = m_view.item;
 
@@ -1007,7 +1069,8 @@ void Detail::draw(double now, float dt)
     m_note_a.to(now - m_note_at < 4.0 ? 1.f : 0.f);
     if (m_note_a.step(dt, 10.f) || m_note_a.target > 0)
         m_animating = true;
-    draw_note(m_note, m_note_a.value);
+    draw_note(m_note, m_note_a.value, m_note_dot);
+    m_menu.draw(dt, &m_animating);
     m_sheet.draw(dt, &m_animating);
     if (art::animating())
         m_animating = true;

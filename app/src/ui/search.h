@@ -41,6 +41,10 @@ private:
         std::vector<jf::Item> seerr, seerr_shown;
         std::string for_seerr;       /* the query Seerr's results answer */
         bool seerr_pending = false, seerr_failed = false;
+        int seerr_page = 1;          /* Seerr's pages loaded for this query */
+        bool seerr_more = true, seerr_more_loading = false;
+        double seerr_more_retry_at = 0;  /* after a failed page: not before (m_now) */
+        bool seerr_more_failed = false;  /* a page failed (the render thread sets retry_at) */
     };
     /* The results as laid out: the library's rows, then Seerr's after its heading. */
     struct Grid {
@@ -57,6 +61,7 @@ private:
     Grid grid();
     void type(const std::string &key);
     void start_search();
+    void more_seerr();               /* Seerr's next page, when the focus nears the end of its results */
 
     jf::Client &m_client;
     std::shared_ptr<Data> m_data = std::make_shared<Data>();

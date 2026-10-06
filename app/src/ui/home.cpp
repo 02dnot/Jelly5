@@ -5,6 +5,7 @@
  * Sizes, colours and timings follow concept/style.css.
  */
 #include "ui/home.h"
+#include "app/seerr_service.h"
 #include "app/i18n.h"
 
 #include "gfx/art.h"
@@ -14,6 +15,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <set>
 
 namespace ui {
 namespace {
@@ -40,6 +42,35 @@ std::string runtime_label(int64_t ticks)
 
 } // namespace
 
+bool Home::wants_more(int *shelf, int *page) const
+{
+    if (!m_discover || m_row < 0 || m_row >= (int)m_model.rows.size() || m_row >= (int)m_cols.size())
+        return false;
+    const HomeRow &row = m_model.rows[m_row];
+    /* Two screens ahead (15 posters): the page is there before the row's end is. */
+    if (row.shelf < 0 || !row.more || m_cols[m_row] < (int)row.items.size() - 15)
+        return false;
+    *shelf = row.shelf;
+    *page = row.page + 1;
+    return true;
+}
+
+void Home::append(int shelf, int page, bool more, const std::vector<jf::Item> &items)
+{
+    for (HomeRow &row : m_model.rows) {
+        if (row.shelf != shelf)
+            continue;
+        std::set<std::string> have;   /* a title can move up a page between two loads */
+        for (const jf::Item &it : row.items)
+            have.insert(it.id + "/" + std::to_string(it.ext.tmdb_id));
+        for (const jf::Item &it : items)
+            if (have.insert(it.id + "/" + std::to_string(it.ext.tmdb_id)).second)
+                row.items.push_back(it);
+        row.page = std::max(row.page, page);
+        row.more = more;
+    }
+}
+
 void Home::set_model(HomeModel model)
 {
     /* Keep focus on the same title where it survived the refresh. */
@@ -56,6 +87,15 @@ void Home::set_model(HomeModel model)
     for (size_t i = 0; !hero_changed && i < model.hero.size(); i++)
         hero_changed = model.hero[i].id != m_model.hero[i].id;
     m_model = std::move(model);
+    {   /* Lifts of cards still there stay (the focused one must not drop and rise
+         * at a refresh); the rest go, or one is kept per card ever drawn. */
+        std::set<std::string> keep;
+        for (size_t r = 0; r < m_model.rows.size(); r++)
+            for (const jf::Item &it : m_model.rows[r].items)
+                keep.insert(it.id + "@" + std::to_string(r));
+        for (auto it = m_lift.begin(); it != m_lift.end();)
+            it = keep.count(it->first) ? std::next(it) : m_lift.erase(it);
+    }
     m_cols.assign(m_model.rows.size(), 0);
     m_scroll.assign(m_model.rows.size(), Anim());
     for (size_t r = 0; r < m_model.rows.size(); r++) {
@@ -178,8 +218,8 @@ Action Home::input(uint32_t p)
             m_hero_button = 1;
         else if (m_cols[m_row] + 1 < (int)m_model.rows[m_row].items.size())
             m_cols[m_row]++;
-        else
-            m_bump = true;   /* the row's end */
+        else if (!(m_model.rows[m_row].shelf >= 0 && m_model.rows[m_row].more))
+            m_bump = true;   /* the row's end (not while more of it is coming) */
     } else if (p & NUVIO_BTN_LEFT) {
         if (m_row < 0)
             m_hero_button = 0;
@@ -235,9 +275,9 @@ std::string Home::backdrop_url(const jf::Item &it) const
 void Home::draw_card_art(const jf::Item &it, const gfx::Rect &r, float radius, float a) const
 {
     if (it.external()) {   /* Seerr's: its name on its colours, the picture over it, where it stands */
-        draw_title_card(r, it.name, it.ext.tmdb_id, radius, a);
+        draw_glass_placeholder(r, radius, a);
         art::draw(r, it.ext.thumb, "", 640, 360, radius, a, 0);
-        draw_status_chip(r.x + 12, r.y + 12, it.ext.status, a);
+        draw_status_chip(r.x + 12, r.y + 12, seerr_service::status_of(it), a);
         return;
     }
     art::draw(r, card_url(it), it.thumb_blurhash.empty() ? it.backdrop_blurhash : it.thumb_blurhash, 640, 360,
@@ -376,8 +416,9 @@ void Home::draw_info(const jf::Item &it, float bottom, bool hero, float a)
     }
     if (it.external()) {   /* where a Seerr title stands, always said (also "not requested") */
         const float sx = x > kPad ? x + 24 : x;
-        gfx::fill({sx, meta_y - 15, 12, 12}, alpha(seerr_status_color(it.ext.status), a), 6);
-        x = sx + 22 + gfx::text(sx + 22, meta_y, seerr_status_label(it.ext.status, true), {gfx::SemiBold, 22},
+        const int st = seerr_service::status_of(it);
+        gfx::fill({sx, meta_y - 15, 12, 12}, alpha(seerr_status_color(st), a), 6);
+        x = sx + 22 + gfx::text(sx + 22, meta_y, seerr_status_label(st, true), {gfx::SemiBold, 22},
                                 alpha(kText, a));
     }
     if (!it.official_rating.empty()) {
@@ -443,10 +484,13 @@ void Home::draw_rows(float dt)
         m_animating = true;
     const float top = kRowsTopFocus + (kRowsTopHero - kRowsTopFocus) * m_hero_mode.value;
 
+    /* Seerr's tab shows posters, as Seerr does: the backdrop is the background
+     * only, never the card as well (Seerr has one of each per title). */
+    const float cw = m_discover ? 210 : kCardW, ch = m_discover ? 315 : kCardH, rowh = m_discover ? 480 : kRowH;
     for (size_t r = 0; r < m_model.rows.size(); r++) {
         const HomeRow &row = m_model.rows[r];
         const float rel = (float)r - m_rows_y.value;
-        const float ry = top + rel * kRowH;
+        const float ry = top + rel * rowh;
         float a = 1.f;
         if (rel < 0)
             a = std::max(0.f, 1.f + rel * 1.6f);   /* rows above fade out */
@@ -456,17 +500,20 @@ void Home::draw_rows(float dt)
 
         /* Horizontal: the focused card sits at the left edge, until the row ends. */
         const int col = m_cols[r];
-        const float max_scroll =
-            std::max(0.f, (float)row.items.size() * (kCardW + kCardGap) - kCardGap - (gfx::W - 2 * kPad));
-        m_scroll[r].to(std::min(max_scroll, (float)col * (kCardW + kCardGap)));
+        /* More of a Seerr row coming: three glass cards where it will be (they become
+         * posters in place), and room to scroll to them. */
+        const int coming = m_discover && row.shelf >= 0 && row.more ? 3 : 0;
+        const float max_scroll = std::max(
+            0.f, (float)(row.items.size() + (coming ? 2 : 0)) * (cw + kCardGap) - kCardGap - (gfx::W - 2 * kPad));
+        m_scroll[r].to(std::min(max_scroll, (float)col * (cw + kCardGap)));
         if (m_scroll[r].step(dt, 12.f))
             m_animating = true;
 
-        const float cy = ry + 52;
+        const float cy = ry + (m_discover ? 72 : 52);   /* posters: room for the focused one's lift under the title */
         int focus_i = -1;
         for (size_t i = 0; i < row.items.size(); i++) {
-            const float cx = kPad + (float)i * (kCardW + kCardGap) - m_scroll[r].value;
-            if (cx > gfx::W + 20 || cx + kCardW < -60)
+            const float cx = kPad + (float)i * (cw + kCardGap) - m_scroll[r].value;
+            if (cx > gfx::W + 20 || cx + cw < -60)
                 continue;
             const jf::Item &it = row.items[i];
             const bool focused = m_focused && (int)r == m_row && (int)i == col;
@@ -478,8 +525,12 @@ void Home::draw_rows(float dt)
             lift.to(0.f);
             if (lift.step(dt, 14.f))
                 m_animating = true;
+            if (m_discover) {   /* the poster draws its own lift, shadow and title */
+                draw_poster(m_client, it, {cx, cy, cw, ch}, lift.value, a);
+                continue;
+            }
             const float k = 1.f + 0.1f * lift.value;
-            const gfx::Rect cr{cx - kCardW * (k - 1) / 2, cy - kCardH * (k - 1) / 2, kCardW * k, kCardH * k};
+            const gfx::Rect cr{cx - cw * (k - 1) / 2, cy - ch * (k - 1) / 2, cw * k, ch * k};
             draw_card_art(it, cr, kCardR * k, a);
             if (it.played_percent > 0 && it.played_percent < 100) {
                 gfx::fill({cr.x + 18, cr.y + cr.h - 22, cr.w - 36, 6}, alpha(0x47ffffffu, a), 3);
@@ -487,15 +538,28 @@ void Home::draw_rows(float dt)
                           alpha(0xffffffffu, a), 3);
             }
         }
+        for (int i = 0; i < coming; i++) {
+            const float cx = kPad + (float)(row.items.size() + i) * (cw + kCardGap) - m_scroll[r].value;
+            if (cx > gfx::W + 20)
+                break;
+            draw_glass_placeholder({cx, cy, cw, ch}, kCardR, a * (1.f - 0.3f * i));
+        }
         if (focus_i >= 0) {
             const jf::Item &it = row.items[focus_i];
-            const float cx = kPad + (float)focus_i * (kCardW + kCardGap) - m_scroll[r].value;
+            const float cx = kPad + (float)focus_i * (cw + kCardGap) - m_scroll[r].value;
             Anim &lift = m_lift[it.id + "@" + std::to_string(r)];
             lift.to(1.f);
             if (lift.step(dt, 14.f))
                 m_animating = true;
             const float k = 1.f + 0.1f * lift.value;
-            const gfx::Rect cr{cx - kCardW * (k - 1) / 2, cy - kCardH * (k - 1) / 2, kCardW * k, kCardH * k};
+            const gfx::Rect cr{cx - cw * (k - 1) / 2, cy - ch * (k - 1) / 2, cw * k, ch * k};
+            if (m_discover) {   /* the poster draws its own lift, shadow and title (brighter on focus) */
+                draw_poster(m_client, it, {cx, cy, cw, ch}, lift.value, a);
+                m_card = {cr, it.external() ? it.ext.poster : poster_url(m_client, it, 480), it.primary_blurhash,
+                          kCardR * k};
+                m_has_card = true;
+                continue;
+            }
             gfx::shadow(cr, kCardR * k, 26, 0.3f * lift.value * a, 10 * lift.value);
             draw_card_art(it, cr, kCardR * k, a);
             m_card = {cr, card_url(it), it.thumb_blurhash.empty() ? it.backdrop_blurhash : it.thumb_blurhash,

@@ -3,11 +3,13 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "app/seerr_service.h"
+#include "app/spawn.h"
 #include "app/i18n.h"
 #include "jf/jf_http.h"
 
 #include "evo_boot_trace.h"
 
+#include <algorithm>
 #include <atomic>
 #include <cstdio>
 #include <cstdlib>
@@ -45,6 +47,8 @@ Snapshot s_snap;
 std::shared_ptr<seerr::Client> s_client;
 std::atomic<unsigned> s_gen{0};
 bool s_seen_ready = false;              /* signed in once since the account or settings changed */
+double s_last_lost = -1e9;              /* now_ms() of the last lost session (session_lost) */
+double s_lost_retry_at = 0;             /* signed out by a second loss: sign in again from then (0: no) */
 std::map<int, std::string> s_movie_genres, s_tv_genres;
 std::string s_genres_lang;              /* the language they are in */
 
@@ -67,6 +71,8 @@ void save(cJSON *root)
 {
     mkdir(kDir, 0777);
     char *text = cJSON_PrintUnformatted(root);
+    if (!text)
+        return;   /* out of memory: the file stays as it was */
     /* Beside, then renamed: a crash mid-write never loses the file. */
     const std::string tmp = std::string(kFile) + ".tmp";
     if (FILE *f = std::fopen(tmp.c_str(), "wb")) {
@@ -102,7 +108,7 @@ void persist(std::function<void(cJSON *)> patch)
     if (s_writing)
         return;
     s_writing = true;
-    std::thread([] {
+    const bool started = jelly5::spawn([] {
         for (;;) {
             std::lock_guard<std::mutex> disk(s_disk_lock);
             std::vector<std::function<void(cJSON *)>> todo;
@@ -122,7 +128,9 @@ void persist(std::function<void(cJSON *)> patch)
             cJSON_Delete(root);
             evo_bt("seerr: seerr.json saved (%zu changes) in %.0f ms", todo.size(), now_ms() - t0);
         }
-    }).detach();
+    });
+    if (!started)
+        s_writing = false;   /* no thread: the next change tries again (the patch stays queued) */
 }
 
 /* parent[key], made when missing. */
@@ -159,6 +167,7 @@ struct Stored {
     Config config;
     std::string cookies;
     bool signed_out = false;            /* the viewer signed out: no automatic sign-in */
+    std::string quick_connect_url;      /* the Seerr address the viewer approved Quick Connect for */
 };
 
 /* The file's for an account, with the changes still on their way to it (off
@@ -175,7 +184,6 @@ Stored load_stored(const std::string &server, const std::string &account)
     cJSON *root = load();
     for (auto &p : pending)
         p(root);
-    s.config.internet = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(root, "internet"));
     const cJSON *srv = cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(root, "servers"),
                                                         server.c_str());
     s.config.enabled = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(srv, "enabled"));
@@ -188,6 +196,7 @@ Stored load_stored(const std::string &server, const std::string &account)
             s.config.auth = (Auth)i;
     s.cookies = str(acc, "cookies");
     s.signed_out = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(acc, "signedOut"));
+    s.quick_connect_url = str(acc, "quickConnectUrl");
     cJSON_Delete(root);
     return s;
 }
@@ -224,10 +233,12 @@ std::string tmdb_language()
     }
 }
 
+bool local_address(const std::string &url);
+
 std::shared_ptr<seerr::Client> make_client(const Config &c, const std::string &cookies)
 {
     auto cl = std::make_shared<seerr::Client>(c.url);
-    cl->set_timeout(c.internet ? 10 : 5);   /* on the local network an answer comes at once */
+    cl->set_timeout(local_address(c.url) ? 5 : 10);   /* on the home network an answer comes at once */
     cl->set_language(tmdb_language());
     cl->set_cookies(cookies);
     return cl;
@@ -251,13 +262,21 @@ template <class F> void publish(unsigned epoch, F change)
 
 /* A sign-in came to an end, one way or the other. */
 void finish(unsigned epoch, const std::shared_ptr<seerr::Client> &cl, bool ok, const seerr::User &u,
-            const std::string &version, const seerr::PublicSettings &ps, Why why, const std::string &error)
+            const std::string &version, const seerr::PublicSettings &ps, Why why, std::string error)
 {
     std::lock_guard<std::mutex> g(s_lock);
     if (epoch != s_epoch)
         return;
     s_snap.version = version;
     s_snap.settings = ps;
+    if (ok && !cl->has_session()) {
+        /* Signed in, but no session cookie kept: every later call would answer 401
+         * and sign in again (a new Quick Connect approval each time). */
+        ok = false;
+        why = Why::AutoFailed;
+        error = "no session cookie";
+        evo_bt("seerr: signed in, but Seerr's session cookie was not kept");
+    }
     if (ok) {
         s_client = cl;
         s_seen_ready = true;
@@ -334,23 +353,24 @@ void connect_worker(unsigned epoch)
                 return;
             continue;
         }
-        /* Internet mode: does Seerr's image cache answer? If not, posters come from TMDB. */
-        bool cache = true;
-        if (ok && st.config.internet) {
-            cache = cl->image_cache_works();
-            evo_bt("seerr: Internet mode, pictures %s", cache ? "through Seerr's cache" : "straight from TMDB");
-        }
-        publish(epoch, [cache](Snapshot &s) { s.image_cache = cache; });
         Why why = Why::NeedPassword;
         std::string error = "no session; the sign-in method needs a password";
         if (!ok && st.signed_out) {
             why = Why::SignedOut;
             error = "signed out";
+        } else if (!ok && st.config.auth == Auth::QuickConnect && st.quick_connect_url != st.config.url) {
+            /* Approving a code hands whoever answers at this address a Jellyfin
+             * session: only for an address the viewer approved themselves. */
+            why = Why::NeedApproval;
+            error = "Quick Connect not approved for this address";
+        } else if (!ok && st.config.auth == Auth::QuickConnect && !ps.media_server_login) {
+            why = Why::MethodOff;   /* Quick Connect is a Jellyfin sign-in: Seerr has those off */
+            error = "Seerr's Jellyfin sign-in is off";
         } else if (!ok && st.config.auth == Auth::QuickConnect && jf) {
             evo_bt("seerr: no session, signing in by Quick Connect");
             ok = cl->sign_in_quick_connect([jf](const std::string &code) { return jf->quick_connect_authorize(code); },
                                            &u);
-            why = Why::AutoFailed;
+            why = cl->last_status() == 403 ? Why::NotInSeerr : Why::AutoFailed;
             error = "Quick Connect: " + cl->last_error();
         }
         finish(epoch, cl, ok, u, version, ps, why, error);
@@ -362,12 +382,16 @@ void connect_worker(unsigned epoch)
 void restart_locked()
 {
     s_epoch++;
+    s_snap.testing = false;   /* a test of the last epoch never answers now */
     s_client.reset();
     s_snap = Snapshot();
     s_snap.state = State::Connecting;
     s_gen++;
     const unsigned epoch = s_epoch;
-    std::thread([epoch] { connect_worker(epoch); }).detach();
+    if (!jelly5::spawn([epoch] { connect_worker(epoch); })) {
+        s_snap.state = State::Unreachable;   /* no thread to connect on: say so, a later change retries */
+        s_snap.error = "no thread";
+    }
 }
 
 /* Private addresses: what the console reaches without Internet. */
@@ -394,6 +418,22 @@ bool local_address(const std::string &url)
 
 } // namespace
 
+namespace {
+std::mutex s_noted_lock;
+struct Noted {
+    int status;
+    double at;   /* now_ms() */
+};
+std::map<std::string, Noted> s_noted;   /* "tv:123" -> status, for two minutes: Seerr is read again by then */
+std::atomic<unsigned> s_changes{0};
+void forget_noted()
+{
+    std::lock_guard<std::mutex> g(s_noted_lock);
+    s_noted.clear();
+}
+std::string noted_key(int tmdb_id, bool tv) { return (tv ? "tv:" : "movie:") + std::to_string(tmdb_id); }
+} // namespace
+
 void attach(jf::Client *client)
 {
     const std::string server = client->server(), account = client->server() + "|" + client->user_id();
@@ -404,11 +444,15 @@ void attach(jf::Client *client)
     s_account = account;
     s_stored = loaded;
     s_seen_ready = false;
+    s_last_lost = -1e9;
+    s_lost_retry_at = 0;
+    forget_noted();   /* another account's requests */
     const Stored st = s_stored;
     if (st.config.enabled && !st.config.url.empty()) {
         restart_locked();
     } else {
         s_epoch++;
+        s_snap.testing = false;   /* a test of the last epoch never answers now */
         s_client.reset();
         s_snap = Snapshot();
         s_gen++;
@@ -419,11 +463,15 @@ void detach()
 {
     std::lock_guard<std::mutex> g(s_lock);
     s_epoch++;
+    s_snap.testing = false;   /* a test of the last epoch never answers now */
     s_jf = nullptr;
     s_server.clear();
     s_account.clear();
     s_stored = Stored();
     s_seen_ready = false;
+    s_last_lost = -1e9;
+    s_lost_retry_at = 0;
+    forget_noted();
     s_client.reset();
     s_snap = Snapshot();
     s_gen++;
@@ -446,14 +494,12 @@ void set_config(const Config &c)
     const Config n = s_stored.config;
     const std::string server = s_server, account = s_account;
     persist([n, server, account](cJSON *root) {
-        put_bool(root, "internet", n.internet);
         cJSON *srv = child(child(root, "servers"), server.c_str());
         put_bool(srv, "enabled", n.enabled);
         put_str(srv, "url", n.url);
         put_str(child(child(root, "accounts"), account.c_str()), "auth", kAuthNames[(int)n.auth]);
     });
-    if (c.enabled == old.enabled && seerr::Client::normalize(c.url) == old.url && c.auth == old.auth &&
-        c.internet == old.internet)
+    if (c.enabled == old.enabled && seerr::Client::normalize(c.url) == old.url && c.auth == old.auth)
         return;
     evo_bt("seerr: %s, %s", c.enabled ? "on" : "off", seerr::Client::normalize(c.url).c_str());
     s_seen_ready = false;
@@ -461,6 +507,7 @@ void set_config(const Config &c)
         restart_locked();
     } else {
         s_epoch++;
+        s_snap.testing = false;   /* a test of the last epoch never answers now */
         s_client.reset();
         s_snap = Snapshot();
         s_gen++;
@@ -544,12 +591,98 @@ void reconnect()
     restart_locked();
 }
 
+
+std::vector<seerr::Title> visible(std::vector<seerr::Title> titles)
+{
+    seerr::PublicSettings ps;
+    seerr::User u;
+    {
+        std::lock_guard<std::mutex> g(s_lock);
+        ps = s_snap.settings;
+        u = s_snap.user;
+    }
+    using S = seerr::Status;
+    titles.erase(std::remove_if(titles.begin(), titles.end(),
+                                [&](const seerr::Title &t) {
+                                    if (ps.hide_available && (t.status == S::Available || t.status == S::PartiallyAvailable))
+                                        return true;
+                                    /* As Seerr's page: only for those who manage the blocklist. */
+                                    if (ps.hide_blocklisted && t.status == S::Blocklisted && u.has(seerr::kManageBlocklist))
+                                        return true;
+                                    return ps.hide_requested && t.active_request;   /* as Seerr's own lists */
+                                }),
+                 titles.end());
+    return titles;
+}
+
+int status_of(const jf::Item &it)
+{
+    const int id = it.ext.tmdb_id ? it.ext.tmdb_id : it.ext.tmdb_ref;
+    if (!id)
+        return it.ext.status;
+    std::lock_guard<std::mutex> g(s_noted_lock);
+    const auto n = s_noted.find(noted_key(id, it.type == "Series"));
+    return n != s_noted.end() && now_ms() - n->second.at < 120000 ? n->second.status : it.ext.status;
+}
+
+void note_status(int tmdb_id, bool tv, int status)
+{
+    {
+        std::lock_guard<std::mutex> g(s_noted_lock);
+        s_noted[noted_key(tmdb_id, tv)] = {status, now_ms()};
+    }
+    s_changes++;
+}
+
+unsigned changes() { return s_changes.load(); }
+
+void approve_quick_connect()
+{
+    std::lock_guard<std::mutex> g(s_lock);
+    if (s_account.empty())
+        return;
+    const std::string url = s_stored.config.url;
+    s_stored.quick_connect_url = url;
+    const std::string account = s_account;
+    persist([account, url](cJSON *root) { put_str(child(child(root, "accounts"), account.c_str()), "quickConnectUrl", url); });
+    evo_bt("seerr: Quick Connect approved for %s", url.c_str());
+    write_session(read_stored().cookies, false);
+    restart_locked();
+}
+
 void session_lost()
 {
     std::lock_guard<std::mutex> g(s_lock);
     if (s_account.empty() || s_snap.state != State::Ready)
         return;   /* already on it */
+    /* At most once a minute: a session that keeps ending must not sign in (and
+     * approve a Quick Connect code) on every search. */
+    const double t = now_ms();
+    if (t - s_last_lost < 60000) {
+        evo_bt("seerr: the session ended again within a minute; signing in again in a minute");
+        s_lost_retry_at = s_last_lost + 60000;   /* poll() then */
+        s_snap.state = State::SignedOut;
+        s_snap.why = Why::SignedOut;   /* "Ikke pålogget – ✕": whatever the way of signing in */
+        s_client.reset();
+        s_gen++;
+        return;
+    }
+    s_last_lost = t;
     evo_bt("seerr: the session ended, signing in again");
+    write_session("", false);
+    restart_locked();
+}
+
+void poll()
+{
+    std::lock_guard<std::mutex> g(s_lock);
+    if (s_lost_retry_at <= 0 || now_ms() < s_lost_retry_at)
+        return;
+    s_lost_retry_at = 0;
+    if (s_account.empty() || s_snap.state != State::SignedOut || s_snap.why != Why::SignedOut)
+        return;   /* signed in (or out on purpose) meanwhile */
+    s_last_lost = now_ms();
+    evo_bt("seerr: signing in again after the lost sessions");
     write_session("", false);
     restart_locked();
 }
@@ -562,11 +695,12 @@ void sign_in(const std::string &user, const std::string &password)
     const Stored st = read_stored();
     const std::string name = !user.empty() ? user : s_jf ? s_jf->user_name() : std::string();
     s_epoch++;
+    s_snap.testing = false;   /* a test of the last epoch never answers now */
     s_client.reset();
     s_snap.state = State::Connecting;
     s_gen++;
     const unsigned epoch = s_epoch;
-    std::thread([epoch, st, name, password] {
+    const bool started = jelly5::spawn([epoch, st, name, password] {
         auto cl = make_client(st.config, std::string());
         std::string version;
         seerr::PublicSettings ps;
@@ -580,11 +714,29 @@ void sign_in(const std::string &user, const std::string &password)
         }
         cl->public_settings(&ps);
         seerr::User u;
-        const bool ok = st.config.auth == Auth::Local ? cl->sign_in_local(name, password, &u)
-                                                      : cl->sign_in_jellyfin(name, password, &u);
-        finish(epoch, cl, ok, u, version, ps, cl->last_unreachable() ? Why::AutoFailed : Why::WrongPassword,
+        const bool local = st.config.auth == Auth::Local;
+        if (local ? !ps.local_login : !ps.media_server_login) {   /* Seerr has this way switched off */
+            finish(epoch, cl, false, u, version, ps, Why::MethodOff, "sign-in method off in Seerr");
+            return;
+        }
+        const bool ok = local ? cl->sign_in_local(name, password, &u) : cl->sign_in_jellyfin(name, password, &u);
+        if (!ok && cl->last_unreachable()) {   /* gone between two requests: not a wrong password */
+            const std::string err = cl->last_error();
+            publish(epoch, [&](Snapshot &s) {
+                s.state = State::Unreachable;
+                s.error = err;
+            });
+            return;
+        }
+        /* 403: Seerr knows no such user (a Jellyfin user not imported, new sign-ins
+         * off); else the name or the password. */
+        finish(epoch, cl, ok, u, version, ps, cl->last_status() == 403 && !local ? Why::NotInSeerr : Why::WrongPassword,
                cl->last_error());
-    }).detach();
+    });
+    if (!started) {
+        s_snap.state = State::Unreachable;
+        s_snap.error = "no thread";
+    }
 }
 
 void sign_out()
@@ -594,8 +746,10 @@ void sign_out()
         return;
     std::shared_ptr<seerr::Client> cl = s_client;
     s_epoch++;
+    s_snap.testing = false;   /* a test of the last epoch never answers now */
     s_client.reset();
     write_session("", true);
+    s_lost_retry_at = 0;
     s_seen_ready = false;   /* signed out on purpose: Seerr's tab goes */
     s_snap.state = State::SignedOut;
     s_snap.user = seerr::User();
@@ -603,7 +757,7 @@ void sign_out()
     s_gen++;
     evo_bt("seerr: signed out");
     if (cl)   /* ends the session on the server too */
-        std::thread([cl] { cl->sign_out(); }).detach();
+        jelly5::spawn([cl] { cl->sign_out(); });   /* best effort: the session is dropped here anyway */
 }
 
 void test()
@@ -619,14 +773,14 @@ void test()
         s_snap.testing = true;
         s_gen++;
     }
-    std::thread([epoch, st] {
+    const bool started = jelly5::spawn([epoch, st] {
         auto cl = make_client(st.config, st.cookies);
         std::string line, version;
         char buf[512];
         seerr::User u;
         if (!cl->status(&version)) {
             line = (cl->last_unreachable() ? T("Seerr svarer ikke på ") : T("Ingen Seerr-server på ")) + cl->url();
-            if (cl->last_unreachable() && !st.config.internet && !local_address(cl->url()))
+            if (cl->last_unreachable() && !local_address(cl->url()))   /* a public address the console may not reach */
                 line += T(" \xE2\x80\x93 bruk den lokale adressen");
         } else if (!cl->me(&u)) {
             std::snprintf(buf, sizeof buf, T("Seerr %s svarer, men du er ikke pålogget"), version.c_str());
@@ -641,16 +795,7 @@ void test()
             std::snprintf(buf, sizeof buf, T("OK \xE2\x80\x93 Seerr %s, pålogget som %s"), version.c_str(),
                           u.name.c_str());
             line = buf;
-            bool pictures = !poster.empty() && r.ok() && !r.body.empty();
-            if (!pictures && !poster.empty() && st.config.internet) {   /* Internet mode: TMDB itself */
-                const jf::HttpResponse t =
-                    jf::http_request("GET", seerr::Client::tmdb_image_url(poster, "w92"), {}, "", 8);
-                if (t.ok() && !t.body.empty()) {
-                    line += T(" \xE2\x80\x93 bildene hentes rett fra TMDB");
-                    pictures = true;
-                }
-            }
-            if (!pictures)
+            if (poster.empty() || !r.ok() || r.body.empty())
                 line += T(" \xE2\x80\x93 men bildene kommer ikke");
         }
         evo_bt("seerr: test: %s", line.c_str());
@@ -658,15 +803,18 @@ void test()
             s.testing = false;
             s.test = line;
         });
-    }).detach();
+    });
+    if (!started) {
+        std::lock_guard<std::mutex> g(s_lock);
+        s_snap.testing = false;
+        s_gen++;
+    }
 }
 
 std::string image_url(const std::string &path, const char *size)
 {
     std::lock_guard<std::mutex> g(s_lock);
-    if (!s_client)
-        return std::string();
-    return seerr::image_url_for(*s_client, path, size, s_stored.config.internet, s_snap.image_cache);
+    return s_client ? s_client->image_url(path, size) : std::string();
 }
 
 jf::Item to_item(const seerr::Title &t)
@@ -695,7 +843,7 @@ jf::Item to_item(const seerr::Title &t)
     /* Sizes as the server's art is asked for: posters 480 wide, cards 640, backdrops the screen. */
     it.ext.poster = image_url(t.poster, "w500");
     it.ext.thumb = image_url(t.backdrop, "w780");
-    it.ext.backdrop = image_url(t.backdrop, "w1280");
+    it.ext.backdrop = image_url(t.backdrop, "w1280");   /* behind the rows, changing as they are browsed: light (the page loads the original) */
     return it;
 }
 

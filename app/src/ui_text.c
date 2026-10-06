@@ -15,8 +15,10 @@
 #include <hb-ot.h>
 #include <hb.h>
 
+#include <errno.h>
 #include <fcntl.h>
 #include <math.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -73,17 +75,40 @@ static int load_font(int idx, const uint8_t *data, size_t size)
     return 0;
 }
 
+/* The app's sandbox has the system's folders under a random word of its own
+ * ("/<word>/common/font/..."), not at /preinst. */
+const char *sceKernelGetFsSandboxRandomWord(void) __attribute__((weak));   /* NULL where the firmware lacks it */
+
 static void load_system_font(int idx)
 {
     font *f = &s_fonts[idx];
     struct stat st;
-    int fd;
+    int fd = -1;
     if (f->tried)
         return;
     f->tried = 1;
-    if (!k_sys_paths[idx] || stat(k_sys_paths[idx], &st) != 0 || st.st_size <= 0 ||
-        (fd = open(k_sys_paths[idx], O_RDONLY)) < 0)
+    if (!k_sys_paths[idx])
         return;
+    /* As the system has it, else through the sandbox's own view of it. */
+    char path[256];
+    snprintf(path, sizeof path, "%s", k_sys_paths[idx]);
+    int err = 0;
+    if (stat(path, &st) != 0 || st.st_size <= 0 || (fd = open(path, O_RDONLY)) < 0) {
+        err = errno;
+        const char *word = sceKernelGetFsSandboxRandomWord ? sceKernelGetFsSandboxRandomWord() : NULL;
+        const char *rest = strstr(k_sys_paths[idx], "/common/");
+        if (word && *word && rest) {
+            snprintf(path, sizeof path, "/%s%s", word, rest);
+            if (stat(path, &st) != 0 || st.st_size <= 0 || (fd = open(path, O_RDONLY)) < 0)
+                fd = -1;
+        }
+    }
+    if (fd < 0) {
+        /* Said once: without it, Japanese, Korean, Chinese or Thai text has no glyphs. */
+        evo_bt("text: system font %s not readable (errno %d; sandbox %s: errno %d)", k_sys_paths[idx], err, path,
+               errno);
+        return;
+    }
     uint8_t *buf = (uint8_t *)malloc((size_t)st.st_size);
     size_t got = 0;
     while (buf && got < (size_t)st.st_size) {
@@ -99,7 +124,7 @@ static void load_system_font(int idx)
         return;
     }
     f->owned = buf;
-    evo_bt("text: loaded %s", k_sys_paths[idx]);
+    evo_bt("text: loaded %s", path);
 }
 
 int ui_text_init(void)
@@ -396,10 +421,25 @@ static const gent *glyph_bitmap(int fidx, uint32_t gid, float size, int sub)
         err = FT_Render_Glyph(f->ft->glyph, FT_RENDER_MODE_NORMAL);
     FT_Set_Transform(f->ft, NULL, NULL);
 
-    for (int probe = 0; probe < 32; probe++) {
+    /* The first free slot in the probe window; when the window is full (a
+     * cluster: it happens long before the cache is 3/4 used), the first slot is
+     * taken over. Giving up instead dropped the glyph from the text being laid
+     * out, which then stayed cached without it ("esong 1"). Each glyph is drawn
+     * at once, so no earlier lookup still points at the slot. */
+    gent *slot = NULL;
+    for (int probe = 0; probe < 32 && !slot; probe++) {
         gent *e = &s_cache[(h + (uint32_t)probe) & (GCACHE - 1)];
-        if (e->used)
-            continue;
+        if (!e->used)
+            slot = e;
+    }
+    if (!slot) {
+        slot = &s_cache[h & (GCACHE - 1)];
+        free(slot->mask.a);
+        slot->used = 0;
+        s_cache_used--;
+    }
+    {
+        gent *e = slot;
         e->used = 1;
         e->gid = gid;
         e->size64 = s64;
@@ -425,7 +465,6 @@ static const gent *glyph_bitmap(int fidx, uint32_t gid, float size, int sub)
         s_cache_used++;
         return e;
     }
-    return NULL;
 }
 
 /* ---- public ----------------------------------------------------------------- */

@@ -60,7 +60,7 @@ int section_of(int row)
 bool adjustable(int r)
 {
     return (r >= SettingsScreen::Quality && r <= SettingsScreen::ThemeMusic) || r == SettingsScreen::SeerrOn ||
-           r == SettingsScreen::SeerrAuth || r == SettingsScreen::SeerrNetwork ||
+           r == SettingsScreen::SeerrAuth ||
            (r >= SettingsScreen::AppLanguage && r <= SettingsScreen::Updates);
 }
 
@@ -92,7 +92,6 @@ const char *label_of(int row)
                                          T("Adresse"),
                                          T("P\xC3\xA5logging"),
                                          T("Seerr-konto"),
-                                         T("Nettverk"),
                                          T("Test tilkoblingen"),
                                          T("Språk"),
                                          T("Bildefrekvens"),
@@ -135,13 +134,21 @@ void SettingsScreen::seerr_account()
     const Snapshot s = snapshot();
     if (s.state == State::Connecting)
         return;
-    if (s.state == State::Ready) {
+    if (s.state == State::Ready) {   /* signing out also ends automatic sign-in: ask first */
+        if (!m_signout_armed) {
+            m_signout_armed = true;
+            return;
+        }
+        m_signout_armed = false;
         sign_out();
         return;
     }
     switch (config().auth) {
-    case Auth::QuickConnect:
-        reconnect();
+    case Auth::QuickConnect:   /* ✕ here approves Quick Connect for the address shown */
+        if (s.why == Why::NeedApproval)
+            approve_quick_connect();
+        else
+            reconnect();
         break;
     case Auth::JellyfinPassword:
         ime::request(ime::Kind::Password, T("Jellyfin-passord for ") + m_client.user_name(), "",
@@ -198,17 +205,24 @@ std::string SettingsScreen::value(Row r) const
         return u.empty() ? std::string(T("Ikke angitt")) : u;
     }
     case SeerrAuth: return auth_name(seerr_service::config().auth);
-    case SeerrNetwork: return seerr_service::config().internet ? T("Internett") : T("Bare lokalt nettverk");
     case SeerrAccount: {
         using namespace seerr_service;
         const Snapshot sn = snapshot();
         switch (sn.state) {
         case State::Connecting: return T("Kobler til \xE2\x80\xA6");
-        case State::Ready: return sn.user.name + "  \xC2\xB7  " + T("\xE2\x9C\x95 logg ut");
+        case State::Ready:
+            return m_signout_armed ? std::string(T("Trykk \xE2\x9C\x95 igjen for å logge ut"))
+                                   : sn.user.name + "  \xC2\xB7  " + T("\xE2\x9C\x95 logg ut");
         case State::Unreachable: return T("Svarer ikke \xE2\x80\x93 pr\xC3\xB8ver igjen");
         case State::SignedOut:
             if (sn.why == Why::WrongPassword)
                 return T("Feil brukernavn eller passord");
+            if (sn.why == Why::MethodOff)
+                return T("Seerr tillater ikke denne påloggingen \xE2\x80\x93 velg en annen");
+            if (sn.why == Why::NotInSeerr)
+                return T("Brukeren finnes ikke i Seerr \xE2\x80\x93 be administratoren importere den");
+            if (sn.why == Why::NeedApproval)
+                return T("\xE2\x9C\x95 godkjenn Quick Connect for denne adressen");
             if (sn.why == Why::AutoFailed)
                 return T("Automatisk p\xC3\xA5logging mislyktes \xE2\x80\x93 velg passord");
             return T("Ikke p\xC3\xA5logget \xE2\x80\x93 \xE2\x9C\x95 for \xC3\xA5 logge p\xC3\xA5");
@@ -312,12 +326,6 @@ void SettingsScreen::change(Row r, int dir)
         seerr_service::set_config(c);
         break;
     }
-    case SeerrNetwork: {
-        seerr_service::Config c = seerr_service::config();
-        c.internet = !c.internet;
-        seerr_service::set_config(c);
-        break;
-    }
     default:
         break;
     }
@@ -326,6 +334,8 @@ void SettingsScreen::change(Row r, int dir)
 Action SettingsScreen::input(uint32_t p)
 {
     Action a;
+    if (!(p & NUVIO_BTN_CROSS))
+        m_signout_armed = false;   /* moved on: the account row asks again */
     if (p & NUVIO_BTN_DOWN) {
         int r = m_row + 1;
         while (r < RowCount && !shown(r))
@@ -457,7 +467,7 @@ void SettingsScreen::draw(double, float dt)
         gfx::text(vx, cy, v, {gfx::Medium, 24, 760}, fg2, 2);
         if (adj && focus) {
             gfx::text(rr.x + rr.w - 30, cy, "\xE2\x80\xBA", {gfx::Bold, 30}, fg2, 2);
-            gfx::text(vx - gfx::text_width(v, {gfx::Medium, 24, 700}) - 14, cy, "\xE2\x80\xB9", {gfx::Bold, 30}, fg2, 2);
+            gfx::text(vx - gfx::text_width(v, {gfx::Medium, 24, 760}) - 14, cy, "\xE2\x80\xB9", {gfx::Bold, 30}, fg2, 2);   /* as the value's own width */
         }
     }
     gfx::text(left, y + 40 - off,
@@ -466,9 +476,10 @@ void SettingsScreen::draw(double, float dt)
     gfx::text(left, y + 72 - off, T("Språk følger PS5-en, eller velg her."), {gfx::Regular, 20, width}, kText3);
     gfx::text(left, y + 104 - off, T("Jelly5 er fri programvare (GPL-3.0) og bygger på EVO Player og Nuvio PS5."),
               {gfx::Regular, 20, width}, kText3);
-    gfx::text(left, y + 136 - off,
-              T("Seerr henter alt fra TMDB selv: uten Internett snakker PS5-en bare med Jellyfin og Seerr."),
-              {gfx::Regular, 20, width}, kText3);
+    if (seerr_service::config().enabled)   /* only where it means something */
+        gfx::text(left, y + 136 - off,
+                  T("Seerr henter alt fra TMDB selv: PS5-en snakker bare med Jellyfin og Seerr."),
+                  {gfx::Regular, 20, width}, kText3);
 }
 
 } // namespace ui

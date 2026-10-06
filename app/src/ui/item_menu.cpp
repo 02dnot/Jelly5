@@ -46,6 +46,29 @@ void ItemMenu::open(const jf::Item &item, bool in_resume_row)
     m_alpha.to(1.f);
 }
 
+void ItemMenu::open_actions(const jf::Item &item, bool played, bool ask_seerr)
+{
+    m_item = item;
+    m_options.clear();
+    if (played)
+        m_options.push_back(Played);
+    if (ask_seerr)
+        m_options.push_back(AskSeerr);
+    if (m_options.empty())
+        return;
+    m_focus = 0;
+    m_asked = false;
+    m_open = true;
+    m_alpha.to(1.f);
+}
+
+bool ItemMenu::take_ask()
+{
+    const bool asked = m_asked;
+    m_asked = false;
+    return asked;
+}
+
 void ItemMenu::input(uint32_t p, Action *action)
 {
     if (p & (NUVIO_BTN_CIRCLE | NUVIO_BTN_OPTIONS)) {
@@ -65,6 +88,10 @@ void ItemMenu::input(uint32_t p, Action *action)
     action->item = m_item;
     if (m_options[m_focus] == Info) {
         action->kind = Action::Open;
+        return;
+    }
+    if (m_options[m_focus] == AskSeerr) {   /* the page opens its request sheet */
+        m_asked = true;
         return;
     }
     UserDataChange &c = action->change;
@@ -126,6 +153,7 @@ void ItemMenu::draw(float dt, bool *animating)
                 label = m_item.played ? T("Merk som usett") : T("Merk som sett");
             break;
         case Resume: label = T("Fjern fra Fortsett \xC3\xA5 se"); break;
+        case AskSeerr: label = T("Be om flere sesonger"); break;
         }
         gfx::text(row.x + 26, row.y + 44, label, {focus ? gfx::Bold : gfx::SemiBold, 26}, alpha(focus ? kText : kText2, a));
         y += row_h + 6;

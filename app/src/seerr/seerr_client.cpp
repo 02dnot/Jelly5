@@ -73,6 +73,22 @@ std::string trim(const std::string &s)
     return s.substr(a, b - a);
 }
 
+/* A Jellyfin item id, as Seerr reports it: 32 hex digits (dashes allowed), else
+ * none. It goes into Jellyfin's request paths, which carry the viewer's token:
+ * nothing else may ride along ("../System/Restart"). */
+std::string jellyfin_id_of(const std::string &v)
+{
+    int hex = 0;
+    for (const char ch : v) {
+        if ((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F'))
+            hex++;
+        else if (ch != '-')
+            return std::string();
+    }
+    return hex == 32 ? v : std::string();
+}
+
+
 int year_of(const std::string &date) { return date.size() >= 4 ? std::atoi(date.substr(0, 4).c_str()) : 0; }
 
 Status status_of(int v) { return v >= 1 && v <= 7 ? (Status)v : Status::Unknown; }
@@ -100,7 +116,10 @@ Title title_of(const cJSON *o, bool tv)
     const cJSON *media = cJSON_GetObjectItemCaseSensitive(o, "mediaInfo");
     if (cJSON_IsObject(media)) {
         t.status = status_of(int_of(media, "status", 1));
-        t.jellyfin_id = str_of(media, "jellyfinMediaId");
+        t.jellyfin_id = jellyfin_id_of(str_of(media, "jellyfinMediaId"));
+        const cJSON *active = cJSON_GetObjectItemCaseSensitive(media, "hasActiveRequest");
+        t.active_request = cJSON_IsBool(active) ? cJSON_IsTrue(active)   /* older Seerr: what the status says */
+                                                : t.status == Status::Pending || t.status == Status::Processing;
     }
     return t;
 }
@@ -210,28 +229,46 @@ bool Client::has_session() const
     return cookies_.count("connect.sid") > 0;
 }
 
+Client::Last &Client::last_here()
+{
+    const std::thread::id me = std::this_thread::get_id();
+    if (last_.size() >= 64 && !last_.count(me)) {   /* threads come and go: the longest unused goes */
+        auto oldest = last_.begin();
+        for (auto it = last_.begin(); it != last_.end(); ++it)
+            if (it->second.used < oldest->second.used)
+                oldest = it;
+        last_.erase(oldest);
+    }
+    Last &l = last_[me];
+    l.used = ++last_use_;
+    return l;
+}
+
 std::string Client::last_error() const
 {
     std::lock_guard<std::mutex> g(lock_);
-    return error_;
+    const auto it = last_.find(std::this_thread::get_id());
+    return it != last_.end() ? it->second.error : std::string();
 }
 
 bool Client::last_unreachable() const
 {
     std::lock_guard<std::mutex> g(lock_);
-    return unreachable_;
+    const auto it = last_.find(std::this_thread::get_id());
+    return it != last_.end() && it->second.unreachable;
 }
 
 int Client::last_status() const
 {
     std::lock_guard<std::mutex> g(lock_);
-    return status_;
+    const auto it = last_.find(std::this_thread::get_id());
+    return it != last_.end() ? it->second.status : 0;
 }
 
 void Client::set_error(std::string e)
 {
     std::lock_guard<std::mutex> g(lock_);
-    error_ = std::move(e);
+    last_here().error = std::move(e);
 }
 
 Client::Reply Client::call(const char *method, const std::string &path, const std::string &body)
@@ -252,8 +289,9 @@ Client::Reply Client::call(const char *method, const std::string &path, const st
     jf::HttpResponse r = jf::http_request(method, url_ + "/api/v1" + path, headers, body, timeout_);
     {
         std::lock_guard<std::mutex> g(lock_);
-        unreachable_ = r.status == 0;
-        status_ = r.status;
+        Last &l = last_here();
+        l.unreachable = r.status == 0;
+        l.status = r.status;
         for (const std::string &c : r.cookies) {
             const size_t eq = c.find('=');
             if (eq == std::string::npos || eq == 0)
@@ -339,6 +377,9 @@ bool Client::public_settings(PublicSettings *out)
     out->local_login = bool_of(j, "localLogin", true);
     out->partial_requests = bool_of(j, "partialRequestsEnabled", true);
     out->special_episodes = bool_of(j, "enableSpecialEpisodes");
+    out->hide_available = bool_of(j, "hideAvailable");
+    out->hide_blocklisted = bool_of(j, "hideBlocklisted");
+    out->hide_requested = bool_of(j, "hideRequested");
     out->youtube_url = str_of(j, "youtubeUrl");
     cJSON_Delete(j);
     return true;
@@ -438,10 +479,12 @@ void Client::sign_out()
     cookies_.clear();
 }
 
-std::vector<Title> Client::titles_from(const std::string &body)
+std::vector<Title> Client::titles_from(const std::string &body, int *pages)
 {
     std::vector<Title> out;
     cJSON *j = cJSON_Parse(body.c_str());
+    if (pages)
+        *pages = int_of(j, "totalPages");
     const cJSON *r;
     cJSON_ArrayForEach(r, cJSON_GetObjectItemCaseSensitive(j, "results")) {
         const std::string type = str_of(r, "mediaType");   /* people and collections are left out */
@@ -452,16 +495,20 @@ std::vector<Title> Client::titles_from(const std::string &body)
     return out;
 }
 
-std::vector<Title> Client::search(const std::string &query, int page)
+std::vector<Title> Client::search(const std::string &query, int page, int *pages)
 {
+    if (pages)
+        *pages = 0;
     std::string body;
     if (!get(with_language("/search?query=" + url_escape(query) + "&page=" + std::to_string(page)), &body))
         return {};
-    return titles_from(body);
+    return titles_from(body, pages);
 }
 
-std::vector<Title> Client::discover(Shelf shelf, int page)
+std::vector<Title> Client::discover(Shelf shelf, int page, int *pages)
 {
+    if (pages)
+        *pages = 0;
     const char *path = "/discover/trending";
     switch (shelf) {
     case Shelf::Trending: break;
@@ -472,6 +519,16 @@ std::vector<Title> Client::discover(Shelf shelf, int page)
     }
     std::string body;
     if (!get(with_language(std::string(path) + "?page=" + std::to_string(page)), &body))
+        return {};
+    return titles_from(body, pages);
+}
+
+std::vector<Title> Client::related(int tmdb_id, bool tv, bool similar, int page)
+{
+    std::string body;
+    if (!get(with_language(std::string(tv ? "/tv/" : "/movie/") + std::to_string(tmdb_id) +
+                           (similar ? "/similar" : "/recommendations") + "?page=" + std::to_string(page)),
+             &body))
         return {};
     return titles_from(body);
 }
@@ -493,6 +550,15 @@ static void detail_fields(const cJSON *j, bool tv, Detail *out)
     cJSON_ArrayForEach(v, cJSON_GetObjectItemCaseSensitive(j, "keywords"))
         if (int_of(v, "id") == kAnimeKeyword)
             out->anime = true;
+    cJSON_ArrayForEach(v, cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(j, "mediaInfo"), "requests"))
+        if (int_of(v, "status") == (int)RequestStatus::Pending && int_of(v, "id") > 0 && !bool_of(v, "is4k"))   /* 4K: not offered here */
+            out->waiting.push_back({int_of(v, "id"), int_of(cJSON_GetObjectItemCaseSensitive(v, "requestedBy"), "id")});
+}
+
+bool Client::cancel_request(int request_id)
+{
+    const Reply r = call("DELETE", "/request/" + std::to_string(request_id), std::string());
+    return r.status >= 200 && r.status < 300;
 }
 
 bool Client::movie(int tmdb_id, Detail *out)
@@ -535,7 +601,7 @@ bool Client::tv(int tmdb_id, Detail *out)
     cJSON_ArrayForEach(rq, cJSON_GetObjectItemCaseSensitive(media, "requests")) {
         const int st = int_of(rq, "status");
         if (bool_of(rq, "is4k") ||
-            (st != (int)RequestStatus::Pending && st != (int)RequestStatus::Approved))
+            st == (int)RequestStatus::Declined || st == (int)RequestStatus::Completed)   /* as Seerr's server: the rest hold their seasons */
             continue;
         cJSON_ArrayForEach(s, cJSON_GetObjectItemCaseSensitive(rq, "seasons"))
             requested[int_of(s, "seasonNumber")] = true;
@@ -703,13 +769,23 @@ RequestResult Client::request(const RequestOptions &o)
         Quota mq, tq;
         if (!me(&u))
             res.outcome = last_unreachable() ? RequestResult::Unreachable : RequestResult::SignedOut;
-        else if (quota(u.id, &mq, &tq) && (o.tv ? tq : mq).restricted)
+        else if (quota(u.id, &mq, &tq) &&
+                 ((o.tv ? tq : mq).restricted ||   /* a series' quota counts seasons: more than are left */
+                  ((o.tv ? tq : mq).limit > 0 && (o.tv ? (int)o.seasons.size() > tq.remaining : mq.remaining <= 0))))
             res.outcome = RequestResult::QuotaReached;
         else
             res.outcome = RequestResult::NotAllowed;
         set_error(why);
-    } else if (r.status == 409 || r.status == 499) {   /* 409, folded into "other 4xx" on the console */
-        res.outcome = RequestResult::Duplicate;
+    } else if (r.status == 409 || r.status == 499) {
+        /* 409 is a duplicate, but the console folds every other 4xx into 499 too
+         * (and gets no error text): a duplicate only when the title is asked for
+         * or there already. */
+        const std::string why = last_error();
+        Detail d;
+        const bool there = (o.tv ? tv(o.tmdb_id, &d) : movie(o.tmdb_id, &d)) && d.title.status != Status::Unknown &&
+                           d.title.status != Status::Deleted;
+        res.outcome = there || r.status == 409 ? RequestResult::Duplicate : RequestResult::Failed;
+        set_error(why);
     }
     return res;
 }
@@ -719,39 +795,6 @@ std::string Client::image_url(const std::string &path, const char *size) const
     if (path.empty() || url_.empty())
         return std::string();
     return url_ + "/imageproxy/tmdb/t/p/" + size + path;
-}
-
-std::string Client::tmdb_image_url(const std::string &path, const char *size)
-{
-    if (path.empty())
-        return std::string();
-    return std::string("https://image.tmdb.org/t/p/") + size + path;
-}
-
-bool Client::image_cache_works()
-{
-    std::string poster;
-    for (const Title &t : discover(Shelf::Trending))
-        if (poster.empty())
-            poster = t.poster;
-    if (poster.empty()) {
-        set_error("image cache: no poster to try it with");
-        return false;
-    }
-    const jf::HttpResponse r = jf::http_request("GET", image_url(poster, "w92"), {}, "", timeout_);
-    if (!r.ok() || r.body.empty()) {
-        set_error("image cache: " + std::to_string(r.status) + " " + r.error);
-        return false;
-    }
-    return true;
-}
-
-std::string image_url_for(const Client &c, const std::string &path, const char *size, bool internet,
-                          bool cache_works)
-{
-    if (internet && !cache_works)
-        return Client::tmdb_image_url(path, size);
-    return c.image_url(path, size);
 }
 
 } // namespace seerr

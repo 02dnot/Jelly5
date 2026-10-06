@@ -845,14 +845,22 @@ void shadow(const Rect &r, float radius, float blur, float opacity, float dy)
     /* Nine slices of the shadow texture: corners fixed at `blur` px, edges stretched. */
     const float e = blur * 1.6f;
     const Rect o{r.x - e, r.y - e + dy, r.w + 2 * e, r.h + 2 * e};
-    const float xs[4] = {o.x, o.x + 2 * e, o.x + o.w - 2 * e, o.x + o.w};
-    const float ys[4] = {o.y, o.y + 2 * e, o.y + o.h - 2 * e, o.y + o.h};
-    const float us[4] = {0.f, 0.5f, 0.5f, 1.f};
+    /* A side shorter than both corners (a 60 px note under a 40 px blur): the
+     * corners meet in the middle, each cut short, instead of folding over each
+     * other (that drew a dark band with a hard edge). */
+    auto slices = [e](float from, float size, float *at, float *uv) {
+        const float c = std::min(2 * e, size / 2);
+        at[0] = from, at[1] = from + c, at[2] = from + size - c, at[3] = from + size;
+        uv[0] = 0.f, uv[1] = 0.5f * c / (2 * e), uv[2] = 1.f - uv[1], uv[3] = 1.f;
+    };
+    float xs[4], ys[4], us[4], vs[4];
+    slices(o.x, o.w, xs, us);
+    slices(o.y, o.h, ys, vs);
     const uint32_t c = premul(0xff000000u, opacity);
     Vertex v[16];
     for (int j = 0; j < 4; j++)
         for (int i = 0; i < 4; i++)
-            v[j * 4 + i] = {xs[i], ys[j], c, us[i], us[j]};
+            v[j * 4 + i] = {xs[i], ys[j], c, us[i], vs[j]};
     uint16_t idx[54];
     int n = 0;
     for (int j = 0; j < 3; j++)

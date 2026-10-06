@@ -1,7 +1,8 @@
 /*
  * Jelly5 — host smoke test for the Seerr client against a real server.
- * Signs in the way the console does (Quick Connect, approved with the
- * Jellyfin account from .env.local), then reads: search, discover, a film's
+ * Signs in with the Jellyfin password from .env.local (--auth quickconnect
+ * signs in the way the console does, approving a Quick Connect code in
+ * Jellyfin: a write, so only when asked), then reads: search, discover, a film's
  * and a series' pages, the Radarr/Sonarr options, the quota and the user's
  * requests, and fetches a poster through Seerr's image cache. A request is
  * only shown (dry run) unless --for-real is given.
@@ -11,8 +12,7 @@
  *                        [--profile N] [--folder PATH] [--for-real]] [--keep]
  *
  * .env.local: SEERR_URL; JF_URL, JF_USER, JF_PASS (Quick Connect and the
- * Jellyfin password); SEERR_EMAIL, SEERR_PASS (a local account); optionally
- * SEERR_PUBLIC_URL (an HTTPS address, for the Internet mode).
+ * Jellyfin password); SEERR_EMAIL, SEERR_PASS (a local account).
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "jf/jf_client.h"
@@ -93,7 +93,7 @@ bool looks_like_image(const std::string &b)
 int main(int argc, char **argv)
 {
     std::string query = env("SEERR_QUERY", "dune"), lang = env("SEERR_LANG", "fr");
-    std::string auth = env("SEERR_AUTH", "quickconnect");
+    std::string auth = env("SEERR_AUTH", "jellyfin");   /* quickconnect approves a code in Jellyfin: only when asked */
     seerr::RequestOptions ro;
     bool for_real = false, keep = false;
     for (int i = 1; i < argc; i++) {
@@ -228,29 +228,6 @@ int main(int argc, char **argv)
         const jf::HttpResponse r = jf::http_request("GET", img, {}, "", 10);
         check(r.ok() && looks_like_image(r.body), "poster through /imageproxy/tmdb",
               img + " -> " + std::to_string(r.status) + ", " + std::to_string(r.body.size()) + " bytes");
-    }
-
-    /* Internet mode (experimental): where pictures come from. Without Internet,
-     * never TMDB, even with Seerr's cache not answering; with it, TMDB only when
-     * that cache does not answer. */
-    if (!poster.empty()) {
-        const std::string off_ok = seerr::image_url_for(c, poster, "w342", false, true);
-        const std::string off_bad = seerr::image_url_for(c, poster, "w342", false, false);
-        check(off_ok == c.image_url(poster, "w342") && off_bad == off_ok && off_ok.find("tmdb.org") == std::string::npos,
-              "local network only: pictures always through Seerr", off_bad);
-        check(seerr::image_url_for(c, poster, "w342", true, true) == off_ok, "Internet, Seerr's cache answering: through it");
-        const std::string direct = seerr::image_url_for(c, poster, "w342", true, false);
-        const jf::HttpResponse r = jf::http_request("GET", direct, {}, "", 10);
-        check(direct.rfind("https://image.tmdb.org/", 0) == 0 && r.ok() && looks_like_image(r.body),
-              "Internet, Seerr's cache not answering: straight from TMDB",
-              direct + " -> " + std::to_string(r.status) + ", " + std::to_string(r.body.size()) + " bytes");
-        const bool cache = c.image_cache_works();
-        check(cache, "Seerr's image cache answers (the Internet mode's check)", cache ? "" : c.last_error());
-    }
-    if (const char *pub = env("SEERR_PUBLIC_URL")) {   /* optional: Seerr over HTTPS, as Internet mode allows */
-        seerr::Client p(pub);
-        std::string v;
-        check(p.status(&v), "public address (HTTPS)", p.url() + (v.empty() ? " -> " + p.last_error() : " -> Seerr " + v));
     }
 
     /* A film's and a series' pages. */
