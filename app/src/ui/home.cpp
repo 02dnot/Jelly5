@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <set>
 
 namespace ui {
 namespace {
@@ -69,6 +70,15 @@ void Home::set_model(HomeModel model)
     for (size_t i = 0; !hero_changed && i < model.hero.size(); i++)
         hero_changed = model.hero[i].id != m_model.hero[i].id;
     m_model = std::move(model);
+    {   /* Lifts of cards still there stay (the focused one must not drop and rise
+         * at a refresh); the rest go, or one is kept per card ever drawn. */
+        std::set<std::string> keep;
+        for (size_t r = 0; r < m_model.rows.size(); r++)
+            for (const jf::Item &it : m_model.rows[r].items)
+                keep.insert(it.id + "@" + std::to_string(r));
+        for (auto it = m_lift.begin(); it != m_lift.end();)
+            it = keep.count(it->first) ? std::next(it) : m_lift.erase(it);
+    }
     m_cols.assign(m_model.rows.size(), 0);
     m_scroll.assign(m_model.rows.size(), Anim());
     for (size_t r = 0; r < m_model.rows.size(); r++) {

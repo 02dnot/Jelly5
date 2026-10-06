@@ -69,6 +69,8 @@ void save(cJSON *root)
 {
     mkdir(kDir, 0777);
     char *text = cJSON_PrintUnformatted(root);
+    if (!text)
+        return;   /* out of memory: the file stays as it was */
     /* Beside, then renamed: a crash mid-write never loses the file. */
     const std::string tmp = std::string(kFile) + ".tmp";
     if (FILE *f = std::fopen(tmp.c_str(), "wb")) {
