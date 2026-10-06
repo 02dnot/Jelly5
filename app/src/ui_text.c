@@ -396,10 +396,25 @@ static const gent *glyph_bitmap(int fidx, uint32_t gid, float size, int sub)
         err = FT_Render_Glyph(f->ft->glyph, FT_RENDER_MODE_NORMAL);
     FT_Set_Transform(f->ft, NULL, NULL);
 
-    for (int probe = 0; probe < 32; probe++) {
+    /* The first free slot in the probe window; when the window is full (a
+     * cluster: it happens long before the cache is 3/4 used), the first slot is
+     * taken over. Giving up instead dropped the glyph from the text being laid
+     * out, which then stayed cached without it ("esong 1"). Each glyph is drawn
+     * at once, so no earlier lookup still points at the slot. */
+    gent *slot = NULL;
+    for (int probe = 0; probe < 32 && !slot; probe++) {
         gent *e = &s_cache[(h + (uint32_t)probe) & (GCACHE - 1)];
-        if (e->used)
-            continue;
+        if (!e->used)
+            slot = e;
+    }
+    if (!slot) {
+        slot = &s_cache[h & (GCACHE - 1)];
+        free(slot->mask.a);
+        slot->used = 0;
+        s_cache_used--;
+    }
+    {
+        gent *e = slot;
         e->used = 1;
         e->gid = gid;
         e->size64 = s64;
@@ -425,7 +440,6 @@ static const gent *glyph_bitmap(int fidx, uint32_t gid, float size, int sub)
         s_cache_used++;
         return e;
     }
-    return NULL;
 }
 
 /* ---- public ----------------------------------------------------------------- */
