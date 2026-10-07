@@ -45,6 +45,14 @@ static void emby_markers()
     const std::vector<jf::Segment> o = jf::Client::emby_markers_of(open_end);
     check(o.size() == 1 && o[0].start == 10 && o[0].end == 70, "intro without an end runs to the next chapter");
     check(jf::Client::emby_markers_of("{\"Chapters\":[]}").empty(), "no markers, no segments");
+    /* A chapter inside the intro does not end it; one at its very start is no end at all. */
+    const std::string inside = "{\"RunTimeTicks\":" + at(900) + ",\"Chapters\":["
+        "{\"StartPositionTicks\":" + at(270) + ",\"MarkerType\":\"IntroStart\"},"
+        "{\"StartPositionTicks\":" + at(270) + ",\"MarkerType\":\"Chapter\"},"
+        "{\"StartPositionTicks\":" + at(300) + ",\"MarkerType\":\"Chapter\"},"
+        "{\"StartPositionTicks\":" + at(340) + ",\"MarkerType\":\"IntroEnd\"}]}";
+    const std::vector<jf::Segment> in = jf::Client::emby_markers_of(inside);
+    check(in.size() == 1 && in[0].start == 270 && in[0].end == 340, "intro 270-340 past a chapter inside it");
     std::printf("\n");
 }
 

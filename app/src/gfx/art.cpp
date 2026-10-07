@@ -211,7 +211,7 @@ void draw(const gfx::Rect &r, const std::string &url, const std::string &hash, i
     if (a < 1.f) {
         if (const gfx::Texture *ph = blurhash(hash))
             gfx::image(r, ph, opacity, radius, true);
-        else if (s_placeholder && empty_color == kEmpty && radius > 0 && !url.empty())   /* an image is coming */
+        else if (s_placeholder && empty_color == kEmpty && radius > 0 && !url.empty() && !failed(url))   /* one is coming */
             s_placeholder(r, radius, opacity * (1.f - a));
         else
             gfx::fill(r, empty_color, radius);

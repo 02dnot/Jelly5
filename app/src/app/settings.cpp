@@ -62,6 +62,7 @@ void load_local()
             s_quality[q->string] = std::max(0, (int)q->valuedouble);
     auto at = s_quality.find(s_server);
     s_all.local.max_mbps = at != s_quality.end() ? at->second : s_quality_default;
+    s_all.local.max_mbps_for = s_server;
     s_all.local.auto_skip_intro = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(j, "autoSkipIntro"));
     s_all.local.language = (int)cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(j, "language"));
     if (const cJSON *v = cJSON_GetObjectItemCaseSensitive(j, "nightMode"))
@@ -97,11 +98,16 @@ void set_local(const Local &l)
     int quality_default;
     {
         std::lock_guard<std::mutex> g(s_lock);
+        const int current = s_all.local.max_mbps;
         s_all.local = l;
-        if (!s_server.empty())
+        if (l.max_mbps_for != s_server) {   /* read for another server (it changed since): keep this one's */
+            s_all.local.max_mbps = current;
+            s_all.local.max_mbps_for = s_server;
+        } else if (!s_server.empty()) {
             s_quality[s_server] = l.max_mbps;
-        else
+        } else {
             s_quality_default = l.max_mbps;
+        }
         quality = s_quality;
         quality_default = s_quality_default;
     }
@@ -140,6 +146,7 @@ void use_server(const std::string &key)
     s_server = key;
     auto at = s_quality.find(key);
     s_all.local.max_mbps = at != s_quality.end() ? at->second : s_quality_default;
+    s_all.local.max_mbps_for = key;
 }
 
 void load_server(jf::Client &c)

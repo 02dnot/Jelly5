@@ -135,8 +135,6 @@ bool SettingsScreen::shown(int r) const
     const jf::Features f = m_client.features();
     if (r == Together)
         return f.syncplay;
-    if (r == AutoSkip)
-        return f.media_segments;
     if (r < SeerrUrl || r > SeerrTest)
         return true;
     return seerr_service::config().enabled;

@@ -191,8 +191,6 @@ struct Features {
     bool quick_connect = true;
     bool syncplay = true;                     /* "Se sammen" */
     bool lyrics = true;
-    bool media_segments = true;               /* intro/credits skip (Emby: its chapter markers) */
-    bool remote_control = true;               /* "Spill på PS5" (the websocket, socket_url) */
     bool home_sections = true;                /* the web client's home order (DisplayPreferences) */
 };
 

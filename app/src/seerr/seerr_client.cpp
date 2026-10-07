@@ -373,6 +373,7 @@ bool Client::status(std::string *version)
 bool Client::public_settings(PublicSettings *out)
 {
     std::string body;
+    s_emby = false;   /* until this Seerr says what it serves */
     if (!get("/settings/public", &body))
         return false;
     cJSON *j = cJSON_Parse(body.c_str());

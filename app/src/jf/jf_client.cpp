@@ -1110,7 +1110,13 @@ void Client::emby_thumbnails(const std::string &item_id, Trickplay *tp)
     const cJSON *first = cJSON_GetArrayItem(thumbs, 0), *second = cJSON_GetArrayItem(thumbs, 1);
     const int64_t step = (int64_t)(num_of(second, "PositionTicks") - num_of(first, "PositionTicks"));
     const std::string tag = str_of(first, "ImageTag");
-    if (count >= 2 && step > 0 && aspect > 0 && !tag.empty()) {
+    /* One tag for the set (as Emby gives it); thumbnails with tags of their own
+     * could not be found by time alone: then none rather than wrong ones. */
+    bool one_tag = true;
+    const cJSON *th;
+    cJSON_ArrayForEach(th, thumbs)
+        one_tag = one_tag && str_of(th, "ImageTag") == tag;
+    if (count >= 2 && step > 0 && aspect > 0 && !tag.empty() && one_tag) {
         tp->width = kWidth;
         tp->height = (int)(kWidth / aspect + 0.5);
         tp->tile_w = tp->tile_h = 1;
@@ -1128,8 +1134,6 @@ void Client::emby_thumbnails(const std::string &item_id, Trickplay *tp)
 std::vector<Segment> Client::segments(const std::string &item_id)
 {
     std::vector<Segment> out;
-    if (!features().media_segments)
-        return out;
     if (emby())
         return emby_markers(item_id);
     std::string body;
@@ -1178,8 +1182,11 @@ std::vector<Segment> Client::emby_markers_of(const std::string &item_json)
         if (marks[i].first == "IntroStart") {
             s.type = "Intro";
             s.end = -1;
-            for (size_t k = i + 1; k < marks.size() && s.end < 0; k++)
-                if (marks[k].first == "IntroEnd" || marks[k].first.empty() || marks[k].first == "Chapter")
+            for (size_t k = i + 1; k < marks.size() && s.end < 0; k++)   /* its end */
+                if (marks[k].first == "IntroEnd")
+                    s.end = marks[k].second;
+            for (size_t k = i + 1; k < marks.size() && s.end < 0; k++)   /* else the next chapter after it */
+                if ((marks[k].first.empty() || marks[k].first == "Chapter") && marks[k].second > s.start)
                     s.end = marks[k].second;
         } else if (marks[i].first == "CreditsStart") {
             s.type = "Outro";
@@ -1318,11 +1325,12 @@ bool Client::playback_info_as(const std::string &item_id, int64_t start_ticks, i
         const cJSON *ms;
         Version v;
         int rank;
+        bool dv5_direct;   /* Emby: Dolby Vision 5, played as it is (see playback_info) */
     };
     std::vector<Candidate> found;
     const cJSON *ms;
     cJSON_ArrayForEach(ms, cJSON_GetObjectItemCaseSensitive(j, "MediaSources")) {
-        Candidate c{ms, Version(), 0};
+        Candidate c{ms, Version(), 0, false};
         c.v.id = str_of(ms, "Id");
         c.v.name = str_of(ms, "Name");
         c.v.bitrate = (int64_t)num_of(ms, "Bitrate", 0);
@@ -1351,8 +1359,10 @@ bool Client::playback_info_as(const std::string &item_id, int64_t start_ticks, i
         } else {
             continue;
         }
-        if (dv5 && emby() && !transcode)
+        if (dv5 && emby() && !transcode) {
             c.rank = 0;   /* Emby: any other version first (see playback_info) */
+            c.dv5_direct = true;
+        }
         for (char &ch : codec)
             ch = (char)std::toupper((unsigned char)ch);
         c.v.label = (c.v.height ? std::to_string(c.v.height) + "p" : std::string()) +
@@ -1370,6 +1380,10 @@ bool Client::playback_info_as(const std::string &item_id, int64_t start_ticks, i
         if (a.v.height != b.v.height) return a.v.height > b.v.height;
         return a.v.bitrate > b.v.bitrate;
     });
+    /* Nor is such a version offered in the player's version list when another plays. */
+    if (!found.front().dv5_direct)
+        found.erase(std::remove_if(found.begin(), found.end(), [](const Candidate &c) { return c.dv5_direct; }),
+                    found.end());
     ms = found.front().ms;
     Playback pb;
     pb.item_id = item_id;

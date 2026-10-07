@@ -65,6 +65,12 @@ struct NuvioTrickplay {
     std::string url_base, url_query;
     int64_t sheet_ticks = 0;      /* Jelly5: Emby's thumbnails are found by time (jf::Trickplay) */
     int64_t first_ticks = 0;
+    /* The thumbnail for a moment (seconds), counted from the first one's time. */
+    int index_at(double pos) const
+    {
+        const int i = (int)((pos - first_ticks / 1e7) / interval);
+        return i < 0 ? 0 : i > count - 1 ? count - 1 : i;
+    }
     std::string sheet_url(int sheet) const
     {
         return sheet_ticks > 0 ? url_base + std::to_string((long long)(first_ticks + sheet * sheet_ticks)) + url_query

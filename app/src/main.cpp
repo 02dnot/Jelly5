@@ -944,8 +944,7 @@ void use_account(jf::Client &c, unsigned session, accounts::Account a)
             if (session == s_session)
                 seerr_service::attach(&c);   /* Seerr, when this account has it on */
             /* Controllable from Jellyfin's apps ("Spill på PS5") while this session lasts. */
-            if (c.features().remote_control)
-                remote::start(&c, [session] { return session == s_session; });
+            remote::start(&c, [session] { return session == s_session; });
             syncplay::attach(&c);
             load_extras(c, session);
             check_for_update();

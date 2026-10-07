@@ -13,10 +13,13 @@
 
 #include "jf/jf_client.h"
 
+#include <string>
+
 namespace settings {
 
 struct Local {
     int max_mbps = 0;            /* the current server's; 0 = no cap (direct play whatever the network allows) */
+    std::string max_mbps_for;    /* the server max_mbps is (use_server); a copy for another is not saved as this one's */
     bool auto_skip_intro = false;
     int language = 0;            /* i18n::Choice: 0 follow the PS5, 1 Norsk, 2 English */
     /* How text subtitles look (set in Innstillinger or in the player). */
