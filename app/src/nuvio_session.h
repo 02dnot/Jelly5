@@ -12,6 +12,7 @@
  */
 #include "nuvio_subs.h"
 
+#include <cstdint>
 #include <map>
 #include <string>
 #include <vector>
@@ -62,6 +63,19 @@ struct NuvioTrickplay {
     int width = 0, height = 0, tile_w = 0, tile_h = 0, count = 0;
     double interval = 0;
     std::string url_base, url_query;
+    int64_t sheet_ticks = 0;      /* Jelly5: Emby's thumbnails are found by time (jf::Trickplay) */
+    int64_t first_ticks = 0;
+    /* The thumbnail for a moment (seconds), counted from the first one's time. */
+    int index_at(double pos) const
+    {
+        const int i = (int)((pos - first_ticks / 1e7) / interval);
+        return i < 0 ? 0 : i > count - 1 ? count - 1 : i;
+    }
+    std::string sheet_url(int sheet) const
+    {
+        return sheet_ticks > 0 ? url_base + std::to_string((long long)(first_ticks + sheet * sheet_ticks)) + url_query
+                               : url_base + std::to_string(sheet) + ".jpg" + url_query;
+    }
     bool valid() const { return width > 0 && height > 0 && tile_w > 0 && tile_h > 0 && count > 0 && interval > 0; }
 };
 
