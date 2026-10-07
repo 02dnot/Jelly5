@@ -212,7 +212,10 @@ std::string SettingsScreen::value(Row r) const
             return T("60 Hz (TV-en har ikke 120 Hz)");
         return s.local.refresh_120 ? "120 Hz" : "60 Hz";
     case Together: return syncplay::active() ? syncplay::group_name() : std::string(T("Av"));
-    case ServerInfo: return m_server_name.empty() ? m_client.server() : m_server_name + "  \xC2\xB7  " + m_server_version;
+    case ServerInfo:
+        return m_server_name.empty() ? m_client.server()
+                                     : m_server_name + "  \xC2\xB7  " +
+                                           (m_client.kind() == jf::Kind::Emby ? "Emby " : "Jellyfin ") + m_server_version;
     case About: return std::string(T("Versjon ")) + JELLY5_VERSION;
     case SeerrOn: return seerr_service::config().enabled ? T("P\xC3\xA5") : T("Av");
     case SeerrUrl: {
@@ -499,6 +502,8 @@ void SettingsScreen::draw(double, float dt)
         gfx::text(left, y + 136 - off,
                   T("Seerr henter alt fra TMDB selv: PS5-en snakker bare med serveren din og Seerr."),
                   {gfx::Regular, 20, width}, kText3);
+    if (seerr_service::config().enabled && !m_client.features().quick_connect)   /* Emby: why a password */
+        gfx::text(left, y + 168 - off, T("Emby har ikke Quick Connect: Seerr logger inn med Emby-passordet ditt og husker innloggingen i 30 dager."), {gfx::Regular, 20, width}, kText3);
 }
 
 } // namespace ui

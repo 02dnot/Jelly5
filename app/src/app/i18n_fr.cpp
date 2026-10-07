@@ -318,7 +318,7 @@ const std::unordered_map<std::string, const char *> &french_table()
         {"Seerr-konto", "Compte Seerr"},
         {"Nettverk", "Réseau"},
         {"Test tilkoblingen", "Tester la connexion"},
-        {"Jellyfin-passord for ", "Mot de passe Jellyfin de "}, {"Emby-passord", "Mot de passe Emby"}, {"Emby-passord for ", "Mot de passe Emby de "}, {"Server", "Serveur"},
+        {"Jellyfin-passord for ", "Mot de passe Jellyfin de "}, {"Emby-passord", "Mot de passe Emby"}, {"Emby-passord for ", "Mot de passe Emby de "}, {"Server", "Serveur"}, {"Seerr: logg inn igjen under Innstillinger → Seerr", "Seerr : reconnectez-vous dans Paramètres → Seerr"}, {"Emby har ikke Quick Connect: Seerr logger inn med Emby-passordet ditt og husker innloggingen i 30 dager.", "Emby n'a pas Quick Connect : Seerr se connecte avec votre mot de passe Emby et s'en souvient pendant 30 jours."},
         {"E-post for Seerr-kontoen", "E-mail du compte Seerr"},
         {"Passord for Seerr-kontoen", "Mot de passe du compte Seerr"},
         {"Ikke angitt", "Non définie"},

@@ -173,7 +173,7 @@ const std::unordered_map<std::string, const char *> &english_table()
         {"Jellyfin-passord", "Jellyfin password"}, {"Seerr-konto (e-post)", "Seerr account (email)"},
         {"Automatisk (Quick Connect)", "Automatic (Quick Connect)"}, {"Adresse", "Address"},
         {"Pålogging", "Sign-in"}, {"Seerr-konto", "Seerr account"}, {"Nettverk", "Network"},
-        {"Test tilkoblingen", "Test connection"}, {"Jellyfin-passord for ", "Jellyfin password for "}, {"Emby-passord", "Emby password"}, {"Emby-passord for ", "Emby password for "}, {"Server", "Server"},
+        {"Test tilkoblingen", "Test connection"}, {"Jellyfin-passord for ", "Jellyfin password for "}, {"Emby-passord", "Emby password"}, {"Emby-passord for ", "Emby password for "}, {"Server", "Server"}, {"Seerr: logg inn igjen under Innstillinger → Seerr", "Seerr: sign in again under Settings → Seerr"}, {"Emby har ikke Quick Connect: Seerr logger inn med Emby-passordet ditt og husker innloggingen i 30 dager.", "Emby has no Quick Connect: Seerr signs in with your Emby password and remembers the sign-in for 30 days."},
         {"E-post for Seerr-kontoen", "Seerr account email"}, {"Passord for Seerr-kontoen", "Seerr account password"},
         {"Ikke angitt", "Not set"}, {"Internett", "Internet"}, {"Bare lokalt nettverk", "Local network only"},
         {"✕ logg ut", "✕ sign out"}, {"Svarer ikke – prøver igjen", "Not answering – trying again"},

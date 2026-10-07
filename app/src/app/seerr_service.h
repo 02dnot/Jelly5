@@ -92,6 +92,9 @@ void set_config(const Config &c);
 Snapshot snapshot();
 /* Bumped on every change of snapshot(): the screens showing it redraw. */
 unsigned generation();
+/* Once: the account's saved Seerr session stopped working and could not be
+ * renewed without the viewer (a password to type, an approval). */
+bool take_sign_in_notice();
 bool ready();
 /* Seerr's tab shows: on, and signed in once this session (it stays through a
  * reconnection rather than vanishing under the viewer). */

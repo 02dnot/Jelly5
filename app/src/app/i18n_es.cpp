@@ -348,7 +348,7 @@ const std::unordered_map<std::string, const char *> &spanish_table()
         {"Ingenting å be om: alt er der eller forespurt allerede", "Nada que solicitar: todo está ya disponible o solicitado"},
         {"Internett", "Internet"},
         {"Jellyfin-passord", "Contraseña de Jellyfin"},
-        {"Jellyfin-passord for ", "Contraseña de Jellyfin de "}, {"Emby-passord", "Contraseña de Emby"}, {"Emby-passord for ", "Contraseña de Emby de "}, {"Server", "Servidor"},
+        {"Jellyfin-passord for ", "Contraseña de Jellyfin de "}, {"Emby-passord", "Contraseña de Emby"}, {"Emby-passord for ", "Contraseña de Emby de "}, {"Server", "Servidor"}, {"Seerr: logg inn igjen under Innstillinger → Seerr", "Seerr: vuelve a iniciar sesión en Ajustes → Seerr"}, {"Emby har ikke Quick Connect: Seerr logger inn med Emby-passordet ditt og husker innloggingen i 30 dager.", "Emby no tiene Quick Connect: Seerr inicia sesión con tu contraseña de Emby y recuerda la sesión durante 30 días."},
         {"Kommende filmer", "Próximas películas"},
         {"Kommende serier", "Próximas series"},
         {"Kunne ikke hente detaljene fra Seerr", "No se pudieron obtener los detalles de Seerr"},

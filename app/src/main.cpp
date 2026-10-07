@@ -2043,6 +2043,8 @@ int main()
         seerr_service::poll();
         const bool seerr_moved = seerr_gen != seerr_service::generation();
         seerr_gen = seerr_service::generation();
+        if (seerr_moved && seerr_service::take_sign_in_notice())   /* else Discover just goes */
+            notify(T("Seerr: logg inn igjen under Innstillinger → Seerr"));
         if (seerr_moved && phase == Phase::Home) {   /* Seerr's tab comes and goes with it */
             {
                 std::lock_guard<std::mutex> g(s_state.lock);

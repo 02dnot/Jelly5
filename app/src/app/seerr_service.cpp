@@ -40,7 +40,8 @@ constexpr int kRetrySeconds = 30;
 
 /* Everything below; held only for moments (never across a request). */
 std::mutex s_lock;
-jf::Client *s_jf = nullptr;             /* the account in use (clients are never freed) */
+jf::Client *s_jf = nullptr;
+std::atomic<bool> s_sign_in_notice{false};   /* see take_sign_in_notice */             /* the account in use (clients are never freed) */
 std::string s_server, s_account;        /* its Jellyfin server; "server|user id" */
 unsigned s_epoch = 0;                   /* bumped when the account or the settings change */
 Snapshot s_snap;
@@ -345,7 +346,8 @@ void connect_worker(unsigned epoch)
         seerr::PublicSettings ps;
         cl->public_settings(&ps);
         seerr::User u;
-        bool ok = cl->has_session() && cl->me(&u);
+        const bool had_session = cl->has_session();
+        bool ok = had_session && cl->me(&u);
         if (ok)
             evo_bt("seerr: the saved session is still valid");
         if (!ok && cl->last_unreachable()) {   /* gone again between two requests */
@@ -375,6 +377,8 @@ void connect_worker(unsigned epoch)
             why = cl->last_status() == 403 ? Why::NotInSeerr : Why::AutoFailed;
             error = "Quick Connect: " + cl->last_error();
         }
+        if (!ok && had_session && why != Why::SignedOut)
+            s_sign_in_notice = true;   /* a saved session lost, and not renewed here: tell the viewer once */
         finish(epoch, cl, ok, u, version, ps, why, error);
         return;
     }
@@ -549,6 +553,8 @@ Snapshot snapshot()
 }
 
 unsigned generation() { return s_gen; }
+
+bool take_sign_in_notice() { return s_sign_in_notice.exchange(false); }
 
 bool ready()
 {
