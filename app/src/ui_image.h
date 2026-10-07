@@ -21,6 +21,12 @@ extern "C" {
  * same handle. Returns a handle >= 0, or -1 for an empty url. */
 int ui_image_request(const char *url, int max_w, int max_h, int blur);
 
+/* Jelly5: the same, fetched ahead of its first draw (the next cards of a row):
+ * after everything requested for the screen, at most 24 waiting at a time
+ * (-1 when that many already wait: asked again on a later frame). A request
+ * for the screen for the same picture moves it to the front. */
+int ui_image_prefetch(const char *url, int max_w, int max_h);
+
 /* The image once it has arrived, else NULL. *failed (optional) is set when it
  * never will. */
 const ui_image *ui_image_get(int handle, int *failed);

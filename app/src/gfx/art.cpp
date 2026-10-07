@@ -152,7 +152,7 @@ void prefetch(const std::string &url, int max_w, int max_h)
         return;
     e.max_w = max_w;
     e.max_h = max_h;
-    e.handle = ui_image_request(url.c_str(), max_w, max_h, 0);
+    e.handle = ui_image_prefetch(url.c_str(), max_w, max_h);   /* after what is on screen */
 }
 
 const gfx::Texture *get(const std::string &url, int max_w, int max_h)
