@@ -43,7 +43,7 @@ through it). Where the two servers differ, see *Emby* below.
 
 **Playback**
 - Hardware decoding of H.264 and HEVC up to 4K, HDR10 and HLG (Dolby Vision plays its HDR10 base layer)
-- Direct play wherever the PS5 can, server transcoding where it can't, through a PS5 device profile
+- Direct play wherever the PS5 can, server transcoding where it can't, through a PS5 device profile; a quality cap per server (one at home, one over the internet)
 - Audio and subtitle tracks (SRT, ASS/SSA, PGS and more), subtitle styling and online subtitle search
 - Trickplay thumbnails, a chapter menu, *Skip intro* from Jellyfin's media segments or Emby's intro markers, auto-play of the next episode
 - Choice between versions when a title has several
@@ -212,6 +212,7 @@ sees it); nothing else on the console is touched.
 | No Jelly5 tile | Check the path is exactly `/data/homebrew/PPSA99505/eboot.bin`; rerun ShadowMount+ or reboot and jailbreak again. |
 | The upload fails (for example "Text file busy") | Jelly5 is still running: close it with the PS button first. |
 | Your server is not in the list | Type its address. Discovery needs UDP port 7359 to reach the server (in Docker: publish `7359/udp`, and *Enable auto discovery* on in Jellyfin's networking settings). A server in Docker can answer with its container's own address, which the PS5 cannot reach: Jelly5 leaves such a server out, so type its address. |
+| No previews when scrubbing | The server makes them, not Jelly5. Jellyfin: turn on *Enable trickplay image extraction* in the library's settings and run *Generate Trickplay Images* under *Scheduled tasks*. Emby: turn on *Thumbnail image extraction* in the library's settings. |
 | A title won't play or stutters | Press **L3** while it plays and include that info in an issue. Over Wi-Fi, lower *Maximum quality* in Jelly5's settings (it is kept per server). |
 | The receiver shows PCM, not Dolby Atmos | Expected: the PS5 gives apps no bitstream passthrough (see *Known limits*). |
 | Seerr: "Not answering" | The address must be one the console reaches on your network (Seerr's local address, port 5055 by default). Check it with *Test connection*. |
@@ -303,7 +304,9 @@ against an Emby server, with `EMBY_URL`, `EMBY_USER` and `EMBY_PASS`), and
 with Quick Connect as the console does and reads search, discover, title pages,
 Radarr/Sonarr options and quotas; a request is only shown unless `--for-real`
 is given. Both need libcurl's headers (`libcurl4-openssl-dev` on Debian or
-Ubuntu, included with macOS).
+Ubuntu, included with macOS). `app/tests/host/routes.sh` needs no server: it
+records every request the client makes and checks that the Jellyfin ones are
+the same as on `main`.
 
 
 ## Credits
