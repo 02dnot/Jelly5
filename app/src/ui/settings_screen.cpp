@@ -438,9 +438,10 @@ void SettingsScreen::draw(double, float dt)
             continue;
         }
         const int sec = section_of(r0);
-        int r1 = r0;
-        while (r1 + 1 < RowCount && section_of(r1 + 1) == sec && shown(r1 + 1))
-            r1++;
+        int r1 = r0;   /* the section's last row shown (past rows this server hides) */
+        for (int r = r0 + 1; r < RowCount && section_of(r) == sec; r++)
+            if (shown(r))
+                r1 = r;
         const gfx::Rect card{left - 8, ys[r0] - off - 8, width + 16, ys[r1] + row_h - ys[r0] + 16};
         if (card.y < gfx::H && card.y + card.h > 0)
             glass_panel(card, 24, 1.f, false);

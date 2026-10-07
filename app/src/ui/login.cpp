@@ -11,6 +11,7 @@
 #include "nuvio_input.h"
 #include "platform/ime.h"
 #include "app/spawn.h"
+#include "evo_boot_trace.h"
 
 #include <algorithm>
 #include <functional>
@@ -194,6 +195,7 @@ void Login::check_server()
         const bool ok = c->public_info(&name, &version, &id, &kind);
         if (ok)
             c->set_kind(kind);   /* (before its users are asked for and anyone signs in) */
+        evo_bt("login: %s answered=%d %s %s", c->server().c_str(), ok, ok ? jf::kind_key(kind) : "-", version.c_str());
         std::vector<jf::PublicUser> users = ok ? c->public_users() : std::vector<jf::PublicUser>();
         std::lock_guard<std::mutex> g(sh->lock);
         if (sh->gen != gen)
@@ -546,7 +548,8 @@ void Login::draw(double now, float dt)
             button({fx + at[i], 712, w[i], 76}, labels[i], m_focus == 2 && m_found_col == i, 0, 1000 + i, fx - kX);
     } else if (m_step == UserStep) {
         gfx::text(kX, 230, T("Logg inn"), {gfx::Bold, 64}, kText);
-        gfx::text(kX, 286, server_name + "  \xC2\xB7  Jellyfin " + version + "  \xC2\xB7  " + m_server,
+        gfx::text(kX, 286, server_name + "  \xC2\xB7  " + (kind == jf::Kind::Emby ? "Emby " : "Jellyfin ") + version +
+                               "  \xC2\xB7  " + m_server,
                   {gfx::Medium, 24, 1500}, kText3);
         float y = 340;
         const int base = users.empty() ? 0 : 1;
