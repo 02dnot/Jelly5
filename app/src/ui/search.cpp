@@ -444,7 +444,8 @@ void Search::draw(double now, float dt)
     }
     gfx::text(kResX, 236, heading, {gfx::Bold, 26, 1000}, kText2);
     const seerr_service::State seerr_state = seerr_service::snapshot().state;
-    const bool seerr_on = !for_query.empty() && seerr_state != seerr_service::State::Off;
+    /* Seerr's block only where Seerr is on for this server (its state may lag a switch-off). */
+    const bool seerr_on = !for_query.empty() && seerr_service::config().enabled && seerr_state != seerr_service::State::Off;
     const float library_h = gr.library ? gr.library_rows() * kResPitch : for_query.empty() ? 0.f : kNoneH;
     auto row_top = [&](int row) {   /* within the results, before scrolling */
         return row < gr.library_rows() ? row * kResPitch : library_h + kSeerrHead + (row - gr.library_rows()) * kResPitch;
