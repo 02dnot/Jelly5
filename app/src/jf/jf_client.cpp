@@ -253,10 +253,15 @@ Features Client::features() const
     Features f;
     if (emby()) {
         f.quick_connect = f.syncplay = f.lyrics = f.trickplay = f.media_segments = false;
-        f.remote_control = false;   /* Emby's websocket is /embywebsocket: not yet */
         f.home_sections = false;
     }
     return f;
+}
+
+std::string Client::socket_url() const
+{
+    return emby() ? server_ + "/embywebsocket?api_key=" + token_ + "&deviceId=" + url_escape(device_id_)
+                  : server_ + "/socket?deviceId=" + url_escape(device_id_);
 }
 
 std::string Client::me_path() const { return emby() ? "/Users/" + user_id_ : std::string("/Users/Me"); }

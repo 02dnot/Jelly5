@@ -190,7 +190,7 @@ struct Features {
     bool lyrics = true;
     bool trickplay = true;                    /* Jellyfin's thumbnail sheets */
     bool media_segments = true;               /* intro/credits skip */
-    bool remote_control = true;               /* "Spill på PS5" (the /socket websocket) */
+    bool remote_control = true;               /* "Spill på PS5" (the websocket, socket_url) */
     bool home_sections = true;                /* the web client's home order (DisplayPreferences) */
 };
 
@@ -325,8 +325,11 @@ public:
     /* The PS5 device profile (JSON) sent with PlaybackInfo. */
     static std::string device_profile_json(int64_t max_bitrate = 0);
 
-    /* "Authorization: MediaBrowser ..." with this session's token (also for /socket). */
+    /* "Authorization: MediaBrowser ..." with this session's token (also for the websocket). */
     std::string auth_header() const;
+    /* The remote-control websocket: Jellyfin's /socket, Emby's /embywebsocket (which
+     * takes the token in the URL too). Carries the token: never logged. */
+    std::string socket_url() const;
     /* Remote control: this device plays video and audio and takes playstate
      * commands and messages (POST /Sessions/Capabilities/Full). */
     bool post_capabilities();
