@@ -2,6 +2,7 @@
  * Jelly5 — Jellyfin for PS5
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
+#include "jelly5_bitstream.h"
 #include "jelly5_playback.h"
 #include "evo_audio_out.h"
 
@@ -754,6 +755,7 @@ bool jelly5_play_theme(jf::Client &client, const jf::Item &song)
     const std::string req = request_json(client, song, pb, {}, ex);
     evo_audio_set_night(0);
     evo_audio_set_gain(0.28f);
+    jelly5_bs_set_allowed(0);   /* a theme plays quietly: decoded, so the gain applies */
     nuvio_player_run(req.c_str());
     evo_audio_set_gain(1.0f);
     client.stop_encoding(pb);
@@ -775,6 +777,10 @@ static bool play_chain_tracks(jf::Client &client, jf::Item item, std::vector<jf:
     evo_audio_set_gain(1.0f);                                    /* full volume (a theme may have been playing) */
     evo_audio_set_speed(1.0f);                                   /* each playback starts at normal speed */
     evo_audio_set_night(settings::get().local.night_mode ? 1 : 0);   /* Innstillinger: Nattmodus */
+    /* Innstillinger: HDMI-bitstrøm. Night mode needs the sound decoded here, so it wins. */
+    jelly5_bs_set_allowed(settings::get().local.hdmi_bitstream && !settings::get().local.night_mode
+                              ? JELLY5_BS_AC3 | JELLY5_BS_EAC3 | JELLY5_BS_DTS
+                              : 0);
 
     for (int chain = 0; chain < 50; chain++) {
         jf::Playback pb;
