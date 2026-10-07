@@ -33,6 +33,9 @@ struct Entry {
     int max_w = 0, max_h = 0;
     gfx::Texture *tex = nullptr;
     double ready_at = 0;
+    double first_drawn = 0;       /* when it was first asked for to draw (not a prefetch) */
+    double prefetched_at = -100;  /* the last prefetch (not repeated while recent) */
+    bool ahead = false;           /* its request was a prefetch: promoted when drawn */
     uint64_t used = 0;
     size_t bytes = 0;
     bool failed = false;
@@ -141,6 +144,26 @@ bool failed(const std::string &url)
     return it != s_art.end() && it->second.failed;
 }
 
+void prefetch(const std::string &url, int max_w, int max_h)
+{
+    if (url.empty())
+        return;
+    Entry &e = s_art[url];
+    e.used = s_tick;
+    if (e.tex || e.failed || (e.handle >= 0 && ui_image_alive(e.handle)))
+        return;
+    const double now = now_s();
+    if (now - e.prefetched_at < 5.0)
+        return;   /* asked lately (and evicted or refused since): not again every frame */
+    e.prefetched_at = now;
+    e.max_w = max_w;
+    e.max_h = max_h;
+    e.handle = ui_image_prefetch(url.c_str(), max_w, max_h);   /* after what is on screen */
+    e.ahead = e.handle >= 0;
+}
+
+double now() { return now_s(); }
+
 const gfx::Texture *get(const std::string &url, int max_w, int max_h)
 {
     if (url.empty())
@@ -149,10 +172,14 @@ const gfx::Texture *get(const std::string &url, int max_w, int max_h)
     e.used = s_tick;
     if (e.tex || e.failed)
         return e.tex;
+    if (e.first_drawn == 0)
+        e.first_drawn = now_s();
     e.max_w = max_w;
     e.max_h = max_h;
-    if (e.handle < 0 || !ui_image_alive(e.handle))
-        e.handle = ui_image_request(url.c_str(), max_w, max_h, 0);
+    if (e.handle < 0 || !ui_image_alive(e.handle) || e.ahead) {
+        e.handle = ui_image_request(url.c_str(), max_w, max_h, 0);   /* (a prefetched one moves to the front) */
+        e.ahead = false;
+    }
     int failed = 0;
     const ui_image *img = ui_image_get(e.handle, &failed);
     if (img && s_uploads < kUploadsPerFrame) {
@@ -163,7 +190,10 @@ const gfx::Texture *get(const std::string &url, int max_w, int max_h)
         if (e.tex) {
             e.bytes = (size_t)img->w * img->h * 4;
             s_bytes += e.bytes;
-            e.ready_at = now_s();
+            /* Ready at once (the disk cache, or fetched ahead): shown as it is, no
+             * BlurHash and no fade. Only a picture that had to wait fades in. */
+            const double now = now_s();
+            e.ready_at = now - e.first_drawn < 0.15 ? now - 60.0 : now;
         }
     } else if (!img && failed && ui_image_alive(e.handle)) {
         e.failed = true;

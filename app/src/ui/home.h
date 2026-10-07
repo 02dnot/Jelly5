@@ -81,6 +81,8 @@ private:
     void draw_info(const jf::Item &it, float bottom, bool hero, float alpha);
     void draw_rows(float dt);
     std::string card_url(const jf::Item &it) const;
+    /* A card's picture fetched before it scrolls into view (as it will be drawn). */
+    void prefetch_card(const jf::Item &it);
     std::string backdrop_url(const jf::Item &it) const;
     void draw_card_art(const jf::Item &it, const gfx::Rect &r, float radius, float opacity) const;
 

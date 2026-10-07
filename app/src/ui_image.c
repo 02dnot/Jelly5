@@ -45,6 +45,7 @@ typedef struct slot {
     int state;
     int discard;           /* cleared while loading: drop the result */
     unsigned seq;          /* request order, for FIFO and eviction */
+    int ahead;             /* Jelly5: fetched ahead of its first draw: after everything on screen */
     ui_image img;
 } slot;
 
@@ -454,6 +455,23 @@ static void cache_init(void)
 
 static uint8_t *fetch_network(const char *url, size_t *len);
 
+static int s_from_disk, s_from_net;
+static long long s_net_us;
+
+static long long mono_us(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (long long)ts.tv_sec * 1000000 + ts.tv_nsec / 1000;
+}
+
+void ui_image_fetch_stats(int *disk, int *net, double *net_ms)
+{
+    *disk = __atomic_load_n(&s_from_disk, __ATOMIC_RELAXED);
+    *net = __atomic_load_n(&s_from_net, __ATOMIC_RELAXED);
+    *net_ms = __atomic_load_n(&s_net_us, __ATOMIC_RELAXED) / 1000.0;
+}
+
 static uint8_t *fetch(const char *url, size_t *len)
 {
     *len = 0;
@@ -461,10 +479,15 @@ static uint8_t *fetch(const char *url, size_t *len)
     if (keep) {
         cache_init();
         uint8_t *hit = cache_read(url, len);
-        if (hit)
+        if (hit) {
+            __atomic_fetch_add(&s_from_disk, 1, __ATOMIC_RELAXED);
             return hit;
+        }
     }
+    const long long t0 = mono_us();
     uint8_t *data = fetch_network(url, len);
+    __atomic_fetch_add(&s_from_net, 1, __ATOMIC_RELAXED);
+    __atomic_fetch_add(&s_net_us, mono_us() - t0, __ATOMIC_RELAXED);
     if (data && keep)
         cache_write(url, data, *len);
     return data;
@@ -546,8 +569,11 @@ static void *worker(void *arg)
         while (!next) {
             /* Jelly5: newest first - the art for what is focused now beats the
              * art the viewer has already scrolled past. */
+            /* What is on screen before what is fetched ahead of the scroll. */
             for (int i = 0; i < SLOTS; i++)
-                if (s_slots[i].state == PENDING && (!next || s_slots[i].seq > next->seq))
+                if (s_slots[i].state == PENDING &&
+                    (!next || s_slots[i].ahead < next->ahead ||
+                     (s_slots[i].ahead == next->ahead && s_slots[i].seq > next->seq)))
                     next = &s_slots[i];
             if (!next)
                 pthread_cond_wait(&s_cond, &s_lock);
@@ -591,7 +617,19 @@ static void *worker(void *arg)
     return NULL;
 }
 
+static int request(const char *url, int max_w, int max_h, int blur, int ahead);
+
 int ui_image_request(const char *url, int max_w, int max_h, int blur)
+{
+    return request(url, max_w, max_h, blur, 0);
+}
+
+int ui_image_prefetch(const char *url, int max_w, int max_h)
+{
+    return request(url, max_w, max_h, 0, 1);
+}
+
+static int request(const char *url, int max_w, int max_h, int blur, int ahead)
 {
     if (!url || !*url || strlen(url) >= sizeof s_slots[0].url)
         return -1;
@@ -605,12 +643,19 @@ int ui_image_request(const char *url, int max_w, int max_h, int blur)
         pthread_detach(t);
         s_worker++;
     }
-    int found = -1, free_i = -1, oldest = -1;
+    int found = -1, free_i = -1, oldest = -1, waiting_ahead = 0;
+    for (int i = 0; i < SLOTS; i++)
+        if (s_slots[i].state == PENDING && s_slots[i].ahead)
+            waiting_ahead++;
     for (int i = 0; i < SLOTS; i++) {
         slot *s = &s_slots[i];
         if (s->state != EMPTY && !s->discard && s->max_w == max_w && s->max_h == max_h &&
             s->blur == blur && !strcmp(s->url, url)) {
             found = i;
+            if (!ahead && s->ahead) {   /* fetched ahead, now on screen: to the front */
+                s->ahead = 0;
+                s->seq = ++s_seq;
+            }
             break;
         }
         if (s->state == EMPTY && free_i < 0)
@@ -618,6 +663,11 @@ int ui_image_request(const char *url, int max_w, int max_h, int blur)
         if ((s->state == READY || s->state == FAILED) &&
             (oldest < 0 || s->seq < s_slots[oldest].seq))
             oldest = i;
+    }
+    /* Fetching ahead never fills the slots: room stays for what comes on screen. */
+    if (found < 0 && ahead && waiting_ahead >= 24) {
+        pthread_mutex_unlock(&s_lock);
+        return -1;
     }
     if (found < 0) {
         found = free_i >= 0 ? free_i : oldest;
@@ -630,6 +680,7 @@ int ui_image_request(const char *url, int max_w, int max_h, int blur)
             s->blur = blur;
             s->state = PENDING;
             s->discard = 0;
+            s->ahead = ahead;
             s->seq = ++s_seq;
             pthread_cond_signal(&s_cond);
         }

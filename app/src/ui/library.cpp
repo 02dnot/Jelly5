@@ -139,8 +139,38 @@ void Library::activate()
         load_more();
 }
 
+void Library::preload()
+{
+    size_t have;
+    bool need;
+    {
+        std::lock_guard<std::mutex> g(m_data->lock);
+        need = m_data->total < 0 && !m_data->loading;
+        have = m_data->items.size();
+    }
+    if (need) {
+        const double now = art::now();
+        if (now - m_preload_at > 10.0) {   /* a failed first page: again after a while, not every frame */
+            m_preload_at = now;
+            load_more();
+        }
+        return;
+    }
+    if (m_warmed || have == 0 || square())
+        return;
+    m_warmed = true;
+    std::vector<jf::Item> first;
+    {
+        std::lock_guard<std::mutex> g(m_data->lock);
+        first.assign(m_data->items.begin(), m_data->items.begin() + std::min<size_t>(m_data->items.size(), kCols * 3));
+    }
+    for (const jf::Item &it : first)   /* as draw_poster asks for them */
+        art::prefetch(it.external() ? it.ext.poster : poster_url(m_client, it, 480), 480, 720);
+}
+
 void Library::reload()
 {
+    m_warmed = false;   /* a new first page (sort, filter): its posters are asked for again */
     {
         std::lock_guard<std::mutex> g(m_data->lock);
         m_data->items.clear();
@@ -177,6 +207,11 @@ void Library::load_more()
         std::lock_guard<std::mutex> g(d->lock);
         if (gen != d->generation)
             return;   /* the sort changed meanwhile */
+        if (!page.ok && start == 0) {   /* failed (not empty): asked again when wanted */
+            d->total = -1;
+            d->loading = false;
+            return;
+        }
         d->items.insert(d->items.end(), page.items.begin(), page.items.end());
         d->total = page.items.empty() && start == 0 ? 0 : std::max(page.total, (int)d->items.size());
         d->loading = false;
@@ -287,7 +322,7 @@ Action Library::input(uint32_t p)
             a.item = m_data->items[m_index];
         }
     }
-    if (m_index > count - 24)
+    if (m_index > count - kPage)   /* a page ahead: the next one is there before the grid ends */
         load_more();
     return a;
 }
@@ -643,6 +678,8 @@ void Library::draw(double now, float dt)
         for (int i = 0; i < (int)items.size(); i++) {
             const int r = i / kCols, c = i % kCols;
             const float y = top + r * pitch;
+            if (pass == 0 && y > gfx::H + 20 && y < gfx::H + 20 + 2 * pitch)   /* the next two rows, ahead */
+                art::prefetch(items[i].external() ? items[i].ext.poster : poster_url(m_client, items[i], 480), 480, 720);
             if (y > gfx::H + 20 || y + tile_h + 60 < 0)
                 continue;
             const bool f = m_focused && !m_in_pills && i == m_index;
