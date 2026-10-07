@@ -89,11 +89,13 @@ static volatile float s_play_speed = 1.0f;
 static volatile int s_tempo_flush;
 void evo_audio_set_speed(float speed)
 {
-    if (jelly5_bs_active())
-        speed = 1.0f;   /* an HDMI bitstream plays as it is: the receiver decodes it */
+    if (jelly5_bs_active()) {   /* an HDMI bitstream plays as it is: the receiver decodes it */
+        speed = 1.0f;
+        s_play_speed = 1.0f;
+    }
     s_speed = speed < 0.5f ? 0.5f : speed > 2.0f ? 2.0f : speed;
 }
-float evo_audio_speed(void) { return s_speed; }
+float evo_audio_speed(void) { return jelly5_bs_active() ? 1.0f : s_speed; }
 float evo_audio_play_speed(void) { return s_play_speed; }
 void evo_audio_flush_speed(void) { s_tempo_flush = 1; }
 int evo_audio_port_float = 1;
@@ -289,7 +291,10 @@ void *audio_output_thread(void *arg) {
 
             if (video_stream_index >= 0 && first_video_pts_seconds < 0.0 &&
                 video_decode_ready && !video_decode_done) {
-                usleep(2000);
+                if (jelly5_bs_active())
+                    sceAudioOutOutput(audio_handle, jelly5_bs_silence());   /* the receiver stays locked */
+                else
+                    usleep(2000);
                 continue;
             }
 
@@ -324,8 +329,13 @@ void *audio_output_thread(void *arg) {
             if (video_rel >= EVO_AV_SYNC_SETTLE_SEC &&
                 audio_clock_seconds > video_rel + 0.50 &&
                 video_stuck_iters < 125) {
-                video_stuck_iters++;
-                usleep(2000);
+                if (jelly5_bs_active()) {   /* a ~5 ms grain of silence: the same ~250 ms escape */
+                    video_stuck_iters += 2;
+                    sceAudioOutOutput(audio_handle, jelly5_bs_silence());
+                } else {
+                    video_stuck_iters++;
+                    usleep(2000);
+                }
                 continue;
             }
             if (jelly5_bs_active()) {
@@ -334,7 +344,7 @@ void *audio_output_thread(void *arg) {
                  * clock moves on by the 48 kHz media samples a grain carries;
                  * an empty buffer plays silence and leaves the clock alone. */
                 s_play_speed = 1.0f;
-                const int16_t *grain = jelly5_bs_pop();
+                const int16_t *grain = pb_prebuffer_hold ? NULL : jelly5_bs_pop();   /* rebuffering: hold */
                 if (grain) {
                     sceAudioOutOutput(audio_handle, grain);
                     audio_samples_played += jelly5_bs_media_samples();
@@ -644,6 +654,11 @@ void *audio_decode_thread_func(void *arg) {
         while (audio_decode_thread_running && audio_queue_count > 10) {
             usleep(1000);
         }
+        /* Jelly5: an HDMI bitstream keeps about as little ahead as the PCM queue does. */
+        while (audio_decode_thread_running && jelly5_bs_active() && jelly5_bs_buffered_ms() > 400 &&
+               !pb_prebuffer_hold && !pb_scrub_hold) {
+            usleep(1000);
+        }
 
         AVPacket *pkt = packet_queue_pop(&audio_packet_queue);
         if (pkt && audio_seek_discard_until >= 0.0) {
@@ -715,13 +730,22 @@ void *audio_decode_thread_func(void *arg) {
         }
 
         if (jelly5_bs_active()) {
-            /* Jelly5: HDMI bitstream - the packet goes to the receiver as it is. */
+            /* Jelly5: HDMI bitstream - the packet goes to the receiver as it is. A gap
+             * in the packets' timestamps is played as silence, so the clock (which
+             * counts what is played) stays on the media's timeline. */
+            static double s_next = -1.0;
             if (pkt->pts != AV_NOPTS_VALUE && play_fmt && audio_stream_index >= 0) {
-                audio_pts_seconds = pkt->pts * av_q2d(play_fmt->streams[audio_stream_index]->time_base);
+                const AVRational tb = play_fmt->streams[audio_stream_index]->time_base;
+                audio_pts_seconds = pkt->pts * av_q2d(tb);
                 if (first_audio_pts_seconds < 0.0) {
                     first_audio_pts_seconds = audio_pts_seconds;
                     anchor_resume_base();
+                    s_next = -1.0;   /* a new start (open, seek) */
                 }
+                const double gap = s_next >= 0.0 ? audio_pts_seconds - s_next : 0.0;
+                if (gap > 0.02 && gap < 5.0)
+                    jelly5_bs_gap(gap, &audio_decode_thread_running);
+                s_next = pkt->duration > 0 ? audio_pts_seconds + pkt->duration * av_q2d(tb) : -1.0;
             }
             jelly5_bs_feed(pkt->data, pkt->size, &audio_decode_thread_running);
             av_packet_free(&pkt);

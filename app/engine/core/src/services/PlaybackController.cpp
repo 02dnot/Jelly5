@@ -1135,6 +1135,7 @@ bool PlaybackController::startPlaybackSource(const PlaybackSource& source,
                         if (handle >= 1) {
                             evo_audio_channels = 2;
                             evo_audio_port_float = 0;
+                            evo_audio_set_speed(1.0f);   /* a speed left from the last item: not for a bitstream */
                         }
                     }
                     if (handle < 1 && chCount > 2) {

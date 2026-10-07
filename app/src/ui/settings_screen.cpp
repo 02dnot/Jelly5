@@ -188,7 +188,8 @@ std::string SettingsScreen::value(Row r) const
     case Autoplay: return s.server.autoplay_next ? T("På") : T("Av");
     case AutoSkip: return s.local.auto_skip_intro ? T("På") : T("Av");
     case NightMode: return s.local.night_mode ? T("På") : T("Av");
-    case Bitstream: return s.local.hdmi_bitstream ? T("På") : T("Av");
+    case Bitstream:   /* night mode needs the sound decoded here, so it wins */
+        return !s.local.hdmi_bitstream ? T("Av") : s.local.night_mode ? T("Av med nattmodus") : T("På");
     case ThemeMusic: return s.local.theme_music ? T("På") : T("Av");
     case Updates: return s.local.check_updates ? T("På") : T("Av");
     case AudioDelay:

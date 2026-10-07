@@ -20,6 +20,7 @@ const std::unordered_map<std::string, const char *> &portuguese_table()
         {"Ingenting mer i køen", "Nada mais na fila"},
         {"Nattmodus", "Modo noturno"},
         {"HDMI-bitstrøm", "Bitstream HDMI"},
+        {"Av med nattmodus", "Desativado com o modo noturno"},
         {"HDMI-bitstrøm (%s)", "Bitstream HDMI (%s)"},
         {"Hastighet virker ikke med HDMI-bitstrøm", "A velocidade não funciona com bitstream HDMI"},
         {"Temamusikk", "Música tema"},

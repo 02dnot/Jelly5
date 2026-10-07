@@ -44,6 +44,7 @@ int s_grain = 256;            /* frames per sceAudioOutOutput on that port */
 jelly5::iec61937::Packer s_packer;
 std::atomic<unsigned> s_gen{0};   /* bumped by a reset: the packer and a waiting feed start over */
 unsigned s_packer_gen = 0;
+uint64_t s_dropped_at_open = 0;
 
 /* The bursts, as 16-bit words: one writer (decode), one reader (output). 1 M words
  * is 2.7 s of E-AC-3's 192 kHz carrier, 10.9 s of AC-3's or DTS's 48 kHz. */
@@ -86,6 +87,8 @@ void push(const uint16_t *words, size_t n, unsigned gen, volatile int *running)
             return;
         {
             std::lock_guard<std::mutex> g(s_lock);
+            if (s_gen.load() != gen)
+                return;   /* a seek came between the check and the lock: this burst is from before it */
             if (kRing - s_count >= n) {
                 for (size_t i = 0; i < n; i++)
                     s_ring[(s_write + i) % kRing] = (int16_t)words[i];
@@ -136,10 +139,8 @@ int jelly5_bs_open(int codec_id, int profile, int sample_rate, int channels)
     if (!(allowed & want))
         return -1;
     sceAudioOutInit();
-    int sink = jelly5_bs_sink_formats();
-    if (sink < 0)
-        sink = JELLY5_BS_AC3;   /* an unreadable list: only what every HDMI sink with surround takes */
-    if (!(sink & want)) {
+    const int sink = jelly5_bs_sink_formats();   /* unreadable (-1): nothing is assumed, decoded here */
+    if (sink < 0 || !(sink & want)) {
         evo_bt("bitstream: %s not listed by the TV/receiver (formats %#x): decoded here", s_name, sink);
         return -1;
     }
@@ -157,6 +158,7 @@ int jelly5_bs_open(int codec_id, int profile, int sample_rate, int channels)
     jelly5_bs_reset();
     s_packer.reset(s_format);
     s_packer_gen = s_gen.load();
+    s_dropped_at_open = s_packer.dropped();
     s_active = 1;
     evo_bt("bitstream: %s %dch to HDMI (mode %d, %u Hz carrier, handle %#x)", s_name, channels, mode, s_carrier,
            (unsigned)h);
@@ -169,8 +171,9 @@ void jelly5_bs_close(int handle)
         return;
     const int c = sceAudioOutExClose(handle);
     const int r = sceAudioOutExConfigureOutput(0, 0, 255, 255, 0);
-    if (s_packer.dropped())
-        evo_bt("bitstream: %llu bytes the packer could not place", (unsigned long long)s_packer.dropped());
+    if (s_packer.dropped() > s_dropped_at_open)
+        evo_bt("bitstream: the packer skipped %llu bytes it could not frame",
+               (unsigned long long)(s_packer.dropped() - s_dropped_at_open));
     evo_bt("bitstream: closed (close %#x, restore %#x)", (unsigned)c, (unsigned)r);
     jelly5_bs_reset();
 }
@@ -192,6 +195,25 @@ void jelly5_bs_feed(const uint8_t *data, int size, volatile int *running)
     });
 }
 
+void jelly5_bs_gap(double seconds, volatile int *running)
+{
+    if (!s_active.load())
+        return;
+    static const uint16_t zero[1024 * 2] = {};
+    const unsigned gen = s_gen.load();
+    /* Whole grains of zero carrier: the media samples they stand for (see pop). */
+    long grains = (long)(seconds * 48000.0 / jelly5_bs_media_samples() + 0.5);
+    evo_bt("bitstream: a %.0f ms gap in the stream, played as silence", seconds * 1000.0);
+    while (grains-- > 0)
+        push(zero, (size_t)s_grain * 2, gen, running);
+}
+
+int jelly5_bs_buffered_ms(void)
+{
+    std::lock_guard<std::mutex> g(s_lock);
+    return (int)((long long)(s_count / 2) * 1000 / s_carrier);
+}
+
 const int16_t *jelly5_bs_pop(void)
 {
     const size_t n = (size_t)s_grain * 2;
@@ -205,7 +227,6 @@ const int16_t *jelly5_bs_pop(void)
     return s_out;
 }
 
-int jelly5_bs_grain_frames(void) { return s_grain; }
 int jelly5_bs_media_samples(void) { return (int)((long long)s_grain * 48000 / s_carrier); }
 const int16_t *jelly5_bs_silence(void) { return s_zero; }
 

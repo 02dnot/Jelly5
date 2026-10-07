@@ -29,8 +29,8 @@ enum {
 
 /* What the viewer allows for the next playback (0: off). Set before each run. */
 void jelly5_bs_set_allowed(int mask);
-/* What the TV or receiver lists (JELLY5_BS_*), read from the system; -1 when its
- * list could not be read. Cheap after the first call of a playback. */
+/* What the TV or receiver lists (JELLY5_BS_*), read from the system at each call;
+ * -1 when its list could not be read (then nothing goes out as bitstream). */
 int jelly5_bs_sink_formats(void);
 
 /* At open: when this stream may go out as bitstream, switches HDMI to it and
@@ -45,10 +45,13 @@ const char *jelly5_bs_name(void);
 /* Decode thread: a demuxed packet. Waits while the buffer is full (as long as
  * *running holds and no reset comes). */
 void jelly5_bs_feed(const uint8_t *data, int size, volatile int *running);
-/* Output thread: the next grain to write (NULL when none is ready yet), how
- * many frames a grain is, and how many 48 kHz media samples one grain plays. */
+/* Decode thread: a gap in the stream's timestamps, played as that much silence. */
+void jelly5_bs_gap(double seconds, volatile int *running);
+/* How much is buffered, in milliseconds of media. */
+int jelly5_bs_buffered_ms(void);
+/* Output thread: the next grain to write (NULL when none is ready yet), and how
+ * many 48 kHz media samples one grain plays. */
 const int16_t *jelly5_bs_pop(void);
-int jelly5_bs_grain_frames(void);
 int jelly5_bs_media_samples(void);
 /* A grain of silence (pause, underrun): keeps the port and the receiver locked. */
 const int16_t *jelly5_bs_silence(void);

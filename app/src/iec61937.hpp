@@ -137,13 +137,13 @@ class Packer
     {
         format_ = format;
         used_ = 0;
+        expected_ = 0;   /* Jelly5: a frame half assembled at a seek is not finished from the new position */
         pending_ = 0;
         pending_frames_ = 0;
         pending_repeat_ = 1;
         pending_pts_ = -1;
         frame_pts_ = -1;
-        skip_ = 0;
-        dropped_ = 0;
+        skip_ = 0;   /* (dropped_ keeps counting across seeks: Jelly5 logs it per stream) */
     }
 
     [[nodiscard]] std::uint64_t dropped() const noexcept
