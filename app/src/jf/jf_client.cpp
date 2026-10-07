@@ -1136,8 +1136,10 @@ bool Client::playback_info(const std::string &item_id, int64_t start_ticks, int 
         const std::string transcoding = str_of(ms, "TranscodingUrl");
         if (bool_of(ms, "SupportsDirectPlay")) {
             c.v.play_method = "DirectPlay";
+            /* ApiKey (Jellyfin 10.8 on): the legacy api_key counts only with the server's
+             * legacy authorization on, which newer servers have off. */
             c.v.url = server_ + "/Videos/" + item_id + "/stream?static=true&mediaSourceId=" + c.v.id +
-                      "&playSessionId=" + session + "&api_key=" + token_;
+                      "&playSessionId=" + session + "&ApiKey=" + token_;
             c.rank = 3;
         } else if (!transcoding.empty()) {
             c.v.play_method = transcoding.find("/stream") != std::string::npos ? "DirectStream" : "Transcode";
