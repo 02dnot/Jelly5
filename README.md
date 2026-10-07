@@ -173,6 +173,8 @@ Jelly5 finds out by itself whether a server is Jellyfin or Emby, and the same
 screens work on both. What differs on Emby:
 
 - **Sign-in** is with user name and password: Emby has no Quick Connect.
+- **Behind a reverse proxy** that serves Emby only under `/emby`, the address
+  alone is enough: Jelly5 tries `/emby` when the address answers nothing.
 - **Not on Emby:** *Watch together* (SyncPlay), lyrics, and the home order from
   Jellyfin's web settings (Emby's home is shown in the default order).
 - **Skip intro** uses Emby's intro and credits markers. Emby only detects them

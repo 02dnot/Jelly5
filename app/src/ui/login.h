@@ -48,6 +48,7 @@ private:
         std::string error;
         std::string server_name, server_version, server_id;
         jf::Kind kind = jf::Kind::Jellyfin;   /* what the check found */
+        std::shared_ptr<jf::Client> moved;    /* it answered under /emby: the client for that address */
         std::vector<jf::PublicUser> users;
         bool checked = false;           /* the server answered: go on to the user */
         bool signed_in = false;

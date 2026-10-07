@@ -242,11 +242,22 @@ void Login::check_server()
     const bool started = jelly5::spawn([sh, c, gen] {
         std::string name, version, id;
         jf::Kind kind = jf::Kind::Jellyfin;
-        const bool ok = c->public_info(&name, &version, &id, &kind);
+        bool ok = c->public_info(&name, &version, &id, &kind);
+        /* An Emby behind a reverse proxy may answer only under /emby: an address
+         * typed without a path is tried there too, and then used with it. */
+        std::shared_ptr<jf::Client> use = c;
+        const size_t scheme = c->server().find("://");
+        if (!ok && scheme != std::string::npos && c->server().find('/', scheme + 3) == std::string::npos) {
+            auto under = std::make_shared<jf::Client>(c->server() + "/emby", c->device_id(), c->device_name());
+            if (under->public_info(&name, &version, &id, &kind)) {
+                use = under;
+                ok = true;
+            }
+        }
         if (ok)
-            c->set_kind(kind);   /* (before its users are asked for and anyone signs in) */
-        evo_bt("login: %s answered=%d %s %s", c->server().c_str(), ok, ok ? jf::kind_key(kind) : "-", version.c_str());
-        std::vector<jf::PublicUser> users = ok ? c->public_users() : std::vector<jf::PublicUser>();
+            use->set_kind(kind);   /* (before its users are asked for and anyone signs in) */
+        evo_bt("login: %s answered=%d %s %s", use->server().c_str(), ok, ok ? jf::kind_key(kind) : "-", version.c_str());
+        std::vector<jf::PublicUser> users = ok ? use->public_users() : std::vector<jf::PublicUser>();
         std::lock_guard<std::mutex> g(sh->lock);
         if (sh->gen != gen)
             return;   /* another server since */
@@ -259,6 +270,7 @@ void Login::check_server()
         sh->server_version = version;
         sh->server_id = id;
         sh->kind = kind;
+        sh->moved = use != c ? use : nullptr;
         sh->users = std::move(users);
         sh->checked = true;
     });
@@ -518,8 +530,13 @@ void Login::draw(double now, float dt)
         checked = m_shared->checked;
         kind = m_shared->kind;
         users = m_shared->users;
-        if (checked)
+        if (checked) {
             m_shared->checked = false;
+            if (m_shared->moved) {   /* it answered under /emby: sign in there (before anyone starts to) */
+                m_own = std::move(m_shared->moved);
+                m_server = m_own->server();
+            }
+        }
     }
     if (checked) {   /* the server answered: Quick Connect first, where the server has it */
         m_checking = false;
