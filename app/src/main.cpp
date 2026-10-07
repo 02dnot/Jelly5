@@ -11,6 +11,7 @@
  */
 #include "jelly5_playback.h"
 #include "jf/jf_http.h"
+#include "jf/jf_discovery.h"
 #include "app/accounts.h"
 #include "app/i18n.h"
 #include "app/perf.h"
@@ -128,6 +129,10 @@ struct State {
     ui::HomeModel model;
     std::vector<jf::Item> views;        /* the user's libraries, in their order */
     GateRequest gate;                   /* a gate screen the main thread should open */
+    /* The account's server was found at a new address (it did not answer at the
+     * saved one): the main thread signs in there, on a client for that address. */
+    accounts::Account follow;
+    bool follow_set = false;
     /* Seerr's tab: its rows, and how their loading goes. */
     ui::HomeModel discover;
     bool discover_loading = false, discover_failed = false;
@@ -921,12 +926,14 @@ void use_account(jf::Client &c, unsigned session, accounts::Account a)
          * Nothing uses this session's client before this (it is Connecting). */
         std::string name, version, id;
         jf::Kind kind = c.kind();
-        const bool answered = c.public_info(&name, &version, &id, &kind);
+        /* A quick "is anything there" first (5 s), so a server that has gone (or
+         * moved) says so in seconds rather than after two full request timeouts. */
+        const bool answered = c.ping() && c.public_info(&name, &version, &id, &kind);
         if (answered && kind != c.kind()) {
             evo_bt("jelly5: %s is %s, the account said %s", a.server_name.c_str(), jf::kind_key(kind), jf::kind_key(c.kind()));
             c.set_kind(kind);
         }
-        if (c.validate()) {
+        if (answered && c.validate()) {
             if (session != s_session)
                 return;   /* switched away meanwhile: leave "last account" and prefs alone */
             a.user_name = c.user_name();
@@ -958,8 +965,26 @@ void use_account(jf::Client &c, unsigned session, accounts::Account a)
             check_for_update();
             return;
         }
-        const std::string err = c.last_error();
+        const std::string err = answered ? c.last_error() : std::string("no answer");
         evo_bt("jelly5: sign-in check failed: %s", err.c_str());
+        /* Not there: the same server (by its Id) may answer at a new address on
+         * this network - a DHCP lease that changed. Then its accounts move there
+         * and this account signs in on it. */
+        if (!answered && !a.server_id.empty()) {
+            for (const jf::FoundServer &f : jf::discover(1500)) {
+                if (f.id != a.server_id || f.address.empty() || f.address == a.server)
+                    continue;
+                if (session != s_session)
+                    return;
+                evo_bt("jelly5: %s moved to a new address on this network", a.server_name.c_str());
+                a.server = f.address;
+                remember_account(a);   /* every account on it, and its Seerr settings, move along */
+                std::lock_guard<std::mutex> g(s_state.lock);
+                s_state.follow = a;
+                s_state.follow_set = true;
+                return;
+            }
+        }
         if (err.find("-> 401") != std::string::npos) {
             request_gate(Gate::Login, a.server, a.user_name, true, true);
             return;
@@ -1588,10 +1613,19 @@ bool draw_frame(double t, float dt)
     }
     switch (phase) {
     case Phase::Connecting:
-    case Phase::Loading:
+    case Phase::Loading: {
+        /* Connecting longer than a moment: the way out is shown (○ works from the start). */
+        static double s_since = 0;
+        static Phase s_was = Phase::Gate;
+        if (phase != s_was)
+            s_was = phase, s_since = t;
         s_splash.snap(1.f);
-        draw_launch(t, 1.f, message, "", true);
+        const bool slow = phase == Phase::Connecting && t - s_since > 2.0;
+        draw_launch(t, 1.f, message, "", true, slow ? T("Bytt bruker eller server") : "");
+        if (phase == Phase::Connecting && !slow)
+            animating = true;   /* (until the hint is up) */
         break;
+    }
     case Phase::Failed:
         draw_launch(t, 1.f, message, "", true, T("Bytt bruker eller server"));   /* (it tries again) */
         break;
@@ -1979,6 +2013,18 @@ int main()
         }
         if (gate.kind != Gate::None)
             open_gate(gate);
+        accounts::Account follow;
+        bool follow_set = false;
+        {
+            std::lock_guard<std::mutex> g(s_state.lock);
+            if (s_state.follow_set) {
+                follow = s_state.follow;
+                follow_set = true;
+                s_state.follow_set = false;
+            }
+        }
+        if (follow_set)
+            switch_to(follow);   /* the server at its new address */
 
         /* The screensaver: on after a while without a button; any button wakes the
          * app and is only that. */
@@ -2000,7 +2046,7 @@ int main()
         if (in.pressed) {
             if (phase == Phase::Gate)
                 gate_input(in.pressed);
-            else if (phase == Phase::Failed && (in.pressed & NUVIO_BTN_CIRCLE)) {
+            else if ((phase == Phase::Failed || phase == Phase::Connecting) && (in.pressed & NUVIO_BTN_CIRCLE)) {
                 s_session++;
                 open_gate({accounts::load().empty() ? Gate::Login : Gate::Profiles, s_client->server(), "", false});
                 set_phase(Phase::Gate);
