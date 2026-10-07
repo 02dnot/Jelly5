@@ -669,6 +669,8 @@ void Library::draw(double now, float dt)
         for (int i = 0; i < (int)items.size(); i++) {
             const int r = i / kCols, c = i % kCols;
             const float y = top + r * pitch;
+            if (pass == 0 && y > gfx::H + 20 && y < gfx::H + 20 + 2 * pitch)   /* the next two rows, ahead */
+                art::prefetch(items[i].external() ? items[i].ext.poster : poster_url(m_client, items[i], 480), 480, 720);
             if (y > gfx::H + 20 || y + tile_h + 60 < 0)
                 continue;
             const bool f = m_focused && !m_in_pills && i == m_index;

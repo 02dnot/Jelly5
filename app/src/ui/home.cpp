@@ -252,6 +252,14 @@ Action Home::input(uint32_t p)
     return action;
 }
 
+void Home::prefetch_card(const jf::Item &it)
+{
+    if (m_discover)
+        art::prefetch(it.external() ? it.ext.poster : poster_url(m_client, it, 480), 480, 720);
+    else
+        art::prefetch(it.external() ? it.ext.thumb : card_url(it), 640, 360);
+}
+
 std::string Home::card_url(const jf::Item &it) const
 {
     if (it.external())
@@ -494,8 +502,14 @@ void Home::draw_rows(float dt)
         float a = 1.f;
         if (rel < 0)
             a = std::max(0.f, 1.f + rel * 1.6f);   /* rows above fade out */
-        if (a <= 0.f || ry > gfx::H + 40)
+        if (a <= 0.f)
             continue;
+        if (ry > gfx::H + 40) {   /* below: the next two rows' first cards are fetched ahead */
+            if (ry < gfx::H + 40 + 2 * rowh)
+                for (size_t i = 0; i < row.items.size() && i < 8; i++)
+                    prefetch_card(row.items[i]);
+            continue;
+        }
         gfx::text(kPad, ry + 30, row.title, {gfx::Bold, 30}, alpha(0xebffffffu, a));
 
         /* Horizontal: the focused card sits at the left edge, until the row ends. */
@@ -511,8 +525,13 @@ void Home::draw_rows(float dt)
 
         const float cy = ry + (m_discover ? 72 : 52);   /* posters: room for the focused one's lift under the title */
         int focus_i = -1;
+        int ahead = 0;
         for (size_t i = 0; i < row.items.size(); i++) {
             const float cx = kPad + (float)i * (cw + kCardGap) - m_scroll[r].value;
+            if (cx > gfx::W + 20 && ahead < 6) {   /* the next cards to the right, fetched ahead */
+                ahead++;
+                prefetch_card(row.items[i]);
+            }
             if (cx > gfx::W + 20 || cx + cw < -60)
                 continue;
             const jf::Item &it = row.items[i];
