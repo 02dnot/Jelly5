@@ -64,11 +64,18 @@ bool adjustable(int r)
            (r >= SettingsScreen::AppLanguage && r <= SettingsScreen::Updates);
 }
 
-const char *auth_name(seerr_service::Auth a, bool emby)
+/* The sign-in Seerr gets: where the server has no Quick Connect (Emby; Seerr has
+ * it for Jellyfin only), the server's password stands in for it. */
+seerr_service::Auth effective_auth(seerr_service::Auth a, const jf::Client &c)
 {
-    if (emby && a == seerr_service::Auth::QuickConnect)
-        a = seerr_service::Auth::JellyfinPassword;   /* Seerr has Quick Connect for Jellyfin only */
-    switch (a) {
+    return a == seerr_service::Auth::QuickConnect && !c.features().quick_connect ? seerr_service::Auth::JellyfinPassword
+                                                                                 : a;
+}
+
+const char *auth_name(seerr_service::Auth a, const jf::Client &c)
+{
+    const bool emby = c.kind() == jf::Kind::Emby;   /* (the password is named after the server) */
+    switch (effective_auth(a, c)) {
     case seerr_service::Auth::JellyfinPassword: return emby ? T("Emby-passord") : T("Jellyfin-passord");
     case seerr_service::Auth::Local: return T("Seerr-konto (e-post)");
     default: return T("Automatisk (Quick Connect)");
@@ -150,10 +157,7 @@ void SettingsScreen::seerr_account()
         sign_out();
         return;
     }
-    Auth auth = config().auth;
-    if (auth == Auth::QuickConnect && m_client.kind() == jf::Kind::Emby)
-        auth = Auth::JellyfinPassword;   /* Seerr has Quick Connect for Jellyfin only */
-    switch (auth) {
+    switch (effective_auth(config().auth, m_client)) {
     case Auth::QuickConnect:   /* ✕ here approves Quick Connect for the address shown */
         if (s.why == Why::NeedApproval)
             approve_quick_connect();
@@ -217,7 +221,7 @@ std::string SettingsScreen::value(Row r) const
         const std::string u = seerr_service::config().url;
         return u.empty() ? std::string(T("Ikke angitt")) : u;
     }
-    case SeerrAuth: return auth_name(seerr_service::config().auth, m_client.kind() == jf::Kind::Emby);
+    case SeerrAuth: return auth_name(seerr_service::config().auth, m_client);
     case SeerrAccount: {
         using namespace seerr_service;
         const Snapshot sn = snapshot();
@@ -335,9 +339,10 @@ void SettingsScreen::change(Row r, int dir)
     }
     case SeerrAuth: {
         seerr_service::Config c = seerr_service::config();
-        c.auth = (seerr_service::Auth)cycle((int)c.auth, (int)seerr_service::Auth::Count);
-        if (c.auth == seerr_service::Auth::QuickConnect && m_client.kind() == jf::Kind::Emby)
-            c.auth = (seerr_service::Auth)cycle((int)c.auth, (int)seerr_service::Auth::Count);   /* Jellyfin's only */
+        /* From what the row shows; past Quick Connect where the server has none. */
+        c.auth = (seerr_service::Auth)cycle((int)effective_auth(c.auth, m_client), (int)seerr_service::Auth::Count);
+        if (effective_auth(c.auth, m_client) != c.auth)
+            c.auth = (seerr_service::Auth)cycle((int)c.auth, (int)seerr_service::Auth::Count);
         seerr_service::set_config(c);
         break;
     }

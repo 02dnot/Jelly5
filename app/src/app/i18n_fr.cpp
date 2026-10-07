@@ -318,7 +318,7 @@ const std::unordered_map<std::string, const char *> &french_table()
         {"Seerr-konto", "Compte Seerr"},
         {"Nettverk", "Réseau"},
         {"Test tilkoblingen", "Tester la connexion"},
-        {"Jellyfin-passord for ", "Mot de passe Jellyfin de "}, {"Emby-passord", "Mot de passe Emby"}, {"Emby-passord for ", "Mot de passe Emby de "},
+        {"Jellyfin-passord for ", "Mot de passe Jellyfin de "}, {"Emby-passord", "Mot de passe Emby"}, {"Emby-passord for ", "Mot de passe Emby de "}, {"Server", "Serveur"},
         {"E-post for Seerr-kontoen", "E-mail du compte Seerr"},
         {"Passord for Seerr-kontoen", "Mot de passe du compte Seerr"},
         {"Ikke angitt", "Non définie"},

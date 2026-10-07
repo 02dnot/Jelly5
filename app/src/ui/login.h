@@ -16,6 +16,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <map>
 #include <vector>
 
 namespace ui {
@@ -54,6 +55,7 @@ private:
         std::string qc_code;
         bool qc_alive = false;
         std::vector<jf::FoundServer> found;   /* servers on the local network */
+        std::map<std::string, bool> answers;  /* found addresses asked once: did they answer there */
         bool scanning = false;
         unsigned gen = 0;               /* bumped when the server changes: older requests' answers are dropped */
     };

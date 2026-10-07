@@ -106,7 +106,7 @@ int main()
         check(c.media_extras(movie_id, "", &chapters, &tp), "chapters",
               std::to_string(chapters.size()) + (tp.valid() ? ", trickplay" : ", no trickplay"));
         if (tp.valid()) {   /* the second sheet (Emby: thumbnail), as the player asks for it, without headers */
-            const std::string url = tp.sheet_ticks > 0 ? tp.url_base + std::to_string(tp.sheet_ticks) + tp.url_query
+            const std::string url = tp.sheet_ticks > 0 ? tp.url_base + std::to_string(tp.first_ticks + tp.sheet_ticks) + tp.url_query
                                                        : tp.url_base + "1.jpg" + tp.url_query;
             const jf::HttpResponse r = jf::http_request("GET", url, {}, "", 15);
             check(r.ok() && r.body.size() > 1000, "trickplay sheet",

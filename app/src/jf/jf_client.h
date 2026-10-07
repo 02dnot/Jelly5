@@ -99,6 +99,7 @@ struct Trickplay {
     std::string url_base;                     /* + "<sheet>.jpg" + url_query; Emby: + its time in ticks */
     std::string url_query;
     int64_t sheet_ticks = 0;                  /* Emby: the ticks between sheets (0: Jellyfin's numbered sheets) */
+    int64_t first_ticks = 0;                  /* Emby: the first sheet's time */
     bool valid() const { return width > 0 && height > 0 && tile_w > 0 && tile_h > 0 && count > 0 && interval > 0; }
 };
 

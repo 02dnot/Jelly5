@@ -348,7 +348,7 @@ const std::unordered_map<std::string, const char *> &spanish_table()
         {"Ingenting å be om: alt er der eller forespurt allerede", "Nada que solicitar: todo está ya disponible o solicitado"},
         {"Internett", "Internet"},
         {"Jellyfin-passord", "Contraseña de Jellyfin"},
-        {"Jellyfin-passord for ", "Contraseña de Jellyfin de "}, {"Emby-passord", "Contraseña de Emby"}, {"Emby-passord for ", "Contraseña de Emby de "},
+        {"Jellyfin-passord for ", "Contraseña de Jellyfin de "}, {"Emby-passord", "Contraseña de Emby"}, {"Emby-passord for ", "Contraseña de Emby de "}, {"Server", "Servidor"},
         {"Kommende filmer", "Próximas películas"},
         {"Kommende serier", "Próximas series"},
         {"Kunne ikke hente detaljene fra Seerr", "No se pudieron obtener los detalles de Seerr"},

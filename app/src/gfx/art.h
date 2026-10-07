@@ -30,8 +30,9 @@ float fade(const std::string &url, float seconds = 0.35f);
 const gfx::Texture *blurhash(const std::string &hash);
 
 /* Image, blurhash placeholder underneath, fading in: the usual way to draw art.
- * Without a BlurHash (Emby has none): empty_color, or for a rounded picture
- * left at the default colour (a poster, a card) the placeholder the screens set. */
+ * Without a BlurHash (Emby has none): empty_color, or while the image of a
+ * rounded picture left at the default colour (a poster, a card) is coming, the
+ * placeholder the screens set. */
 constexpr uint32_t kEmpty = 0xff1a1a20u;
 void draw(const gfx::Rect &r, const std::string &url, const std::string &hash, int max_w, int max_h,
           float radius, float opacity = 1.f, uint32_t empty_color = kEmpty);

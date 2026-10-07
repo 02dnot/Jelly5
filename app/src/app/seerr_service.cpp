@@ -358,8 +358,8 @@ void connect_worker(unsigned epoch)
         if (!ok && st.signed_out) {
             why = Why::SignedOut;
             error = "signed out";
-        } else if (!ok && st.config.auth == Auth::QuickConnect && jf && jf->kind() == jf::Kind::Emby) {
-            /* Quick Connect is Jellyfin's (Seerr signs in that way only for Jellyfin): the Emby password */
+        } else if (!ok && st.config.auth == Auth::QuickConnect && jf && !jf->features().quick_connect) {
+            /* No Quick Connect on this server (Emby; Seerr has it for Jellyfin only): its password */
         } else if (!ok && st.config.auth == Auth::QuickConnect && st.quick_connect_url != st.config.url) {
             /* Approving a code hands whoever answers at this address a Jellyfin
              * session: only for an address the viewer approved themselves. */

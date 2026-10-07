@@ -11,6 +11,7 @@
 #include "nuvio_input.h"
 #include "platform/ime.h"
 #include "app/spawn.h"
+#include "jf/jf_http.h"
 #include "evo_boot_trace.h"
 
 #include <algorithm>
@@ -164,19 +165,38 @@ void Login::scan(double now)
                 f.end());
         /* A server can name an address the PS5 cannot reach (one in Docker: its
          * container's 172.17.x.x), and signing in there only times out: offered
-         * are the ones that answer where they said. */
-        std::vector<char> reachable(f.size(), 0);
+         * are the ones that answer where they said. Each address is asked once
+         * while this sign-in shows. */
+        std::vector<char> reachable(f.size(), 0), known(f.size(), 0);
+        {
+            std::lock_guard<std::mutex> g(sh->lock);
+            for (size_t i = 0; i < f.size(); i++) {
+                const auto at = sh->answers.find(f[i].address);
+                known[i] = at != sh->answers.end();
+                reachable[i] = known[i] && at->second;
+            }
+        }
         std::vector<std::function<void()>> checks;
         for (size_t i = 0; i < f.size(); i++)
-            checks.push_back([&f, &reachable, i] {
+            if (!known[i])
+                checks.push_back([&f, &reachable, i] {
+                /* Not through a client: its failed requests count as the signed-in
+                 * server being gone (jf::unreachable_streak, the "no contact" note). */
                 jf::Client probe("", "", "");
-                probe.set_server(f[i].address);
-                reachable[i] = probe.ping();
+                probe.set_server(f[i].address);   /* (the address as typed ones are taken) */
+                reachable[i] = jf::http_request("GET", probe.server() + "/System/Info/Public",
+                                                {"Accept: application/json"}, "", 5).ok();
             });
         jelly5::run_all(checks);
+        {
+            std::lock_guard<std::mutex> g(sh->lock);
+            for (size_t i = 0; i < f.size(); i++)
+                sh->answers[f[i].address] = reachable[i];
+        }
         for (size_t i = f.size(); i-- > 0;)
             if (!reachable[i]) {
-                evo_bt("login: %s answered the search but not at %s", f[i].name.c_str(), f[i].address.c_str());
+                if (!known[i])
+                    evo_bt("login: %s answered the search but not at %s", f[i].name.c_str(), f[i].address.c_str());
                 f.erase(f.begin() + (long)i);
             }
         std::lock_guard<std::mutex> g(sh->lock);
@@ -490,7 +510,7 @@ void Login::draw(double now, float dt)
     }
     if (checked) {   /* the server answered: Quick Connect first, where the server has it */
         m_checking = false;
-        m_has_quick_connect = kind != jf::Kind::Emby;
+        m_has_quick_connect = client().features().quick_connect;   /* (its kind is set: checked) */
         if (m_has_quick_connect) {
             start_quick_connect();
         } else {
@@ -552,7 +572,7 @@ void Login::draw(double now, float dt)
         std::vector<float> w(nf), at(nf);
         float row_w = 0;
         for (int i = 0; i < nf; i++) {
-            labels[i] = (found[i].name.empty() ? std::string("Server") : found[i].name) + "  \xC2\xB7  " +
+            labels[i] = (found[i].name.empty() ? std::string(T("Server")) : found[i].name) + "  \xC2\xB7  " +
                         host_of(found[i].address);
             w[i] = std::min(560.f, gfx::text_width(labels[i], {gfx::Bold, 26}) + 64);
             at[i] = row_w;

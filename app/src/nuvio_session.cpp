@@ -272,6 +272,7 @@ bool nuvio_request_parse(const char *json, NuvioRequest &r)
         t.url_base = str_of(tp, "urlBase");
         t.url_query = str_of(tp, "urlQuery");
         t.sheet_ticks = (int64_t)num_of(tp, "sheetTicks", 0);
+        t.first_ticks = (int64_t)num_of(tp, "firstTicks", 0);
     }
 
     const cJSON *p = cJSON_GetObjectItemCaseSensitive(root, "prefs");

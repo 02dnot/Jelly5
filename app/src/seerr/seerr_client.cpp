@@ -6,6 +6,7 @@
 
 #include "jf/jf_http.h"
 
+#include <atomic>
 #include <cctype>
 #include <cstdlib>
 #include <cstring>
@@ -73,14 +74,17 @@ std::string trim(const std::string &s)
     return s.substr(a, b - a);
 }
 
+/* Seerr's media server is Emby (its public settings say so: mediaServerType 3). */
+std::atomic<bool> s_emby{false};
+
 /* A Jellyfin item id, as Seerr reports it: 32 hex digits (dashes allowed), or
- * Emby's (Seerr keeps those in the same field): digits. Else none. It goes into
- * the server's request paths, which carry the viewer's token: nothing else may
- * ride along ("../System/Restart"). */
+ * when Seerr's media server is Emby, Emby's (Seerr keeps those in the same
+ * field): digits. Else none. It goes into the server's request paths, which
+ * carry the viewer's token: nothing else may ride along ("../System/Restart"). */
 std::string jellyfin_id_of(const std::string &v)
 {
-    if (!v.empty() && v.size() <= 20 && v.find_first_not_of("0123456789") == std::string::npos)
-        return v;   /* Emby */
+    if (s_emby && !v.empty() && v.size() <= 20 && v.find_first_not_of("0123456789") == std::string::npos)
+        return v;
     int hex = 0;
     for (const char ch : v) {
         if ((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F'))
@@ -376,6 +380,7 @@ bool Client::public_settings(PublicSettings *out)
         return false;
     out->title = str_of(j, "applicationTitle");
     out->media_server = int_of(j, "mediaServerType");
+    s_emby = out->media_server == 3;
     out->media_server_login = bool_of(j, "mediaServerLogin", true);
     out->local_login = bool_of(j, "localLogin", true);
     out->partial_requests = bool_of(j, "partialRequestsEnabled", true);

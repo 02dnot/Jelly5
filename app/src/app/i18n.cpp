@@ -173,7 +173,7 @@ const std::unordered_map<std::string, const char *> &english_table()
         {"Jellyfin-passord", "Jellyfin password"}, {"Seerr-konto (e-post)", "Seerr account (email)"},
         {"Automatisk (Quick Connect)", "Automatic (Quick Connect)"}, {"Adresse", "Address"},
         {"Pålogging", "Sign-in"}, {"Seerr-konto", "Seerr account"}, {"Nettverk", "Network"},
-        {"Test tilkoblingen", "Test connection"}, {"Jellyfin-passord for ", "Jellyfin password for "}, {"Emby-passord", "Emby password"}, {"Emby-passord for ", "Emby password for "},
+        {"Test tilkoblingen", "Test connection"}, {"Jellyfin-passord for ", "Jellyfin password for "}, {"Emby-passord", "Emby password"}, {"Emby-passord for ", "Emby password for "}, {"Server", "Server"},
         {"E-post for Seerr-kontoen", "Seerr account email"}, {"Passord for Seerr-kontoen", "Seerr account password"},
         {"Ikke angitt", "Not set"}, {"Internett", "Internet"}, {"Bare lokalt nettverk", "Local network only"},
         {"✕ logg ut", "✕ sign out"}, {"Svarer ikke – prøver igjen", "Not answering – trying again"},

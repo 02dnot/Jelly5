@@ -1117,6 +1117,7 @@ void Client::emby_thumbnails(const std::string &item_id, Trickplay *tp)
         tp->count = count;
         tp->interval = (double)step / kTicksPerSecond;
         tp->sheet_ticks = step;
+        tp->first_ticks = (int64_t)num_of(first, "PositionTicks");
         tp->url_base = server_ + "/Items/" + item_id + "/Images/Thumbnail?maxWidth=" + std::to_string(kWidth) +
                        "&quality=90&tag=" + url_escape(tag) + "&PositionTicks=";
         tp->url_query.clear();
@@ -1268,13 +1269,22 @@ bool Client::playback_info(const std::string &item_id, int64_t start_ticks, int 
     if (!playback_info_as(item_id, start_ticks, audio_index, subtitle_index, out, max_bitrate, false))
         return false;
     /* Dolby Vision profile 5 has no base layer the PS5 shows right (green and
-     * purple): Jellyfin's profile already keeps it from playing directly
-     * (VideoRangeType); Emby's profile cannot say so, so it is asked again,
-     * this time for a transcode. */
+     * purple). Jellyfin's profile keeps it from playing directly or being copied
+     * (VideoRangeType); Emby's cannot say so. There a DV5 version comes last
+     * (playback_info_as), and when it is still the one chosen it is asked for
+     * again with the video encoded - also when the answer was HLS, which may
+     * copy the video. If that is refused (no transcoding for this user), the
+     * first answer stands. */
+    if (!emby())
+        return true;
     for (const MediaStream &s : out->streams)
-        if (s.type == "Video" && s.video_range_type == "DOVI" && out->play_method != "Transcode") {
+        if (s.type == "Video" && s.video_range_type == "DOVI") {
+            Playback encoded;
+            if (!playback_info_as(item_id, start_ticks, audio_index, subtitle_index, &encoded, max_bitrate, true))
+                return true;
             stop_encoding(*out);
-            return playback_info_as(item_id, start_ticks, audio_index, subtitle_index, out, max_bitrate, true);
+            *out = std::move(encoded);
+            return true;
         }
     return true;
 }
@@ -1317,12 +1327,14 @@ bool Client::playback_info_as(const std::string &item_id, int64_t start_ticks, i
         c.v.name = str_of(ms, "Name");
         c.v.bitrate = (int64_t)num_of(ms, "Bitrate", 0);
         std::string codec, range;
+        bool dv5 = false;
         const cJSON *s;
         cJSON_ArrayForEach(s, cJSON_GetObjectItemCaseSensitive(ms, "MediaStreams"))
             if (str_of(s, "Type") == "Video" && c.v.height == 0) {
                 c.v.height = (int)num_of(s, "Height", 0);
                 codec = str_of(s, "Codec");
                 range = str_of(s, "VideoRange");
+                dv5 = stream_of(s, server_).video_range_type == "DOVI";
             }
         const std::string transcoding = str_of(ms, "TranscodingUrl");
         if (bool_of(ms, "SupportsDirectPlay") && !transcode) {
@@ -1339,6 +1351,8 @@ bool Client::playback_info_as(const std::string &item_id, int64_t start_ticks, i
         } else {
             continue;
         }
+        if (dv5 && emby() && !transcode)
+            c.rank = 0;   /* Emby: any other version first (see playback_info) */
         for (char &ch : codec)
             ch = (char)std::toupper((unsigned char)ch);
         c.v.label = (c.v.height ? std::to_string(c.v.height) + "p" : std::string()) +

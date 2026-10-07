@@ -371,6 +371,7 @@ std::string request_json(jf::Client &c, const jf::Item &it, const jf::Playback &
         cJSON_AddStringToObject(tp, "urlBase", t.url_base.c_str());
         cJSON_AddStringToObject(tp, "urlQuery", t.url_query.c_str());
         cJSON_AddNumberToObject(tp, "sheetTicks", (double)t.sheet_ticks);
+        cJSON_AddNumberToObject(tp, "firstTicks", (double)t.first_ticks);
         cJSON_AddItemToObject(o, "trickplay", tp);
     }
 
