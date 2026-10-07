@@ -941,10 +941,10 @@ void use_account(jf::Client &c, unsigned session, accounts::Account a)
          * Nothing uses this session's client before this (it is Connecting). */
         std::string name, version, id;
         jf::Kind kind = c.kind();
-        /* Within 5 s, so a server that has gone (or moved) says so in seconds rather
-         * than after two full request timeouts. A server that answers with an HTTP
+        /* Within 10 s, so a server that has gone (or moved) says so well before two
+         * full request timeouts (a slow server or network still gets its time). A server that answers with an HTTP
          * error (a proxy that hides this route) is there: its token is still checked. */
-        const bool answered = c.public_info(&name, &version, &id, &kind, 5);
+        const bool answered = c.public_info(&name, &version, &id, &kind, 10);
         const bool reached = answered || c.last_error().find(" -> 0 ") == std::string::npos;
         if (answered && kind != c.kind()) {
             evo_bt("jelly5: %s is %s, the account said %s", a.server_name.c_str(), jf::kind_key(kind), jf::kind_key(c.kind()));
