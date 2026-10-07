@@ -306,6 +306,16 @@ packet_queue_clear(
             decoder_seek_seconds /
             av_q2d(time_base)
         );
+#ifdef NUVIO_APP
+    /* Jelly5: an HLS transcode's timestamps need not start at 0 (Emby's start at
+     * 10 s): the hls demuxer seeks by timestamp, so the target is counted from
+     * the stream's start. Without it a seek landed 10 s early, and one to the
+     * first 10 s was refused (2026-10-07). */
+    if (play_fmt->iformat && strcmp(play_fmt->iformat->name, "hls") == 0 &&
+        play_fmt->streams[seek_stream]->start_time != AV_NOPTS_VALUE &&
+        play_fmt->streams[seek_stream]->start_time > 0)
+        seek_timestamp += play_fmt->streams[seek_stream]->start_time;
+#endif
 
     /* #94: a seek in a raw .obu (no index - the demuxer scans forward from
      * the last keyframe it has seen) took EVO down with nothing after it in

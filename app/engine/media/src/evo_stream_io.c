@@ -228,6 +228,14 @@ void evo_stream_io_apply_network_options(AVDictionary **opts, const char *url)
     av_dict_set(opts, "reconnect_delay_max", "2", 0);
     av_dict_set(opts, "rw_timeout", "5000000", 0);
     av_dict_set(opts, "timeout", "5000000", 0);
+#ifdef NUVIO_APP
+    /* Jelly5: a Jellyfin or Emby transcode (its HLS carries PlaySessionId) starts
+     * over at the target of a seek, and the first segment from there comes only
+     * when the server's encoder has made it: 4.5 s from Emby decoding 4K HEVC in
+     * software (2026-10-07), past 5 s over the network, and the seek failed. */
+    if (url && strstr(url, "PlaySessionId=") && evo_stream_io_url_is_playlist(url))
+        av_dict_set(opts, "rw_timeout", "20000000", 0);
+#endif
 
     /*
      * Bounded retries. FFmpeg's default is to keep going for 256 s. These cap
