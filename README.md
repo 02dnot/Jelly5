@@ -157,7 +157,7 @@ Once signed in, Seerr's results appear in Search, a *Discover* tab shows what's 
 
 Limits of the platform, not of Jelly5:
 
-- No bitstream passthrough: Dolby Atmos and DTS:X play as 7.1 PCM.
+- HDMI bitstream covers Dolby Digital, Dolby Digital Plus (Atmos in DD+) and DTS core, when the TV or receiver supports them. TrueHD (incl. its Atmos) and DTS-HD MA/DTS:X play as lossless 7.1 PCM.
 - No true 24p output: the display runs at 60 or 120 Hz.
 - No 3D: side-by-side and top-and-bottom files are refused, and 3D Blu-ray (MVC) plays in 2D.
 - The app can't quit itself: close it with the PS button.
@@ -171,7 +171,7 @@ Limits of the platform, not of Jelly5:
 | Your server isn't listed | Type its address. Discovery needs UDP port 7359; in Docker, publish `7359/udp`, and in Jellyfin turn on *Enable auto discovery*. |
 | No previews when scrubbing | The server makes them. Jellyfin: turn on *Enable trickplay image extraction* in the library and run *Generate Trickplay Images*. Emby: turn on *Thumbnail image extraction*. |
 | A title won't play or stutters | Press **L3** while it plays and include that info in an issue. Over Wi-Fi, lower *Maximum quality* in the settings. |
-| The receiver shows PCM, not Atmos | Expected: see *Formats and limits*. |
+| The receiver shows PCM, not Dolby or Atmos | Turn on *Settings → HDMI bitstream* (and night mode off). TrueHD and DTS-HD MA always play as PCM: see *Formats and limits*. |
 | Seerr isn't answering | Use Seerr's local address (port 5055 by default) and check it with *Test connection*. |
 | Seerr's automatic sign-in fails | Seerr is older than 3.4, Quick Connect is off in Jellyfin, or your user isn't in Seerr. Use your password instead, or import the user. |
 | Seerr shows no pictures | Seerr fetches them from TMDB, so the Seerr server needs internet access. |
