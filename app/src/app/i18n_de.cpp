@@ -348,7 +348,7 @@ const std::unordered_map<std::string, const char *> &german_table()
         {"Ingenting å be om: alt er der eller forespurt allerede", "Nichts anzufragen: alles ist schon da oder angefragt"},
         {"Internett", "Internet"},
         {"Jellyfin-passord", "Jellyfin-Passwort"},
-        {"Jellyfin-passord for ", "Jellyfin-Passwort für "},
+        {"Jellyfin-passord for ", "Jellyfin-Passwort für "}, {"Emby-passord", "Emby-Passwort"}, {"Emby-passord for ", "Emby-Passwort für "},
         {"Kommende filmer", "Kommende Filme"},
         {"Kommende serier", "Kommende Serien"},
         {"Kunne ikke hente detaljene fra Seerr", "Details konnten nicht von Seerr geladen werden"},

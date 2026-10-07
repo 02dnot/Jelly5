@@ -73,11 +73,14 @@ std::string trim(const std::string &s)
     return s.substr(a, b - a);
 }
 
-/* A Jellyfin item id, as Seerr reports it: 32 hex digits (dashes allowed), else
- * none. It goes into Jellyfin's request paths, which carry the viewer's token:
- * nothing else may ride along ("../System/Restart"). */
+/* A Jellyfin item id, as Seerr reports it: 32 hex digits (dashes allowed), or
+ * Emby's (Seerr keeps those in the same field): digits. Else none. It goes into
+ * the server's request paths, which carry the viewer's token: nothing else may
+ * ride along ("../System/Restart"). */
 std::string jellyfin_id_of(const std::string &v)
 {
+    if (!v.empty() && v.size() <= 20 && v.find_first_not_of("0123456789") == std::string::npos)
+        return v;   /* Emby */
     int hex = 0;
     for (const char ch : v) {
         if ((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F'))

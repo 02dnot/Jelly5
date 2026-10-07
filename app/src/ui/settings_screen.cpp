@@ -64,10 +64,12 @@ bool adjustable(int r)
            (r >= SettingsScreen::AppLanguage && r <= SettingsScreen::Updates);
 }
 
-const char *auth_name(seerr_service::Auth a)
+const char *auth_name(seerr_service::Auth a, bool emby)
 {
+    if (emby && a == seerr_service::Auth::QuickConnect)
+        a = seerr_service::Auth::JellyfinPassword;   /* Seerr has Quick Connect for Jellyfin only */
     switch (a) {
-    case seerr_service::Auth::JellyfinPassword: return T("Jellyfin-passord");
+    case seerr_service::Auth::JellyfinPassword: return emby ? T("Emby-passord") : T("Jellyfin-passord");
     case seerr_service::Auth::Local: return T("Seerr-konto (e-post)");
     default: return T("Automatisk (Quick Connect)");
     }
@@ -148,7 +150,10 @@ void SettingsScreen::seerr_account()
         sign_out();
         return;
     }
-    switch (config().auth) {
+    Auth auth = config().auth;
+    if (auth == Auth::QuickConnect && m_client.kind() == jf::Kind::Emby)
+        auth = Auth::JellyfinPassword;   /* Seerr has Quick Connect for Jellyfin only */
+    switch (auth) {
     case Auth::QuickConnect:   /* ✕ here approves Quick Connect for the address shown */
         if (s.why == Why::NeedApproval)
             approve_quick_connect();
@@ -156,7 +161,10 @@ void SettingsScreen::seerr_account()
             reconnect();
         break;
     case Auth::JellyfinPassword:
-        ime::request(ime::Kind::Password, T("Jellyfin-passord for ") + m_client.user_name(), "",
+        ime::request(ime::Kind::Password,
+                     (m_client.kind() == jf::Kind::Emby ? T("Emby-passord for ") : T("Jellyfin-passord for ")) +
+                         m_client.user_name(),
+                     "",
                      [](const std::string &pw) { seerr_service::sign_in("", pw); });
         break;
     case Auth::Local:   /* the e-mail first; the password once the keyboard has closed */
@@ -209,7 +217,7 @@ std::string SettingsScreen::value(Row r) const
         const std::string u = seerr_service::config().url;
         return u.empty() ? std::string(T("Ikke angitt")) : u;
     }
-    case SeerrAuth: return auth_name(seerr_service::config().auth);
+    case SeerrAuth: return auth_name(seerr_service::config().auth, m_client.kind() == jf::Kind::Emby);
     case SeerrAccount: {
         using namespace seerr_service;
         const Snapshot sn = snapshot();
@@ -328,6 +336,8 @@ void SettingsScreen::change(Row r, int dir)
     case SeerrAuth: {
         seerr_service::Config c = seerr_service::config();
         c.auth = (seerr_service::Auth)cycle((int)c.auth, (int)seerr_service::Auth::Count);
+        if (c.auth == seerr_service::Auth::QuickConnect && m_client.kind() == jf::Kind::Emby)
+            c.auth = (seerr_service::Auth)cycle((int)c.auth, (int)seerr_service::Auth::Count);   /* Jellyfin's only */
         seerr_service::set_config(c);
         break;
     }
