@@ -42,3 +42,9 @@ unsigned generation();
 /* The text in the interface's language (the argument is the Norwegian). */
 const char *T(const char *nb);
 inline std::string T(const std::string &nb) { return T(nb.c_str()); }
+/* A count in the interface's language: nb_one / nb_other are the Norwegian
+ * formats ("%d sesong", "%d sesonger"), n goes in their %d. A table's entry for
+ * nb_other holds the language's forms separated by '|', in CLDR's order and only
+ * those whole numbers use (see plural_form in i18n.cpp): "%d season|%d seasons";
+ * Russian "%d сезон|%d сезона|%d сезонов"; Japanese one form. */
+std::string TN(int n, const char *nb_one, const char *nb_other);

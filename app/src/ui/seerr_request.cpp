@@ -214,10 +214,9 @@ void RequestSheet::send()
         std::lock_guard<std::mutex> g(m_shared->lock);
         const seerr::Quota &q = m_shared->quota;
         if (m_shared->have_quota && q.limit > 0) {
-            char b[160];
             if (o.tv && (int)o.seasons.size() > q.remaining) {
-                std::snprintf(b, sizeof b, T("Kvoten din gir plass til %d sesonger til"), std::max(0, q.remaining));
-                m_error = b;
+                m_error = TN(std::max(0, q.remaining), "Kvoten din gir plass til %d sesong til",
+                             "Kvoten din gir plass til %d sesonger til");
                 m_retry = false;
                 return;
             }
@@ -494,18 +493,14 @@ void RequestSheet::draw(float dt, bool *animating)
                 en = n > 0;
                 on = on && n > 0;
                 label = m_settings.partial_requests ? T("Alle sesonger") : T("Alle manglende sesonger");
-                char b[48];
-                std::snprintf(b, sizeof b, n == 1 ? T("%d sesong") : T("%d sesonger"), n);
-                right = b;
+                right = TN(n, "%d sesong", "%d sesonger");
             } else {
                 const seerr::Season &s = m_detail.seasons[row.season];
                 en = requestable(s, m_settings);
                 on = en ? (bool)m_picked[row.season] : s.status == seerr::Status::Available;
                 label = season_name(s);
                 if (en) {
-                    char b[48];
-                    std::snprintf(b, sizeof b, T("%d episoder"), s.episodes);
-                    right = b;
+                    right = TN(s.episodes, "%d episode", "%d episoder");
                 } else {
                     right = s.requested && s.status == seerr::Status::Unknown ? T("Forespurt")
                                                                               : seerr_status_label((int)s.status, true);

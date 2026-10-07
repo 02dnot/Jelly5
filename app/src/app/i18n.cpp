@@ -8,6 +8,8 @@
 #include "evo_boot_trace.h"
 
 #include <atomic>
+#include <cstdio>
+#include <cstring>
 #include <mutex>
 #include <set>
 #include <unordered_map>
@@ -107,27 +109,27 @@ const std::unordered_map<std::string, const char *> &english_table()
         {"Lyd og undertekster", "Audio & Subtitles"}, {"NESTE EPISODE", "NEXT EPISODE"},
         {"Spilles om %d s  ·  ✕ nå", "Plays in %d s  ·  ✕ now"},
         {"✕ spill av  ·  ○ se rulletekst", "✕ play  ·  ○ watch credits"}, {"Bilde ", "Image "},
-        {"Ekstern", "External"}, {"‹ Av ›", "‹ Off ›"}, {"Passer ", "Matches "}, {" nedl.", " downloads"},
+        {"Ekstern", "External"}, {"‹ Av ›", "‹ Off ›"}, {"Passer ", "Matches "}, 
         {"Søker …", "Searching …"}, {"Fant ingen", "Found none"}, {"○ lukk", "○ close"},
         {"Sesong %d", "Season %d"}, {"SPILLER NÅ", "NOW PLAYING"}, {"Ingen beskrivelse.", "No description."},
         {"Ingen episoder i denne sesongen.", "No episodes in this season."},
         {"✕ spill av   ·   ○ lukk", "✕ play   ·   ○ close"}, {"Kunne ikke spille av", "Couldn't play"},
         {"Satt på pause", "Paused"}, {"Spilles nå", "Now Playing"}, {"Neste: ", "Next: "}, {"Tvungen ", "Forced "},
         /* detail, person, album */
-        {" sesong", " season"}, {" sesonger", " seasons"}, {" min igjen", " min left"}, {"Sett", "Watched"},
+        {"Sett", "Watched"},
         {"Merk som sett", "Mark as Watched"}, {"Fra start", "From the Start"}, {"Med:", "Starring:"},
         {"Regi:", "Director:"}, {"Kanal:", "Network:"}, {"Ekstramateriale", "Extras"},
         {"Skuespillere og crew", "Cast & Crew"}, {"I denne samlingen", "In This Collection"},
-        {"Mer som dette", "More Like This"}, {"Født ", "Born "}, {" tittel her", " title here"},
-        {" titler her", " titles here"}, {"Ingen biografi.", "No biography."}, {"Ingen titler med ", "No titles with "},
-        {" i biblioteket.", " in the library."}, {"Spilleliste", "Playlist"}, {"titler", "titles"},
-        {"spor", "tracks"}, {"Bland", "Shuffle"}, {"Miks", "Mix"},
+        {"Mer som dette", "More Like This"}, {"Født ", "Born "}, 
+        {"Ingen biografi.", "No biography."}, {"Ingen titler med ", "No titles with "},
+        {" i biblioteket.", " in the library."}, {"Spilleliste", "Playlist"}, 
+        {"Bland", "Shuffle"}, {"Miks", "Mix"},
         /* options sheet */
         {"Fjern fra Min liste", "Remove from My List"}, {"Legg til i Min liste", "Add to My List"},
         {"Merk som usett", "Mark as Unwatched"}, {"Fjern fra Fortsett å se", "Remove from Continue Watching"},
         /* libraries, search */
         {"Nylig lagt til", "Recently Added"}, {"A–Å", "A–Z"}, {"Utgivelsesår", "Release Year"},
-        {"Vurdering", "Rating"}, {"%d titler", "%d titles"}, {"Henter …", "Loading …"},
+        {"Vurdering", "Rating"}, {"Henter …", "Loading …"},
         {"Ingenting her ennå", "Nothing here yet"}, {"Filmer, serier, personer, musikk", "Movies, shows, people, music"},
         {"mellomrom", "space"}, {"⌫ slett", "⌫ delete"}, {"▢ sletter", "▢ deletes"}, {"Forslag", "Suggestions"},
         {"Treff for «%s»", "Results for “%s”"}, {"Ingen treff", "No results"}, {"Smart", "Smart"},
@@ -150,8 +152,8 @@ const std::unordered_map<std::string, const char *> &english_table()
         {"Ingen preferanse", "No preference"}, {"Alltid", "Always"}, {"Bare tvungne", "Forced only"},
         {"Åpne", "Open"}, {"Skann med telefonen", "Scan with your phone"},
         {"og trykk Godkjenn i Jellyfin", "and tap Authorize in Jellyfin"}, {"Logg inn med brukernavn og passord", "Sign in with username and password"}, {"Versjon", "Version"}, {"Avbryt", "Cancel"}, {"Velg", "Choose"}, {"Fjern konto", "Remove account"},
-        {"Trekk tilbake forespørselen", "Cancel request"}, {"Trykk igjen for å trekke tilbake", "Press again to withdraw"}, {"Trekker tilbake …", "Cancelling …"}, {"Forespørselen er trukket tilbake", "The request was cancelled"}, {"Kunne ikke trekke tilbake forespørselen", "Could not cancel the request"}, {"%d av %d forespørsler brukt", "%d of %d requests used"}, {"%d av %d sesonger brukt", "%d of %d seasons used"}, {"%d av %d sesonger brukt (siste %d dager)", "%d of %d seasons used (last %d days)"}, {"Avslått", "Declined"}, {"Feilet", "Failed"}, {"Ingenting å vise akkurat nå – ✕ for å prøve igjen", "Nothing to show right now – ✕ to try again"}, {"Kunne ikke sende forespørselen", "Could not send the request"}, {"Kvoten din er brukt opp", "Your quota is used up"}, {"Kvoten din gir plass til %d sesonger til", "Your quota has room for %d more seasons"}, {"Seerr svarer ikke – ✕ for å prøve igjen", "Seerr is not responding – ✕ to try again"}, {"Ikke pålogget Seerr – ✕ for å logge på igjen", "Not signed in to Seerr – ✕ to sign in again"}, {"Slettet", "Deleted"}, {"Trykk ✕ igjen for å logge ut", "Press ✕ again to sign out"}, {"Trykk ✕ igjen for å trekke tilbake forespørselen", "Press ✕ again to cancel the request"}, {"Valg", "Options"}, {"Seerr tillater ikke denne påloggingen – velg en annen", "Seerr does not allow this sign-in – choose another"}, {"Brukeren finnes ikke i Seerr – be administratoren importere den", "This user is not in Seerr – ask the administrator to import it"}, {"Anbefalt", "Recommended"}, {"Lignende", "Similar"}, {"Nå", "Now"}, {"Kø", "Queue"}, {"Stopp", "Stop"}, {"Gjenta", "Repeat"}, {"Gjenta én", "Repeat one"}, {"Gjenta alle", "Repeat all"}, {"Starter forfra etter denne", "Starts over after this"}, {"Ingenting mer i køen", "Nothing more in the queue"}, {"Nattmodus", "Night mode"}, {"HDMI-bitstrøm", "HDMI bitstream"}, {"Av med nattmodus", "Off with night mode"}, {"HDMI-bitstrøm (%s)", "HDMI bitstream (%s)"}, {"Hastighet virker ikke med HDMI-bitstrøm", "Speed doesn't work with HDMI bitstream"}, {"Temamusikk", "Theme music"}, {"Se etter oppdateringer", "Check for updates"},
-        {"Jelly5 %s er tilgjengelig – se GitHub", "Jelly5 %s is available – see GitHub"}, {"Jelly5: 3D-filer støttes ikke på PS5", "Jelly5: 3D files aren't supported on PS5"}, {"Spill herfra", "Play from here"}, {"Sorter etter", "Sort by"}, {"1 filter", "1 filter"}, {" filtre", " filters"}, {"Kapitler", "Chapters"}, {"Kapittel ", "Chapter "}, {"Ingen kontakt med serveren – prøver igjen …", "Can't reach the server – trying again …"},
+        {"Trekk tilbake forespørselen", "Cancel request"}, {"Trykk igjen for å trekke tilbake", "Press again to withdraw"}, {"Trekker tilbake …", "Cancelling …"}, {"Forespørselen er trukket tilbake", "The request was cancelled"}, {"Kunne ikke trekke tilbake forespørselen", "Could not cancel the request"}, {"%d av %d forespørsler brukt", "%d of %d requests used"}, {"%d av %d sesonger brukt", "%d of %d seasons used"}, {"%d av %d sesonger brukt (siste %d dager)", "%d of %d seasons used (last %d days)"}, {"Avslått", "Declined"}, {"Feilet", "Failed"}, {"Ingenting å vise akkurat nå – ✕ for å prøve igjen", "Nothing to show right now – ✕ to try again"}, {"Kunne ikke sende forespørselen", "Could not send the request"}, {"Kvoten din er brukt opp", "Your quota is used up"}, {"Seerr svarer ikke – ✕ for å prøve igjen", "Seerr is not responding – ✕ to try again"}, {"Ikke pålogget Seerr – ✕ for å logge på igjen", "Not signed in to Seerr – ✕ to sign in again"}, {"Slettet", "Deleted"}, {"Trykk ✕ igjen for å logge ut", "Press ✕ again to sign out"}, {"Trykk ✕ igjen for å trekke tilbake forespørselen", "Press ✕ again to cancel the request"}, {"Valg", "Options"}, {"Seerr tillater ikke denne påloggingen – velg en annen", "Seerr does not allow this sign-in – choose another"}, {"Brukeren finnes ikke i Seerr – be administratoren importere den", "This user is not in Seerr – ask the administrator to import it"}, {"Anbefalt", "Recommended"}, {"Lignende", "Similar"}, {"Nå", "Now"}, {"Kø", "Queue"}, {"Stopp", "Stop"}, {"Gjenta", "Repeat"}, {"Gjenta én", "Repeat one"}, {"Gjenta alle", "Repeat all"}, {"Starter forfra etter denne", "Starts over after this"}, {"Ingenting mer i køen", "Nothing more in the queue"}, {"Nattmodus", "Night mode"}, {"HDMI-bitstrøm", "HDMI bitstream"}, {"Av med nattmodus", "Off with night mode"}, {"HDMI-bitstrøm (%s)", "HDMI bitstream (%s)"}, {"Hastighet virker ikke med HDMI-bitstrøm", "Speed doesn't work with HDMI bitstream"}, {"Temamusikk", "Theme music"}, {"Se etter oppdateringer", "Check for updates"},
+        {"Jelly5 %s er tilgjengelig – se GitHub", "Jelly5 %s is available – see GitHub"}, {"Jelly5: 3D-filer støttes ikke på PS5", "Jelly5: 3D files aren't supported on PS5"}, {"Spill herfra", "Play from here"}, {"Sorter etter", "Sort by"}, {"Kapitler", "Chapters"}, {"Kapittel ", "Chapter "}, {"Ingen kontakt med serveren – prøver igjen …", "Can't reach the server – trying again …"},
         {"Tilkoblet igjen", "Connected again"}, {"Mistet kontakten med serveren – prøver igjen …", "Lost the connection to the server – trying again …"},
         {"Fikk ikke kontakt med serveren igjen.", "Couldn't reconnect to the server."}, {"FUNNET PÅ NETTVERKET", "FOUND ON YOUR NETWORK"},
         {"SØKER PÅ NETTVERKET …", "SEARCHING YOUR NETWORK …"}, {"Merk sesongen som sett", "Mark season as watched"},
@@ -183,6 +185,44 @@ const std::unordered_map<std::string, const char *> &english_table()
         {"Språk følger PS5-en, eller velg her.", "The language follows the PS5, or choose it here."},
         {"Jelly5 er fri programvare (GPL-3.0) og bygger på EVO Player og Nuvio PS5.",
          "Jelly5 is free software (GPL-3.0) and builds on EVO Player and Nuvio PS5."},
+        /* counts: the forms by plural rule, see TN() */
+        {"%d sesonger", "%d season|%d seasons"},
+        {"%d episoder", "%d episode|%d episodes"},
+        {"%d titler", "%d title|%d titles"},
+        {"%d titler her", "%d title here|%d titles here"},
+        {"%d filtre", "%d filter|%d filters"},
+        {"%d spor", "%d track|%d tracks"},
+        {"%d min", "%d min|%d min"},
+        {"%d min igjen", "%d min left|%d min left"},
+        {"%d nedl.", "%d download|%d downloads"},
+        {"Kvoten din gir plass til %d sesonger til", "Your quota has room for %d more season|Your quota has room for %d more seasons"},
+        {"%ss gruppe", "%s's group"},
+        {"Action", "Action"},
+        {"Eventyr", "Adventure"},
+        {"Action og eventyr", "Action & Adventure"},
+        {"Animasjon", "Animation"},
+        {"Komedie", "Comedy"},
+        {"Krim", "Crime"},
+        {"Dokumentar", "Documentary"},
+        {"Drama", "Drama"},
+        {"Familie", "Family"},
+        {"Fantasy", "Fantasy"},
+        {"Historie", "History"},
+        {"Skrekk", "Horror"},
+        {"Barn", "Kids"},
+        {"Mysterier", "Mystery"},
+        {"Reality", "Reality"},
+        {"Romantikk", "Romance"},
+        {"Science fiction", "Science Fiction"},
+        {"Science fiction og fantasy", "Sci-Fi & Fantasy"},
+        {"Talkshow", "Talk"},
+        {"Thriller", "Thriller"},
+        {"TV-film", "TV Movie"},
+        {"Krig", "War"},
+        {"Krig og politikk", "War & Politics"},
+        {"Western", "Western"},
+        {"Såpe", "Soap"},
+        {"Nyheter", "News"},
         /* language names */
         {"Norsk", "Norwegian"}, {"Nynorsk", "Norwegian Nynorsk"}, {"Engelsk", "English"}, {"Svensk", "Swedish"},
         {"Dansk", "Danish"}, {"Finsk", "Finnish"}, {"Tysk", "German"}, {"Fransk", "French"}, {"Spansk", "Spanish"},
@@ -222,8 +262,8 @@ const std::unordered_map<std::string, const char *> &english_table()
         {"%d av %d forespørsler brukt (siste %d dager)", "%d of %d requests used (last %d days)"},
         {"Henter valg …", "Loading options …"}, {"Sender …", "Sending …"}, {"Be om «%s»", "Request “%s”"},
         {"Serie", "Series"}, {"Film", "Movie"}, {"Alle sesonger", "All seasons"},
-        {"Alle manglende sesonger", "All missing seasons"}, {"%d sesong", "%d season"}, {"%d sesonger", "%d seasons"},
-        {"%d episoder", "%d episodes"}, {"Kvalitetsprofil", "Quality profile"}, {"Rotmappe", "Root folder"},
+        {"Alle manglende sesonger", "All missing seasons"}, 
+        {"Kvalitetsprofil", "Quality profile"}, {"Rotmappe", "Root folder"},
         {"  ·  %lld GB ledig", "  ·  %lld GB free"}, {"Be om", "Request"}, {"Prøv igjen", "Try again"},
         {"Trailer", "Trailer"}, {"Skann med telefonen for å se den der", "Scan with your phone to watch it there"},
         {"Forespørselen er godkjent – den hentes snart", "Approved – it will be downloaded soon"},
@@ -300,53 +340,134 @@ unsigned generation() { return s_gen.load(); }
 
 } // namespace i18n
 
-const char *T(const char *nb)
+namespace i18n {
+namespace {
+
+/* A language's own entry for nb, or null (English: the English table). */
+const char *own_entry(Lang l, const char *nb)
 {
-    const i18n::Lang l = i18n::lang();
-    if (!nb || l == i18n::Lang::Norwegian)
-        return nb;
-    const std::unordered_map<std::string, const char *> *own = nullptr;
+    const std::unordered_map<std::string, const char *> *t = nullptr;
     switch (l) {
-    case i18n::Lang::Spanish: own = &i18n::spanish_table(); break;
-    case i18n::Lang::French: own = &i18n::french_table(); break;
-    case i18n::Lang::German: own = &i18n::german_table(); break;
-    case i18n::Lang::Portuguese: own = &i18n::portuguese_table(); break;
-    case i18n::Lang::Italian: own = &i18n::italian_table(); break;
-    case i18n::Lang::Japanese: own = &i18n::japanese_table(); break;
-    case i18n::Lang::Dutch: own = &i18n::dutch_table(); break;
-    case i18n::Lang::Russian: own = &i18n::russian_table(); break;
-    case i18n::Lang::Korean: own = &i18n::korean_table(); break;
-    case i18n::Lang::ChineseTraditional: own = &i18n::chinese_traditional_table(); break;
-    case i18n::Lang::ChineseSimplified: own = &i18n::chinese_simplified_table(); break;
-    case i18n::Lang::Finnish: own = &i18n::finnish_table(); break;
-    case i18n::Lang::Swedish: own = &i18n::swedish_table(); break;
-    case i18n::Lang::Danish: own = &i18n::danish_table(); break;
-    case i18n::Lang::Polish: own = &i18n::polish_table(); break;
-    case i18n::Lang::Turkish: own = &i18n::turkish_table(); break;
-    case i18n::Lang::Arabic: own = &i18n::arabic_table(); break;
-    case i18n::Lang::Czech: own = &i18n::czech_table(); break;
-    case i18n::Lang::Hungarian: own = &i18n::hungarian_table(); break;
-    case i18n::Lang::Greek: own = &i18n::greek_table(); break;
-    case i18n::Lang::Romanian: own = &i18n::romanian_table(); break;
-    case i18n::Lang::Thai: own = &i18n::thai_table(); break;
-    case i18n::Lang::Vietnamese: own = &i18n::vietnamese_table(); break;
-    case i18n::Lang::Indonesian: own = &i18n::indonesian_table(); break;
-    case i18n::Lang::Ukrainian: own = &i18n::ukrainian_table(); break;
-    default: break;
+    case Lang::English: t = &english_table(); break;
+    case Lang::Spanish: t = &spanish_table(); break;
+    case Lang::French: t = &french_table(); break;
+    case Lang::German: t = &german_table(); break;
+    case Lang::Portuguese: t = &portuguese_table(); break;
+    case Lang::Italian: t = &italian_table(); break;
+    case Lang::Japanese: t = &japanese_table(); break;
+    case Lang::Dutch: t = &dutch_table(); break;
+    case Lang::Russian: t = &russian_table(); break;
+    case Lang::Korean: t = &korean_table(); break;
+    case Lang::ChineseTraditional: t = &chinese_traditional_table(); break;
+    case Lang::ChineseSimplified: t = &chinese_simplified_table(); break;
+    case Lang::Finnish: t = &finnish_table(); break;
+    case Lang::Swedish: t = &swedish_table(); break;
+    case Lang::Danish: t = &danish_table(); break;
+    case Lang::Polish: t = &polish_table(); break;
+    case Lang::Turkish: t = &turkish_table(); break;
+    case Lang::Arabic: t = &arabic_table(); break;
+    case Lang::Czech: t = &czech_table(); break;
+    case Lang::Hungarian: t = &hungarian_table(); break;
+    case Lang::Greek: t = &greek_table(); break;
+    case Lang::Romanian: t = &romanian_table(); break;
+    case Lang::Thai: t = &thai_table(); break;
+    case Lang::Vietnamese: t = &vietnamese_table(); break;
+    case Lang::Indonesian: t = &indonesian_table(); break;
+    case Lang::Ukrainian: t = &ukrainian_table(); break;
+    default: return nullptr;
     }
-    if (own) {
-        const auto it = own->find(nb);
-        if (it != own->end())
-            return it->second;
-    }
-    const auto &t = i18n::english_table();
-    const auto it = t.find(nb);
-    if (it != t.end())
-        return it->second;
+    const auto it = t->find(nb);
+    return it != t->end() ? it->second : nullptr;
+}
+
+void log_missing(const char *nb)
+{
     static std::mutex lock;
     static std::set<std::string> missing;
     std::lock_guard<std::mutex> g(lock);
     if (missing.insert(nb).second)
         evo_bt("i18n: no English for \"%s\"", nb);
+}
+
+/* Which of a language's plural forms a whole number takes: CLDR's cardinal rules,
+ * for integers only (the forms only fractions use are left out of the tables).
+ *   one|other: English and the other Germanic and Romance languages, Greek,
+ *     Hungarian, Turkish (French and Portuguese: one is 0 and 1)
+ *   one|few|many: Russian, Ukrainian, Polish     one|few|other: Czech, Romanian
+ *   zero|one|two|few|many|other: Arabic          other: Japanese, Korean, Chinese, Thai,
+ *     Vietnamese, Indonesian */
+int plural_form(Lang l, int n)
+{
+    n = n < 0 ? -n : n;
+    const int m10 = n % 10, m100 = n % 100;
+    const bool few_slavic = m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14);
+    switch (l) {
+    case Lang::Japanese: case Lang::Korean: case Lang::ChineseTraditional: case Lang::ChineseSimplified:
+    case Lang::Thai: case Lang::Vietnamese: case Lang::Indonesian:
+        return 0;
+    case Lang::French: case Lang::Portuguese:
+        return n <= 1 ? 0 : 1;
+    case Lang::Russian: case Lang::Ukrainian:
+        return m10 == 1 && m100 != 11 ? 0 : few_slavic ? 1 : 2;
+    case Lang::Polish:
+        return n == 1 ? 0 : few_slavic ? 1 : 2;
+    case Lang::Czech:
+        return n == 1 ? 0 : n >= 2 && n <= 4 ? 1 : 2;
+    case Lang::Romanian:
+        return n == 1 ? 0 : n == 0 || (m100 >= 1 && m100 <= 19) ? 1 : 2;
+    case Lang::Arabic:
+        return n == 0 ? 0 : n == 1 ? 1 : n == 2 ? 2 : m100 >= 3 && m100 <= 10 ? 3 : m100 >= 11 ? 4 : 5;
+    default:
+        return n == 1 ? 0 : 1;
+    }
+}
+
+/* Form i of "a|b|c" (the last one when there are fewer). */
+std::string form_of(const char *forms, int i)
+{
+    const char *p = forms;
+    for (; i > 0; i--) {
+        const char *bar = std::strchr(p, '|');
+        if (!bar)
+            break;
+        p = bar + 1;
+    }
+    const char *end = std::strchr(p, '|');
+    return end ? std::string(p, end) : std::string(p);
+}
+
+} // namespace
+} // namespace i18n
+
+const char *T(const char *nb)
+{
+    const i18n::Lang l = i18n::lang();
+    if (!nb || l == i18n::Lang::Norwegian)
+        return nb;
+    if (const char *s = i18n::own_entry(l, nb))
+        return s;
+    if (const char *s = i18n::own_entry(i18n::Lang::English, nb))
+        return s;
+    i18n::log_missing(nb);
     return nb;
+}
+
+std::string TN(int n, const char *nb_one, const char *nb_other)
+{
+    i18n::Lang l = i18n::lang();
+    std::string fmt;
+    const char *forms = l == i18n::Lang::Norwegian ? nullptr : i18n::own_entry(l, nb_other);
+    if (!forms && l != i18n::Lang::Norwegian) {   /* English stands in, with its own rule */
+        l = i18n::Lang::English;
+        forms = i18n::own_entry(l, nb_other);
+        if (!forms)
+            i18n::log_missing(nb_other);
+    }
+    if (forms)
+        fmt = i18n::form_of(forms, i18n::plural_form(l, n));
+    else
+        fmt = n == 1 ? nb_one : nb_other;
+    char b[256];
+    std::snprintf(b, sizeof b, fmt.c_str(), n);
+    return b;
 }

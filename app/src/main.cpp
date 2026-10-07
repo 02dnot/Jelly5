@@ -743,11 +743,12 @@ void load_home(jf::Client &c, unsigned session, bool keep_hero = false)
  * rows. The server takes seconds over recommendations, so the home screen
  * never waits for them: they are added when they arrive. Genres are picked
  * once per session (rows should not reshuffle while browsing). */
-/* TMDB's genre names (what Jellyfin's metadata carries) in Norwegian. */
+/* TMDB's English genre names (what Jellyfin's metadata usually carries) in the
+ * interface's language: the Norwegian below, the others through T(). */
 std::string genre_title(const std::string &g)
 {
-    if (i18n::english())
-        return g;   /* the metadata's own (English) names */
+    if (i18n::lang() == i18n::Lang::English)
+        return g;
     static const std::map<std::string, std::string> no = {
         {"Action", "Action"}, {"Adventure", "Eventyr"}, {"Action & Adventure", "Action og eventyr"},
         {"Animation", "Animasjon"}, {"Comedy", "Komedie"}, {"Crime", "Krim"}, {"Documentary", "Dokumentar"},
@@ -758,7 +759,7 @@ std::string genre_title(const std::string &g)
         {"TV Movie", "TV-film"}, {"War", "Krig"}, {"War & Politics", "Krig og politikk"}, {"Western", "Western"},
         {"Soap", "Såpe"}, {"News", "Nyheter"}};
     const auto it = no.find(g);
-    return it == no.end() ? g : it->second;
+    return it == no.end() ? g : T(it->second);
 }
 
 void load_extras(jf::Client &c, unsigned session)

@@ -12,6 +12,7 @@
 #include "app/settings.h"
 #include "app/syncplay.h"
 #include "app/i18n.h"
+#include "app/i18n_cldr.h"
 #include "jelly5_playback.h"
 #include "gfx/art.h"
 #include "gfx/gfx.h"
@@ -51,34 +52,15 @@ std::string clock_at(double seconds_from_now)
     return b;
 }
 
-/* Language names in the interface's language: Norwegian from the list below,
- * English (and anything not listed) from the player's own names. */
+/* Language names in the interface's language (CLDR's), the player's own English
+ * names for a code CLDR lacks. */
 std::string language_name(const std::string &code)
 {
-    if (i18n::english()) {
-        const std::string n = nuvio_language_name(code);
-        return n.empty() ? T("Ukjent språk") : n;
-    }
-    struct L {
-        const char *codes, *name;
-    };
-    static const L names[] = {{"nor nob no nb", "Norsk"},   {"nno nn", "Nynorsk"},  {"eng en", "Engelsk"},
-                              {"swe sv", "Svensk"},        {"dan da", "Dansk"},     {"fin fi", "Finsk"},
-                              {"ger deu de", "Tysk"},      {"fre fra fr", "Fransk"}, {"spa es", "Spansk"},
-                              {"ita it", "Italiensk"},     {"jpn ja", "Japansk"},   {"kor ko", "Koreansk"},
-                              {"chi zho zh", "Kinesisk"},  {"por pt", "Portugisisk"}, {"rus ru", "Russisk"},
-                              {"dut nld nl", "Nederlandsk"}, {"pol pl", "Polsk"},   {"ice isl is", "Islandsk"}};
     if (code.empty() || code == "und")
         return T("Ukjent språk");
-    std::string lc = code;
-    for (char &c : lc)
-        c = (char)std::tolower((unsigned char)c);
-    for (const L &l : names) {
-        const std::string list = std::string(" ") + l.codes + " ";
-        if (list.find(" " + lc + " ") != std::string::npos)
-            return l.name;
-    }
-    const std::string n = nuvio_language_name(code);
+    std::string n = i18n::language_name(code);
+    if (n.empty())
+        n = nuvio_language_name(code);
     return n.empty() ? code : n;
 }
 
@@ -1241,7 +1223,7 @@ void PlayerUi::draw_tracks(const NuvioStatus &st, float a)
             if (x.hash_match) right += T("Passer ");
             if (x.hearing_impaired) right += "SDH ";
             if (x.forced) right += T("Tvungen ");
-            if (right.empty() && x.downloads > 0) right = std::to_string(x.downloads) + T(" nedl.");
+            if (right.empty() && x.downloads > 0) right = TN(x.downloads, "%d nedl.", "%d nedl.");
         });
         const float sy = top + 30 + (row_h + 4) + 40;   /* where the first result goes */
         if (state == jelly5_subs::Busy)

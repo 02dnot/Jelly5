@@ -634,9 +634,7 @@ void Library::draw(double now, float dt)
                           0, hy) - 2 * 6;
         }
         if (total >= 0) {
-            char cnt[32];
-            std::snprintf(cnt, sizeof cnt, T("%d titler"), total);
-            gfx::text(kPad + tw + 20, hy, cnt, {gfx::Medium, 24}, alpha(kText3, ha));
+            gfx::text(kPad + tw + 20, hy, TN(total, "%d tittel", "%d titler"), {gfx::Medium, 24}, alpha(kText3, ha));
         }
         /* Sorting and filters behind one round glass button on the right (an icon:
          * tapering lines), what is in force written small beside it. */
@@ -662,7 +660,7 @@ void Library::draw(double now, float dt)
         }
         std::string state = T(kSorts[m_sort].label);
         if (nf > 0)
-            state += std::string("  \xC2\xB7  ") + (nf == 1 ? T("1 filter") : std::to_string(nf) + T(" filtre"));
+            state += std::string("  \xC2\xB7  ") + TN(nf, "%d filter", "%d filtre");
         gfx::text(bx - 18, hy, state, {gfx::Medium, 22, 520}, alpha(here ? kText2 : kText3, ha), 2);
         const float sw = gfx::text_width(state, {gfx::Medium, 22, 520});
         if (by_name() && !m_in_pills) {   /* A-Å: the letter jump, shown where it works */

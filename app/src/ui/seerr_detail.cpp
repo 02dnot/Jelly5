@@ -418,7 +418,7 @@ void SeerrDetail::draw(double now, float dt)
             n += s.number > 0;
         if (n) {
             sep();
-            x += gfx::text(x, my, std::to_string(n) + (n == 1 ? T(" sesong") : T(" sesonger")), meta, kText2);
+            x += gfx::text(x, my, TN(n, "%d sesong", "%d sesonger"), meta, kText2);
         }
     } else if (m_loaded && m_detail.runtime > 0) {
         sep();

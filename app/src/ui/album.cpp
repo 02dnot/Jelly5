@@ -196,9 +196,9 @@ void Album::draw(double now, float dt)
         for (const jf::Item &t : m_tracks)
             total += t.runtime_ticks;
         const int min = (int)(total / jf::kTicksPerSecond / 60);
-        char b[64];
-        std::snprintf(b, sizeof b, "%zu %s \xC2\xB7 %d min", m_tracks.size(), m_playlist ? T("titler") : T("spor"), min);
-        meta += (meta.empty() ? "" : " \xC2\xB7 ") + std::string(b);
+        const int n = (int)m_tracks.size();
+        meta += (meta.empty() ? "" : " \xC2\xB7 ") + (m_playlist ? TN(n, "%d tittel", "%d titler") : TN(n, "%d spor", "%d spor")) +
+                " \xC2\xB7 " + TN(min, "%d min", "%d min");
     }
     gfx::text(x, kTop + 168, meta, {gfx::Medium, 24}, alpha(kText3, m_content.value));
 

@@ -626,7 +626,7 @@ void Detail::draw_top(float y0, float dt)
     if (series && !m_view.seasons.empty()) {
         sep();
         const size_t n = m_view.seasons.size();
-        x += gfx::text(x, my, std::to_string(n) + (n == 1 ? T(" sesong") : T(" sesonger")), meta, kText2);
+        x += gfx::text(x, my, TN(n, "%d sesong", "%d sesonger"), meta, kText2);
     } else if (!series && it.runtime_ticks > 0) {
         sep();
         x += gfx::text(x, my, runtime_label(it.runtime_ticks), meta, kText2);
@@ -687,7 +687,7 @@ void Detail::draw_top(float y0, float dt)
             if (resume) {
                 pct = (float)t.position_ticks / (float)t.runtime_ticks;
                 const int left = (int)((t.runtime_ticks - t.position_ticks) / jf::kTicksPerSecond / 60);
-                sub = std::to_string(std::max(1, left)) + T(" min igjen");
+                sub = TN(std::max(1, left), "%d min igjen", "%d min igjen");
             }
         }
         float w = 76;

@@ -325,6 +325,7 @@ if (( RELEASE )); then
     rm -rf -- "${LIC}" && mkdir -p "${LIC}"
     cp "${NUVIO_ROOT}/LICENSE" "${NUVIO_ROOT}/THIRD_PARTY_NOTICES.md" "${LIC}/"
     cp "${APP_ROOT}"/assets/fonts/*.txt "${LIC}/"
+    cp "${APP_ROOT}/src/app/CLDR-LICENSE.txt" "${LIC}/"   # the dates and language names (i18n_cldr.cpp)
     if (( AV1_ON )); then   # FFmpeg 7.1.1's and dav1d's own (scripts/build-av1.sh)
         need "${FF_LIB%/lib}/share/licenses/dav1d-COPYING.txt" \
             "the AV1 prefix has no licence files: scripts/build-av1.sh --force"

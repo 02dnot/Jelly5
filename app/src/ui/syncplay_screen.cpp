@@ -8,6 +8,7 @@
 #include "nuvio_input.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <thread>
 
 namespace ui {
@@ -52,7 +53,10 @@ void SyncPlayScreen::act(int row)
     if (in_group && i-- == 0) {
         std::thread([] { syncplay::leave(); }).detach();
     } else if (i-- == 0) {
-        std::thread([user] { syncplay::create(user + (i18n::english() ? "'s group" : "s gruppe")); }).detach();
+        char name[160];
+        std::snprintf(name, sizeof name, T("%ss gruppe"), user.c_str());   /* "Karis gruppe" */
+        const std::string group = name;
+        std::thread([group] { syncplay::create(group); }).detach();
     } else if (i >= 0 && i < (int)groups.size()) {
         const std::string id = groups[i].id;
         std::thread([id] { syncplay::join(id); }).detach();
