@@ -47,6 +47,7 @@ Jelly5 brings your Jellyfin or Emby library to the PS5 as a real app: a fast, sh
 - Audio and subtitle tracks, subtitle styling and online subtitle search
 - Trickplay previews, chapters, *Skip intro*, versions, and auto-play of the next episode
 - Playback speed (0.75–2×), audio delay, and a night mode for late evenings
+- HDMI bitstream (optional): Dolby Digital, Dolby Digital Plus (with Atmos) and DTS go to your TV or receiver untouched
 - Resume and watched state synced with the server, and a maximum quality per server
 
 **Music**
@@ -150,13 +151,13 @@ Once signed in, Seerr's results appear in Search, a *Discover* tab shows what's 
 | --- | --- | --- |
 | Video | H.264, HEVC (Main, Main 10), VP9 and older formats | AV1 is transcoded by the server |
 | HDR | HDR10, HLG, HDR10+ (as HDR10), Dolby Vision (its HDR10 base layer) | Dolby Vision profile 5 is transcoded |
-| Audio | AAC, AC3, E-AC3, TrueHD, DTS (incl. DTS-HD MA), FLAC, Opus, MP3 and more | Played as multichannel PCM |
+| Audio | AAC, AC3, E-AC3, TrueHD, DTS (incl. DTS-HD MA), FLAC, Opus, MP3 and more | Played as multichannel PCM; with *HDMI bitstream* on, Dolby Digital, Dolby Digital Plus and DTS go to the TV/receiver as they are (TrueHD and DTS-HD MA stay lossless PCM) |
 | Subtitles | SRT, ASS/SSA, PGS, DVD and DVB, WebVTT | Embedded or external |
 | Containers | MKV, MP4, TS/M2TS, AVI and more | No Blu-ray folders or ISO files |
 
 Limits of the platform, not of Jelly5:
 
-- No bitstream passthrough: Dolby Atmos and DTS:X play as 7.1 PCM.
+- HDMI bitstream covers Dolby Digital, Dolby Digital Plus (Atmos in DD+) and DTS core, when the TV or receiver supports them. TrueHD (incl. its Atmos) and DTS-HD MA/DTS:X play as lossless 7.1 PCM.
 - No true 24p output: the display runs at 60 or 120 Hz.
 - No 3D: side-by-side and top-and-bottom files are refused, and 3D Blu-ray (MVC) plays in 2D.
 - The app can't quit itself: close it with the PS button.
@@ -170,7 +171,7 @@ Limits of the platform, not of Jelly5:
 | Your server isn't listed | Type its address. Discovery needs UDP port 7359; in Docker, publish `7359/udp`, and in Jellyfin turn on *Enable auto discovery*. |
 | No previews when scrubbing | The server makes them. Jellyfin: turn on *Enable trickplay image extraction* in the library and run *Generate Trickplay Images*. Emby: turn on *Thumbnail image extraction*. |
 | A title won't play or stutters | Press **L3** while it plays and include that info in an issue. Over Wi-Fi, lower *Maximum quality* in the settings. |
-| The receiver shows PCM, not Atmos | Expected: see *Formats and limits*. |
+| The receiver shows PCM, not Dolby or Atmos | Turn on *Settings → HDMI bitstream* (and night mode off). TrueHD and DTS-HD MA always play as PCM: see *Formats and limits*. |
 | Seerr isn't answering | Use Seerr's local address (port 5055 by default) and check it with *Test connection*. |
 | Seerr's automatic sign-in fails | Seerr is older than 3.4, Quick Connect is off in Jellyfin, or your user isn't in Seerr. Use your password instead, or import the user. |
 | Seerr shows no pictures | Seerr fetches them from TMDB, so the Seerr server needs internet access. |

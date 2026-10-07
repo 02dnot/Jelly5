@@ -7,6 +7,7 @@
  * linkage on what main.c still touches and the transitional extern block
  * below.
  */
+#include "jelly5_bitstream.h"
 #include "evo_demux.h"
 #include "evo_thread.h"
 
@@ -274,6 +275,7 @@ packet_queue_clear(
 
     audio_queue_count = 0;
     evo_audio_flush_speed();   /* Jelly5: the stretcher's leftovers too */
+    jelly5_bs_reset();         /* Jelly5: and an HDMI bitstream's buffered bursts */
     audio_queue_read = 0;
     audio_queue_write = 0;
     audio_accum_pos = 0;

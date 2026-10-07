@@ -1,3 +1,4 @@
+#include "jelly5_bitstream.h"
 #include "evo/services/PlaybackController.hpp"
 extern "C" {
 #include <libavutil/cpu.h>
@@ -408,7 +409,10 @@ void PlaybackController::stopPlayback() {
     }
 
     if (audio_handle >= 1) {
-        sceAudioOutClose(audio_handle);
+        if (jelly5_bs_active())
+            jelly5_bs_close(audio_handle);   /* Jelly5: and HDMI back to the system's output */
+        else
+            sceAudioOutClose(audio_handle);
         audio_handle = -1;
     }
 
@@ -1129,7 +1133,19 @@ bool PlaybackController::startPlaybackSource(const PlaybackSource& source,
                     s16_only = std::strstr(nuvio_vdec_conf, "audio_s16=1") != nullptr;
 #endif
                     evo_audio_port_float = 1;
-                    if (chCount > 2) {
+                    /* Jelly5: HDMI bitstream (Innstillinger: HDMI-bitstrøm) for a film or
+                     * episode in Dolby Digital (Plus) or DTS the TV or receiver takes:
+                     * a stereo S16 carrier port, nothing decoded here. Music stays PCM. */
+                    if (video_stream_index >= 0) {
+                        handle = jelly5_bs_open(aStream->codecpar->codec_id, aStream->codecpar->profile,
+                                                aStream->codecpar->sample_rate, chCount);
+                        if (handle >= 1) {
+                            evo_audio_channels = 2;
+                            evo_audio_port_float = 0;
+                            evo_audio_set_speed(1.0f);   /* a speed left from the last item: not for a bitstream */
+                        }
+                    }
+                    if (handle < 1 && chCount > 2) {
                         handle = s16_only ? -1
                                           : sceAudioOutOpen(0xFF, 0, 0, AUDIO_BLOCK_SAMPLES, 48000,
                                                             5 /* FLOAT_8CH */);

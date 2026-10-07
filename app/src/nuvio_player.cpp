@@ -20,6 +20,7 @@
 #include "app/i18n.h"
 #include "app/settings.h"
 #include "app/perf.h"
+#include "jelly5_bitstream.h"
 
 #include "nuvio_bridge.h"
 #include "nuvio_control.h"
@@ -543,7 +544,10 @@ std::vector<std::pair<std::string, std::string>> playback_stats(const Session &s
             a += b;
         }
         v.push_back({T("Lyd"), a});
-        std::snprintf(b, sizeof b, T("PCM, %d kanaler"), p->ch_layout.nb_channels);
+        if (jelly5_bs_active())   /* the TV or receiver decodes it */
+            std::snprintf(b, sizeof b, T("HDMI-bitstr\xC3\xB8m (%s)"), jelly5_bs_name());
+        else
+            std::snprintf(b, sizeof b, T("PCM, %d kanaler"), p->ch_layout.nb_channels);
         v.push_back({T("Utgang"), b});
     }
     return v;
