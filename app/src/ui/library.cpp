@@ -139,8 +139,34 @@ void Library::activate()
         load_more();
 }
 
+void Library::preload()
+{
+    size_t have;
+    bool need;
+    {
+        std::lock_guard<std::mutex> g(m_data->lock);
+        need = m_data->total < 0 && !m_data->loading;
+        have = m_data->items.size();
+    }
+    if (need) {
+        load_more();
+        return;
+    }
+    if (m_warmed || have == 0 || square())
+        return;
+    m_warmed = true;
+    std::vector<jf::Item> first;
+    {
+        std::lock_guard<std::mutex> g(m_data->lock);
+        first.assign(m_data->items.begin(), m_data->items.begin() + std::min<size_t>(m_data->items.size(), kCols * 3));
+    }
+    for (const jf::Item &it : first)   /* as draw_poster asks for them */
+        art::prefetch(it.external() ? it.ext.poster : poster_url(m_client, it, 480), 480, 720);
+}
+
 void Library::reload()
 {
+    m_warmed = false;   /* a new first page (sort, filter): its posters are asked for again */
     {
         std::lock_guard<std::mutex> g(m_data->lock);
         m_data->items.clear();
@@ -287,7 +313,7 @@ Action Library::input(uint32_t p)
             a.item = m_data->items[m_index];
         }
     }
-    if (m_index > count - 24)
+    if (m_index > count - kPage)   /* a page ahead: the next one is there before the grid ends */
         load_more();
     return a;
 }

@@ -30,6 +30,9 @@ public:
     /* filter: extra query (e.g. "&AlbumArtistIds=<id>": an artist's albums). */
     Library(jf::Client &client, std::string title, std::string types, std::string view_id = std::string(),
             bool pushed = false, std::string filter = std::string());
+    /* Before the tab is opened (the home screen is up): its first page, then the
+     * first screen of posters, so opening it shows a full grid. Cheap to call again. */
+    void preload();
     /* What a library of this collection type lists, e.g. "movies" -> "Movie". */
     static std::string types_for(const std::string &collection_type);
     void set_title(std::string title) { m_title = std::move(title); }   /* the language changed */
@@ -98,6 +101,7 @@ private:
     bool m_has_card = false;
     ItemMenu m_menu;
     std::shared_ptr<Data> m_data = std::make_shared<Data>();
+    bool m_warmed = false;              /* the first screen of posters asked for ahead */
 
     int m_sort = 0;
     bool m_in_pills = false;

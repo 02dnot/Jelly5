@@ -141,6 +141,19 @@ bool failed(const std::string &url)
     return it != s_art.end() && it->second.failed;
 }
 
+void prefetch(const std::string &url, int max_w, int max_h)
+{
+    if (url.empty())
+        return;
+    Entry &e = s_art[url];
+    e.used = s_tick;
+    if (e.tex || e.failed || (e.handle >= 0 && ui_image_alive(e.handle)))
+        return;
+    e.max_w = max_w;
+    e.max_h = max_h;
+    e.handle = ui_image_request(url.c_str(), max_w, max_h, 0);
+}
+
 const gfx::Texture *get(const std::string &url, int max_w, int max_h)
 {
     if (url.empty())

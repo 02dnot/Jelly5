@@ -1750,6 +1750,20 @@ bool draw_frame(double t, float dt)
         std::lock_guard<std::mutex> g(s_state.lock);
         phase = s_state.phase;
         message = s_state.message;
+        /* The tabs fill in behind the home screen: two seconds after it is up, each
+         * one's first page and first posters, so opening a tab shows a full grid. */
+        {
+            static unsigned s_home_at_version = 0;
+            static double s_home_since = 0;
+            if (phase != Phase::Home)
+                s_home_at_version = 0;
+            else if (!s_home_at_version)
+                s_home_at_version = 1, s_home_since = now_s();
+            else if (now_s() - s_home_since > 2.0 && s_stack.empty())
+                for (ui::Library *lib : {s_movies.get(), s_shows.get(), s_music.get()})
+                    if (lib)
+                        lib->preload();
+        }
         if (phase == Phase::Home && s_model_version != s_home_version) {
             s_home_version = s_model_version;
             s_home->set_model(s_state.model);
