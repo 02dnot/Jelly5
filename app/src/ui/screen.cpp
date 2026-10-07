@@ -385,9 +385,12 @@ void draw_poster(jf::Client &c, const jf::Item &it, const gfx::Rect &base, float
     const gfx::Rect r{base.x - base.w * (k - 1) / 2, base.y - base.h * (k - 1) / 2, base.w * k, base.h * k};
     if (lift > 0.01f)
         gfx::shadow(r, 14 * k, 26, 0.3f * lift * opacity, 10 * lift);
-    if (it.external()) {   /* glass, the picture fading in over it (TMDB has no BlurHash) */
+    /* Without a BlurHash (Seerr's titles; the server's on Emby): glass, the picture
+     * fading in over it, and where none is to come its name on the glass. */
+    const std::string url = it.external() ? it.ext.poster : poster_url(c, it, 480);
+    if (it.external() || it.primary_blurhash.empty()) {
         draw_glass_placeholder(r, 14 * k, opacity);
-        if (it.ext.poster.empty() || art::failed(it.ext.poster)) {   /* none to come: its name on the glass */
+        if (url.empty() || art::failed(url)) {
             const float size = std::max(18.f, std::min(28.f, r.w / 9.f)), pad = std::max(14.f, r.w * 0.08f);
             /* At the top, as far in as from the sides; under the status chip when there is one. */
             const bool chip = it.ext.request == (int)seerr::RequestStatus::Declined ||
@@ -397,9 +400,9 @@ void draw_poster(jf::Client &c, const jf::Item &it, const gfx::Rect &base, float
             gfx::text(r.x + pad, r.y + top + size, it.name, {gfx::Bold, size, r.w - 2 * pad, 4, size * 1.22f},
                       alpha(kText2, opacity));
         }
-        art::draw(r, it.ext.poster, "", 480, 720, 14 * k, opacity, 0);
+        art::draw(r, url, "", 480, 720, 14 * k, opacity, 0);
     } else {
-        art::draw(r, poster_url(c, it, 480), it.primary_blurhash, 480, 720, 14 * k, opacity);
+        art::draw(r, url, it.primary_blurhash, 480, 720, 14 * k, opacity);
     }
     /* Where it stands in Seerr (a library item on Seerr's tab too). */
     using RS = seerr::RequestStatus;

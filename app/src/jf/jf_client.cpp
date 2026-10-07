@@ -193,6 +193,27 @@ MediaStream stream_of(const cJSON *s, const std::string &server)
     m.profile = str_of(s, "Profile");
     m.video_range = str_of(s, "VideoRange");
     m.video_range_type = str_of(s, "VideoRangeType");
+    if (m.type == "Video" && m.video_range_type.empty()) {
+        /* Emby: VideoRange "SDR" / "HDR 10" ..., the kind in ExtendedVideoType and
+         * SubType. Said the way Jellyfin does, so the badges and the Dolby Vision
+         * check below read one language. */
+        const std::string ext = str_of(s, "ExtendedVideoType"), sub = str_of(s, "ExtendedVideoSubType");
+        if (ext == "DolbyVision")
+            m.video_range_type = sub == "DoviProfile50"   ? "DOVI"   /* no compatible base layer */
+                                 : sub == "DoviProfile84" ? "DOVIWithHLG"
+                                 : sub == "DoviProfile82" ? "DOVIWithSDR"
+                                                          : "DOVIWithHDR10";
+        else if (ext == "Hdr10")
+            m.video_range_type = "HDR10";
+        else if (ext == "Hdr10Plus")
+            m.video_range_type = "HDR10Plus";
+        else if (ext == "HyperLogGamma")
+            m.video_range_type = "HLG";
+        else if (!ext.empty())
+            m.video_range_type = "SDR";
+        if (!ext.empty())
+            m.video_range = m.video_range_type == "SDR" || m.video_range_type == "DOVIWithSDR" ? "SDR" : "HDR";
+    }
     m.width = (int)num_of(s, "Width", 0);
     m.height = (int)num_of(s, "Height", 0);
     m.channels = (int)num_of(s, "Channels", 0);
@@ -208,6 +229,48 @@ MediaStream stream_of(const cJSON *s, const std::string &server)
 }
 
 } // namespace
+
+const char *kind_key(Kind k) { return k == Kind::Emby ? "emby" : "jellyfin"; }
+
+Kind kind_of_key(const std::string &key) { return key == "emby" ? Kind::Emby : Kind::Jellyfin; }
+
+Kind kind_of_info(const std::string &product_name, const std::string &version)
+{
+    std::string p = product_name;
+    for (char &c : p)
+        c = (char)std::tolower((unsigned char)c);
+    if (p.find("jellyfin") != std::string::npos)
+        return Kind::Jellyfin;
+    if (p.find("emby") != std::string::npos)
+        return Kind::Emby;
+    /* No product name: Emby's versions are 4.x.y.z, Jellyfin's 10.x and up. */
+    const int major = std::atoi(version.c_str());
+    return !version.empty() && major > 0 && major < 10 ? Kind::Emby : Kind::Jellyfin;
+}
+
+Features Client::features() const
+{
+    Features f;
+    if (emby()) {
+        f.quick_connect = f.syncplay = f.lyrics = false;
+        f.home_sections = false;
+    }
+    return f;
+}
+
+std::string Client::socket_url() const
+{
+    return emby() ? server_ + "/embywebsocket?api_key=" + token_ + "&deviceId=" + url_escape(device_id_)
+                  : server_ + "/socket?deviceId=" + url_escape(device_id_);
+}
+
+std::string Client::me_path() const { return emby() ? "/Users/" + user_id_ : std::string("/Users/Me"); }
+
+std::string Client::user_item_path(const std::string &id) const
+{
+    return emby() ? "/Users/" + user_id_ + "/Items/" + id + "?UserId=" + user_id_
+                  : "/Items/" + id + "?userId=" + user_id_;
+}
 
 Client::Client(std::string server, std::string device_id, std::string device_name)
     : server_(std::move(server)), device_id_(std::move(device_id)), device_name_(std::move(device_name))
@@ -269,7 +332,7 @@ bool Client::post_json(const std::string &path, const std::string &json, std::st
     return true;
 }
 
-bool Client::public_info(std::string *name, std::string *version, std::string *id)
+bool Client::public_info(std::string *name, std::string *version, std::string *id, Kind *kind)
 {
     std::string body;
     if (!get_json("/System/Info/Public", &body))
@@ -283,6 +346,8 @@ bool Client::public_info(std::string *name, std::string *version, std::string *i
         *version = str_of(j, "Version");
     if (id)
         *id = str_of(j, "Id");
+    if (kind)
+        *kind = kind_of_info(str_of(j, "ProductName"), str_of(j, "Version"));
     cJSON_Delete(j);
     return true;
 }
@@ -318,6 +383,10 @@ bool Client::authenticate(const std::string &user, const std::string &password)
 
 bool Client::quick_connect_start(QuickConnect *out)
 {
+    if (emby()) {
+        set_error("Quick Connect: not on Emby");
+        return false;
+    }
     std::string body;
     if (!post_json("/QuickConnect/Initiate", "", &body))
         return false;
@@ -352,6 +421,10 @@ bool Client::quick_connect_poll(const QuickConnect &qc, bool *approved)
 
 bool Client::quick_connect_authorize(const std::string &code)
 {
+    if (emby()) {
+        set_error("Quick Connect: not on Emby");
+        return false;
+    }
     std::string body;
     if (!post_json("/QuickConnect/Authorize?code=" + url_escape(code), "", &body))
         return false;
@@ -365,7 +438,7 @@ bool Client::quick_connect_authorize(const std::string &code)
 bool Client::validate()
 {
     std::string body;
-    if (!get_json("/Users/Me", &body))
+    if (!get_json(me_path(), &body))
         return false;
     if (cJSON *j = cJSON_Parse(body.c_str())) {
         user_image_tag_ = str_of(j, "PrimaryImageTag");
@@ -407,7 +480,7 @@ std::vector<PublicUser> Client::public_users()
 bool Client::get_prefs(UserPrefs *out)
 {
     std::string body;
-    if (!get_json("/Users/Me", &body))
+    if (!get_json(me_path(), &body))
         return false;
     cJSON *j = cJSON_Parse(body.c_str());
     const cJSON *cfg = cJSON_GetObjectItemCaseSensitive(j, "Configuration");
@@ -425,7 +498,7 @@ bool Client::set_prefs(const UserPrefs &p)
 {
     /* The server takes the whole configuration: read it, change ours, send it back. */
     std::string body;
-    if (!get_json("/Users/Me", &body))
+    if (!get_json(me_path(), &body))
         return false;
     cJSON *j = cJSON_Parse(body.c_str());
     cJSON *cfg = cJSON_DetachItemFromObjectCaseSensitive(j, "Configuration");
@@ -439,7 +512,9 @@ bool Client::set_prefs(const UserPrefs &p)
     put("EnableNextEpisodeAutoPlay", cJSON_CreateBool(p.autoplay_next));
     char *text = cJSON_PrintUnformatted(cfg);
     cJSON_Delete(cfg);
-    const bool ok = post_json("/Users/Configuration?userId=" + user_id_, text, nullptr);
+    const bool ok = post_json(emby() ? "/Users/" + user_id_ + "/Configuration"
+                                     : "/Users/Configuration?userId=" + user_id_,
+                              text, nullptr);
     std::free(text);
     return ok;
 }
@@ -461,7 +536,8 @@ std::vector<Item> Client::items_of(const std::string &body)
 std::vector<Item> Client::resume(int limit, const std::string &parent_id)
 {
     std::string body;
-    if (!get_json("/UserItems/Resume?userId=" + user_id_ + "&limit=" + std::to_string(limit) +
+    if (!get_json((emby() ? "/Users/" + user_id_ + "/Items/Resume?UserId=" : "/UserItems/Resume?userId=") +
+                      user_id_ + "&limit=" + std::to_string(limit) +
                       "&mediaTypes=Video&enableTotalRecordCount=false&fields=" + kFields +
                       (parent_id.empty() ? std::string() : "&parentId=" + parent_id), &body))
         return {};
@@ -483,7 +559,9 @@ std::vector<Item> Client::next_up(int limit, const std::string &series_id)
 std::vector<Item> Client::views()
 {
     std::string body;
-    if (!get_json("/UserViews?userId=" + user_id_, &body))
+    /* Emby: without channels and Live TV, which are views there too (Jelly5 shows neither). */
+    if (!get_json(emby() ? "/Users/" + user_id_ + "/Views?IncludeExternalContent=false" : "/UserViews?userId=" + user_id_,
+                  &body))
         return {};
     return items_of(body);
 }
@@ -514,7 +592,8 @@ std::vector<Item> Client::featured_from(const std::string &body, int limit)
 std::vector<Item> Client::latest(const std::string &parent_id, int limit)
 {
     std::string body;
-    if (!get_json("/Items/Latest?userId=" + user_id_ + "&parentId=" + parent_id + "&limit=" +
+    if (!get_json((emby() ? "/Users/" + user_id_ + "/Items/Latest?UserId=" : "/Items/Latest?userId=") + user_id_ +
+                      "&parentId=" + parent_id + "&limit=" +
                       std::to_string(limit) + "&fields=" + kFields, &body))
         return {};
     return items_of(body);
@@ -601,6 +680,8 @@ int unreachable_streak() { return g_unreachable.load(); }
 std::vector<std::string> Client::home_sections()
 {
     std::vector<std::string> out;
+    if (!features().home_sections)
+        return out;   /* Emby keeps its home elsewhere: the default order */
     std::string body;
     if (!get_json("/DisplayPreferences/usersettings?userId=" + user_id_ + "&client=emby", &body))
         return out;
@@ -664,7 +745,9 @@ std::vector<Item> Client::genre_items(const std::string &genre, int limit)
 std::vector<Item> Client::special_features(const std::string &id)
 {
     std::string body;
-    if (!get_json("/Items/" + id + "/SpecialFeatures?userId=" + user_id_, &body))
+    if (!get_json(emby() ? "/Users/" + user_id_ + "/Items/" + id + "/SpecialFeatures"
+                         : "/Items/" + id + "/SpecialFeatures?userId=" + user_id_,
+                  &body))
         return {};
     return items_of(body);   /* a bare array */
 }
@@ -680,7 +763,7 @@ std::vector<Item> Client::theme_songs(const std::string &id)
 bool Client::item(const std::string &id, Item *out, Detail *detail)
 {
     std::string body;
-    if (!get_json("/Items/" + id + "?userId=" + user_id_ + "&fields=" + kItemFields, &body))
+    if (!get_json(user_item_path(id) + "&fields=" + kItemFields, &body))
         return false;
     cJSON *j = cJSON_Parse(body.c_str());
     if (!j)
@@ -743,7 +826,8 @@ std::vector<Item> Client::person_items(const std::string &person_id, const std::
 bool Client::set_favorite(const std::string &id, bool favorite)
 {
     HttpResponse r = tracked_request(favorite ? "POST" : "DELETE",
-                                  server_ + "/UserFavoriteItems/" + id + "?userId=" + user_id_,
+                                  server_ + (emby() ? "/Users/" + user_id_ + "/FavoriteItems/" + id
+                                                    : "/UserFavoriteItems/" + id + "?userId=" + user_id_),
                                   {auth_header()}, "", kTimeout);
     return r.ok();
 }
@@ -751,7 +835,9 @@ bool Client::set_favorite(const std::string &id, bool favorite)
 std::vector<Item> Client::local_trailers(const std::string &id)
 {
     std::string body;
-    if (!get_json("/Items/" + id + "/LocalTrailers?userId=" + user_id_, &body))
+    if (!get_json(emby() ? "/Users/" + user_id_ + "/Items/" + id + "/LocalTrailers"
+                         : "/Items/" + id + "/LocalTrailers?userId=" + user_id_,
+                  &body))
         return {};
     /* A bare array, not {"Items": [...]}. */
     std::vector<Item> out;
@@ -856,7 +942,8 @@ std::vector<Item> Client::playlist_items(const std::string &playlist_id)
 std::vector<LyricLine> Client::lyrics(const std::string &item_id)
 {
     std::vector<LyricLine> out;
-    std::string body;
+    if (!features().lyrics)
+        return out;
     HttpResponse r = tracked_request("GET", server_ + "/Audio/" + item_id + "/Lyrics",
                                   {auth_header(), "Accept: application/json"}, "", kTimeout);
     if (!r.ok())
@@ -920,7 +1007,8 @@ std::vector<Item> Client::instant_mix(const std::string &id, int limit)
 bool Client::set_played(const std::string &id, bool played)
 {
     HttpResponse r = tracked_request(played ? "POST" : "DELETE",
-                                  server_ + "/UserPlayedItems/" + id + "?userId=" + user_id_,
+                                  server_ + (emby() ? "/Users/" + user_id_ + "/PlayedItems/" + id
+                                                    : "/UserPlayedItems/" + id + "?userId=" + user_id_),
                                   {auth_header()}, "", kTimeout);
     return r.ok();
 }
@@ -929,7 +1017,9 @@ bool Client::set_played(const std::string &id, bool played)
  * (as "Remove from Continue Watching" does in Jellyfin's own clients). */
 bool Client::clear_position(const std::string &id)
 {
-    return post_json("/UserItems/" + id + "/UserData?userId=" + user_id_, "{\"PlaybackPositionTicks\":0}", nullptr);
+    return post_json(emby() ? "/Users/" + user_id_ + "/Items/" + id + "/UserData"
+                            : "/UserItems/" + id + "/UserData?userId=" + user_id_,
+                     "{\"PlaybackPositionTicks\":0}", nullptr);
 }
 
 std::vector<Item> Client::favorites(int limit)
@@ -955,13 +1045,17 @@ bool Client::media_extras(const std::string &item_id, const std::string &media_s
                           std::vector<Chapter> *chapters, Trickplay *tp)
 {
     std::string body;
-    if (!get_json("/Items/" + item_id + "?userId=" + user_id_ + "&fields=Chapters,Trickplay", &body))
+    if (!get_json(user_item_path(item_id) + (emby() ? "&fields=Chapters" : "&fields=Chapters,Trickplay"), &body))
         return false;
     cJSON *j = cJSON_Parse(body.c_str());
     if (!j)
         return false;
     const cJSON *c;
     cJSON_ArrayForEach(c, cJSON_GetObjectItemCaseSensitive(j, "Chapters")) {
+        /* Emby marks intros and credits as chapters (MarkerType IntroStart ...): not chapters. */
+        const std::string marker = str_of(c, "MarkerType");
+        if (!marker.empty() && marker != "Chapter")
+            continue;
         Chapter ch;
         ch.start = num_of(c, "StartPositionTicks") / (double)kTicksPerSecond;
         ch.name = str_of(c, "Name");
@@ -991,18 +1085,59 @@ bool Client::media_extras(const std::string &item_id, const std::string &media_s
         tp->tile_h = (int)num_of(best, "TileHeight");
         tp->count = (int)num_of(best, "ThumbnailCount");
         tp->interval = num_of(best, "Interval") / 1000.0;
-        /* The sheets need the session: ApiKey (the legacy api_key is refused). */
+        /* The sheets need the session: ApiKey (Jellyfin 12 refuses the legacy api_key). */
         tp->url_base = server_ + "/Videos/" + item_id + "/Trickplay/" + std::to_string(best_w) + "/";
         tp->url_query = "?MediaSourceId=" + (src && src->string ? std::string(src->string) : media_source_id) +
                         "&ApiKey=" + token_;
     }
     cJSON_Delete(j);
+    if (emby())
+        emby_thumbnails(item_id, tp);
     return true;
+}
+
+/* Emby's scrub previews: single thumbnails, one every few seconds (the library's
+ * "thumbnail image extraction"), each an image of the item found by its time.
+ * Without a token, like every image (they are cached as images are). */
+void Client::emby_thumbnails(const std::string &item_id, Trickplay *tp)
+{
+    constexpr int kWidth = 320;
+    std::string body;
+    if (!get_json("/Items/" + item_id + "/ThumbnailSet?Width=" + std::to_string(kWidth), &body))
+        return;   /* 404: the library makes none */
+    cJSON *j = cJSON_Parse(body.c_str());
+    const cJSON *thumbs = cJSON_GetObjectItemCaseSensitive(j, "Thumbnails");
+    const int count = cJSON_GetArraySize(thumbs);
+    const double aspect = num_of(j, "AspectRatio", 16.0 / 9.0);
+    const cJSON *first = cJSON_GetArrayItem(thumbs, 0), *second = cJSON_GetArrayItem(thumbs, 1);
+    const int64_t step = (int64_t)(num_of(second, "PositionTicks") - num_of(first, "PositionTicks"));
+    const std::string tag = str_of(first, "ImageTag");
+    /* One tag for the set (as Emby gives it); thumbnails with tags of their own
+     * could not be found by time alone: then none rather than wrong ones. */
+    bool one_tag = true;
+    const cJSON *th;
+    cJSON_ArrayForEach(th, thumbs)
+        one_tag = one_tag && str_of(th, "ImageTag") == tag;
+    if (count >= 2 && step > 0 && aspect > 0 && !tag.empty() && one_tag) {
+        tp->width = kWidth;
+        tp->height = (int)(kWidth / aspect + 0.5);
+        tp->tile_w = tp->tile_h = 1;
+        tp->count = count;
+        tp->interval = (double)step / kTicksPerSecond;
+        tp->sheet_ticks = step;
+        tp->first_ticks = (int64_t)num_of(first, "PositionTicks");
+        tp->url_base = server_ + "/Items/" + item_id + "/Images/Thumbnail?maxWidth=" + std::to_string(kWidth) +
+                       "&quality=90&tag=" + url_escape(tag) + "&PositionTicks=";
+        tp->url_query.clear();
+    }
+    cJSON_Delete(j);
 }
 
 std::vector<Segment> Client::segments(const std::string &item_id)
 {
     std::vector<Segment> out;
+    if (emby())
+        return emby_markers(item_id);
     std::string body;
     if (!get_json("/MediaSegments/" + item_id, &body))
         return out;
@@ -1017,6 +1152,53 @@ std::vector<Segment> Client::segments(const std::string &item_id)
             out.push_back(s);
     }
     cJSON_Delete(j);
+    return out;
+}
+
+/* Emby marks intros and credits among the chapters (MarkerType IntroStart,
+ * IntroEnd, CreditsStart; its intro detection is an Emby Premiere feature):
+ * an intro runs from its start to its end (else the next chapter), credits to
+ * the end of the title. */
+std::vector<Segment> Client::emby_markers(const std::string &item_id)
+{
+    std::string body;
+    if (!get_json(user_item_path(item_id) + "&fields=Chapters", &body))
+        return {};
+    return emby_markers_of(body);
+}
+
+std::vector<Segment> Client::emby_markers_of(const std::string &item_json)
+{
+    std::vector<Segment> out;
+    cJSON *j = cJSON_Parse(item_json.c_str());
+    const double runtime = num_of(j, "RunTimeTicks") / kTicksPerSecond;
+    std::vector<std::pair<std::string, double>> marks;   /* marker type (or "" for a chapter), start */
+    const cJSON *c;
+    cJSON_ArrayForEach(c, cJSON_GetObjectItemCaseSensitive(j, "Chapters"))
+        marks.push_back({str_of(c, "MarkerType"), num_of(c, "StartPositionTicks") / kTicksPerSecond});
+    cJSON_Delete(j);
+    std::stable_sort(marks.begin(), marks.end(), [](const auto &a, const auto &b) { return a.second < b.second; });
+    for (size_t i = 0; i < marks.size(); i++) {
+        Segment s;
+        s.start = marks[i].second;
+        if (marks[i].first == "IntroStart") {
+            s.type = "Intro";
+            s.end = -1;
+            for (size_t k = i + 1; k < marks.size() && s.end < 0; k++)   /* its end */
+                if (marks[k].first == "IntroEnd")
+                    s.end = marks[k].second;
+            for (size_t k = i + 1; k < marks.size() && s.end < 0; k++)   /* else the next chapter after it */
+                if ((marks[k].first.empty() || marks[k].first == "Chapter") && marks[k].second > s.start)
+                    s.end = marks[k].second;
+        } else if (marks[i].first == "CreditsStart") {
+            s.type = "Outro";
+            s.end = runtime;
+        } else {
+            continue;
+        }
+        if (s.end > s.start)
+            out.push_back(s);
+    }
     return out;
 }
 
@@ -1093,12 +1275,40 @@ std::string Client::device_profile_json(int64_t max_bitrate)
 bool Client::playback_info(const std::string &item_id, int64_t start_ticks, int audio_index,
                            int subtitle_index, Playback *out, int64_t max_bitrate)
 {
+    if (!playback_info_as(item_id, start_ticks, audio_index, subtitle_index, out, max_bitrate, false))
+        return false;
+    /* Dolby Vision profile 5 has no base layer the PS5 shows right (green and
+     * purple). Jellyfin's profile keeps it from playing directly or being copied
+     * (VideoRangeType); Emby's cannot say so. There a DV5 version comes last
+     * (playback_info_as), and when it is still the one chosen it is asked for
+     * again with the video encoded - also when the answer was HLS, which may
+     * copy the video. If that is refused (no transcoding for this user), the
+     * first answer stands. */
+    if (!emby())
+        return true;
+    for (const MediaStream &s : out->streams)
+        if (s.type == "Video" && s.video_range_type == "DOVI") {
+            Playback encoded;
+            if (!playback_info_as(item_id, start_ticks, audio_index, subtitle_index, &encoded, max_bitrate, true))
+                return true;
+            stop_encoding(*out);
+            *out = std::move(encoded);
+            return true;
+        }
+    return true;
+}
+
+bool Client::playback_info_as(const std::string &item_id, int64_t start_ticks, int audio_index,
+                              int subtitle_index, Playback *out, int64_t max_bitrate, bool transcode)
+{
     const int64_t cap = max_bitrate > 0 ? max_bitrate : 200000000;
+    const char *direct = transcode ? "false" : "true";
     std::string req = "{\"DeviceProfile\":" + device_profile_json(max_bitrate) +
                       ",\"MaxStreamingBitrate\":" + std::to_string(cap) +
                       ",\"StartTimeTicks\":" + std::to_string(start_ticks) +
-                      ",\"EnableDirectPlay\":true,\"EnableDirectStream\":true,\"EnableTranscoding\":true"
-                      ",\"AllowVideoStreamCopy\":true,\"AllowAudioStreamCopy\":true,\"AutoOpenLiveStream\":true";
+                      ",\"EnableDirectPlay\":" + direct + ",\"EnableDirectStream\":" + direct +
+                      ",\"EnableTranscoding\":true,\"AllowVideoStreamCopy\":" + direct +
+                      ",\"AllowAudioStreamCopy\":true,\"AutoOpenLiveStream\":true";
     if (audio_index >= 0)
         req += ",\"AudioStreamIndex\":" + std::to_string(audio_index);
     if (subtitle_index >= -1)
@@ -1117,27 +1327,32 @@ bool Client::playback_info(const std::string &item_id, int64_t start_ticks, int 
         const cJSON *ms;
         Version v;
         int rank;
+        bool dv5_direct;   /* Emby: Dolby Vision 5, played as it is (see playback_info) */
     };
     std::vector<Candidate> found;
     const cJSON *ms;
     cJSON_ArrayForEach(ms, cJSON_GetObjectItemCaseSensitive(j, "MediaSources")) {
-        Candidate c{ms, Version(), 0};
+        Candidate c{ms, Version(), 0, false};
         c.v.id = str_of(ms, "Id");
         c.v.name = str_of(ms, "Name");
         c.v.bitrate = (int64_t)num_of(ms, "Bitrate", 0);
         std::string codec, range;
+        bool dv5 = false;
         const cJSON *s;
         cJSON_ArrayForEach(s, cJSON_GetObjectItemCaseSensitive(ms, "MediaStreams"))
             if (str_of(s, "Type") == "Video" && c.v.height == 0) {
                 c.v.height = (int)num_of(s, "Height", 0);
                 codec = str_of(s, "Codec");
                 range = str_of(s, "VideoRange");
+                dv5 = stream_of(s, server_).video_range_type == "DOVI";
             }
         const std::string transcoding = str_of(ms, "TranscodingUrl");
-        if (bool_of(ms, "SupportsDirectPlay")) {
+        if (bool_of(ms, "SupportsDirectPlay") && !transcode) {
             c.v.play_method = "DirectPlay";
+            /* Jellyfin: ApiKey (10.8 on; the legacy api_key counts only with the server's
+             * legacy authorization on, which newer servers have off). Emby: api_key only. */
             c.v.url = server_ + "/Videos/" + item_id + "/stream?static=true&mediaSourceId=" + c.v.id +
-                      "&playSessionId=" + session + "&api_key=" + token_;
+                      "&playSessionId=" + session + "&" + token_param() + "=" + token_;
             c.rank = 3;
         } else if (!transcoding.empty()) {
             c.v.play_method = transcoding.find("/stream") != std::string::npos ? "DirectStream" : "Transcode";
@@ -1146,10 +1361,15 @@ bool Client::playback_info(const std::string &item_id, int64_t start_ticks, int 
         } else {
             continue;
         }
+        if (dv5 && emby() && !transcode) {
+            c.rank = 0;   /* Emby: any other version first (see playback_info) */
+            c.dv5_direct = true;
+        }
         for (char &ch : codec)
             ch = (char)std::toupper((unsigned char)ch);
         c.v.label = (c.v.height ? std::to_string(c.v.height) + "p" : std::string()) +
-                    (codec.empty() ? "" : " \xC2\xB7 " + codec) + (range == "HDR" ? " \xC2\xB7 HDR" : "");
+                    (codec.empty() ? "" : " \xC2\xB7 " + codec) +
+                    (range.rfind("HDR", 0) == 0 ? " \xC2\xB7 HDR" : "");   /* (Emby: "HDR 10") */
         found.push_back(std::move(c));
     }
     if (found.empty()) {
@@ -1162,6 +1382,10 @@ bool Client::playback_info(const std::string &item_id, int64_t start_ticks, int 
         if (a.v.height != b.v.height) return a.v.height > b.v.height;
         return a.v.bitrate > b.v.bitrate;
     });
+    /* Nor is such a version offered in the player's version list when another plays. */
+    if (!found.front().dv5_direct)
+        found.erase(std::remove_if(found.begin(), found.end(), [](const Candidate &c) { return c.dv5_direct; }),
+                    found.end());
     ms = found.front().ms;
     Playback pb;
     pb.item_id = item_id;

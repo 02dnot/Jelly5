@@ -165,6 +165,7 @@ jf::Client *new_client(const std::string &server)
 jf::Client *client_for(const accounts::Account &a)
 {
     jf::Client *c = new_client(a.server);
+    c->set_kind(jf::kind_of_key(a.kind));
     c->set_session(a.token, a.user_id, a.user_name);
     c->note_image_tag(a.image_tag);
     return c;
@@ -914,9 +915,18 @@ void use_account(jf::Client &c, unsigned session, accounts::Account a)
 {
     set_phase(Phase::Connecting, T("Kobler til ") + (a.server_name.empty() ? a.server : a.server_name) + " \xE2\x80\xA6");
     while (session == s_session) {
+        /* What kind of server it is, asked before the token is: an account saved by
+         * an older Jelly5 (no "kind"), or rewritten by one, may say Jellyfin for an
+         * Emby, and the check would then ask Emby a Jellyfin route (2026-10-07).
+         * Nothing uses this session's client before this (it is Connecting). */
+        std::string name, version, id;
+        jf::Kind kind = c.kind();
+        const bool answered = c.public_info(&name, &version, &id, &kind);
+        if (answered && kind != c.kind()) {
+            evo_bt("jelly5: %s is %s, the account said %s", a.server_name.c_str(), jf::kind_key(kind), jf::kind_key(c.kind()));
+            c.set_kind(kind);
+        }
         if (c.validate()) {
-            std::string name, version, id;
-            c.public_info(&name, &version, &id);   /* (before the check below: it waits on the server) */
             if (session != s_session)
                 return;   /* switched away meanwhile: leave "last account" and prefs alone */
             a.user_name = c.user_name();
@@ -925,7 +935,10 @@ void use_account(jf::Client &c, unsigned session, accounts::Account a)
                 a.server_name = name;
             if (!id.empty())     /* saved before the Id was kept */
                 a.server_id = id;
+            if (answered)        /* (the next session's client is made for it) */
+                a.kind = jf::kind_key(kind);
             remember_account(a);   /* (also the last used) */
+            settings::use_server(a.server_id.empty() ? a.server : a.server_id);   /* its quality cap */
             settings::load_server(c);
             c.check_subtitle_search();
             {
@@ -933,7 +946,8 @@ void use_account(jf::Client &c, unsigned session, accounts::Account a)
                 s_state.server_name = name;
                 s_state.server_version = version;
             }
-            evo_bt("jelly5: signed in as %s on %s %s", c.user_name().c_str(), name.c_str(), version.c_str());
+            evo_bt("jelly5: signed in as %s on %s %s (%s)", c.user_name().c_str(), name.c_str(), version.c_str(),
+                   jf::kind_key(c.kind()));
             load_home(c, session);
             if (session == s_session)
                 seerr_service::attach(&c);   /* Seerr, when this account has it on */
@@ -1331,7 +1345,7 @@ void shell_input(uint32_t p, jf::Item *play, bool *chose, bool *from_start, bool
     case ui::Action::PlayMix: {   /* Jellyfin's Instant Mix from an album (or song, artist) */
         std::vector<jf::Item> mix = s_client->instant_mix(a.item.id, 60);
         if (mix.empty()) {
-            notify(T("Jelly5: Jellyfin fant ingen miks her"));
+            notify(T("Jelly5: serveren fant ingen miks her"));
             break;
         }
         *play = mix.front();
@@ -1592,7 +1606,7 @@ bool draw_frame(double t, float dt)
         break;
     case Phase::Home:
         if (s_tab == ui::Nav::Home && s_stack.empty() && s_home->empty()) {
-            draw_launch(t, 1.f, T("Ingenting å vise ennå"), T("Legg til filmer eller serier i Jellyfin."), false);
+            draw_launch(t, 1.f, T("Ingenting å vise ennå"), T("Legg til filmer eller serier på serveren din."), false);
         } else {
             ui::Screen *scr = screen_for(s_tab);
             const float enter = scr->enter();
@@ -1706,7 +1720,7 @@ bool draw_connection(double now)
     const bool back = now - s_back_at < 2.5;
     if (!s_down && !back)
         return false;
-    const std::string text = s_down ? T("Ingen kontakt med Jellyfin-serveren \xE2\x80\x93 pr\xC3\xB8ver igjen \xE2\x80\xA6")
+    const std::string text = s_down ? T("Ingen kontakt med serveren \xE2\x80\x93 pr\xC3\xB8ver igjen \xE2\x80\xA6")
                                     : T("Tilkoblet igjen");
     const gfx::TextStyle ts{gfx::SemiBold, 24};
     const float w = gfx::text_width(text, ts) + 72;
@@ -1913,6 +1927,7 @@ int main()
     }
     if (ui_text_init() != 0 || !gfx::init())
         evo_bt("jelly5: ui init failed");
+    art::set_placeholder(ui::draw_glass_placeholder);   /* posters without a BlurHash (Emby, Seerr): glass */
     nuvio_input_open(s_user);
 
     char device[48];
@@ -2036,6 +2051,8 @@ int main()
         seerr_service::poll();
         const bool seerr_moved = seerr_gen != seerr_service::generation();
         seerr_gen = seerr_service::generation();
+        if (seerr_moved && seerr_service::take_sign_in_notice())   /* else Discover just goes */
+            notify(T("Seerr: logg inn igjen under Innstillinger → Seerr"));
         if (seerr_moved && phase == Phase::Home) {   /* Seerr's tab comes and goes with it */
             {
                 std::lock_guard<std::mutex> g(s_state.lock);

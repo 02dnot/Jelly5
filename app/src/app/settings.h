@@ -5,16 +5,21 @@
  * Settings. Audio/subtitle languages, subtitle mode and autoplay live on the
  * Jellyfin account (so every client agrees); the console-side ones (quality
  * cap, automatic intro skipping, language, subtitle look) live in
- * /download0/jelly5/settings.json.
+ * /download0/jelly5/settings.json. The quality cap is kept per server (the
+ * network to a server at home and one far away are not alike): max_mbps is
+ * the current server's (use_server).
  */
 #pragma once
 
 #include "jf/jf_client.h"
 
+#include <string>
+
 namespace settings {
 
 struct Local {
-    int max_mbps = 0;            /* 0 = no cap (direct play whatever the network allows) */
+    int max_mbps = 0;            /* the current server's; 0 = no cap (direct play whatever the network allows) */
+    std::string max_mbps_for;    /* the server max_mbps is (use_server); a copy for another is not saved as this one's */
     bool auto_skip_intro = false;
     int language = 0;            /* i18n::Choice: 0 follow the PS5, 1 Norsk, 2 English */
     /* How text subtitles look (set in Innstillinger or in the player). */
@@ -38,7 +43,10 @@ struct All {
 /* The current settings (thread-safe copy). */
 All get();
 void load_local();
+/* Saves the console's settings; max_mbps for the current server. */
 void set_local(const Local &l);
+/* The server signed in to (its Id, else its address): its quality cap from now on. */
+void use_server(const std::string &key);
 /* Reads the account's preferences (after sign-in). */
 void load_server(jf::Client &c);
 /* Changes the account's preferences (written in the background). */

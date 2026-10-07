@@ -11,6 +11,7 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <map>
 #include <mutex>
 #include <sys/stat.h>
 #include <thread>
@@ -25,6 +26,11 @@ namespace {
 constexpr const char *kFile = "/download0/jelly5/settings.json";
 std::mutex s_lock;
 All s_all;
+/* Quality caps per server; a server without one gets the cap kept from before
+ * they were per server (the old "maxMbps"), so an update changes nothing. */
+std::map<std::string, int> s_quality;
+int s_quality_default = 0;
+std::string s_server;
 
 } // namespace
 
@@ -48,9 +54,15 @@ void load_local()
     if (!j)
         return;
     std::lock_guard<std::mutex> g(s_lock);
-    s_all.local.max_mbps = (int)cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(j, "maxMbps"));
-    if (s_all.local.max_mbps < 0)
-        s_all.local.max_mbps = 0;
+    s_quality_default = std::max(0, (int)cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(j, "maxMbps")));
+    s_quality.clear();
+    const cJSON *q;
+    cJSON_ArrayForEach(q, cJSON_GetObjectItemCaseSensitive(j, "maxMbpsByServer"))
+        if (q->string && cJSON_IsNumber(q))
+            s_quality[q->string] = std::max(0, (int)q->valuedouble);
+    auto at = s_quality.find(s_server);
+    s_all.local.max_mbps = at != s_quality.end() ? at->second : s_quality_default;
+    s_all.local.max_mbps_for = s_server;
     s_all.local.auto_skip_intro = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(j, "autoSkipIntro"));
     s_all.local.language = (int)cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(j, "language"));
     if (const cJSON *v = cJSON_GetObjectItemCaseSensitive(j, "nightMode"))
@@ -84,13 +96,30 @@ void load_local()
 
 void set_local(const Local &l)
 {
+    std::map<std::string, int> quality;
+    int quality_default;
     {
         std::lock_guard<std::mutex> g(s_lock);
+        const int current = s_all.local.max_mbps;
         s_all.local = l;
+        if (l.max_mbps_for != s_server) {   /* read for another server (it changed since): keep this one's */
+            s_all.local.max_mbps = current;
+            s_all.local.max_mbps_for = s_server;
+        } else if (!s_server.empty()) {
+            s_quality[s_server] = l.max_mbps;
+        } else {
+            s_quality_default = l.max_mbps;
+        }
+        quality = s_quality;
+        quality_default = s_quality_default;
     }
     mkdir("/download0/jelly5", 0777);
     cJSON *j = cJSON_CreateObject();
-    cJSON_AddNumberToObject(j, "maxMbps", l.max_mbps);
+    cJSON_AddNumberToObject(j, "maxMbps", quality_default);
+    cJSON *by = cJSON_CreateObject();
+    for (const auto &kv : quality)
+        cJSON_AddNumberToObject(by, kv.first.c_str(), kv.second);
+    cJSON_AddItemToObject(j, "maxMbpsByServer", by);
     cJSON_AddBoolToObject(j, "autoSkipIntro", l.auto_skip_intro);
     cJSON_AddNumberToObject(j, "language", l.language);
     cJSON_AddBoolToObject(j, "refresh120", l.refresh_120);
@@ -112,6 +141,15 @@ void set_local(const Local &l)
         std::fclose(f);
     }
     std::free(text);
+}
+
+void use_server(const std::string &key)
+{
+    std::lock_guard<std::mutex> g(s_lock);
+    s_server = key;
+    auto at = s_quality.find(key);
+    s_all.local.max_mbps = at != s_quality.end() ? at->second : s_quality_default;
+    s_all.local.max_mbps_for = key;
 }
 
 void load_server(jf::Client &c)

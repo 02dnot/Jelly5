@@ -64,10 +64,19 @@ bool adjustable(int r)
            (r >= SettingsScreen::AppLanguage && r <= SettingsScreen::Updates);
 }
 
-const char *auth_name(seerr_service::Auth a)
+/* The sign-in Seerr gets: where the server has no Quick Connect (Emby; Seerr has
+ * it for Jellyfin only), the server's password stands in for it. */
+seerr_service::Auth effective_auth(seerr_service::Auth a, const jf::Client &c)
 {
-    switch (a) {
-    case seerr_service::Auth::JellyfinPassword: return T("Jellyfin-passord");
+    return a == seerr_service::Auth::QuickConnect && !c.features().quick_connect ? seerr_service::Auth::JellyfinPassword
+                                                                                 : a;
+}
+
+const char *auth_name(seerr_service::Auth a, const jf::Client &c)
+{
+    const bool emby = c.kind() == jf::Kind::Emby;   /* (the password is named after the server) */
+    switch (effective_auth(a, c)) {
+    case seerr_service::Auth::JellyfinPassword: return emby ? T("Emby-passord") : T("Jellyfin-passord");
     case seerr_service::Auth::Local: return T("Seerr-konto (e-post)");
     default: return T("Automatisk (Quick Connect)");
     }
@@ -124,6 +133,9 @@ void SettingsScreen::activate()
 
 bool SettingsScreen::shown(int r) const
 {
+    const jf::Features f = m_client.features();
+    if (r == Together)
+        return f.syncplay;
     if (r < SeerrUrl || r > SeerrTest)
         return true;
     return seerr_service::config().enabled;
@@ -144,7 +156,7 @@ void SettingsScreen::seerr_account()
         sign_out();
         return;
     }
-    switch (config().auth) {
+    switch (effective_auth(config().auth, m_client)) {
     case Auth::QuickConnect:   /* ✕ here approves Quick Connect for the address shown */
         if (s.why == Why::NeedApproval)
             approve_quick_connect();
@@ -152,7 +164,10 @@ void SettingsScreen::seerr_account()
             reconnect();
         break;
     case Auth::JellyfinPassword:
-        ime::request(ime::Kind::Password, T("Jellyfin-passord for ") + m_client.user_name(), "",
+        ime::request(ime::Kind::Password,
+                     (m_client.kind() == jf::Kind::Emby ? T("Emby-passord for ") : T("Jellyfin-passord for ")) +
+                         m_client.user_name(),
+                     "",
                      [](const std::string &pw) { seerr_service::sign_in("", pw); });
         break;
     case Auth::Local:   /* the e-mail first; the password once the keyboard has closed */
@@ -200,14 +215,17 @@ std::string SettingsScreen::value(Row r) const
             return T("60 Hz (TV-en har ikke 120 Hz)");
         return s.local.refresh_120 ? "120 Hz" : "60 Hz";
     case Together: return syncplay::active() ? syncplay::group_name() : std::string(T("Av"));
-    case ServerInfo: return m_server_name.empty() ? m_client.server() : m_server_name + "  \xC2\xB7  " + m_server_version;
+    case ServerInfo:
+        return m_server_name.empty() ? m_client.server()
+                                     : m_server_name + "  \xC2\xB7  " +
+                                           (m_client.kind() == jf::Kind::Emby ? "Emby " : "Jellyfin ") + m_server_version;
     case About: return std::string(T("Versjon ")) + JELLY5_VERSION;
     case SeerrOn: return seerr_service::config().enabled ? T("P\xC3\xA5") : T("Av");
     case SeerrUrl: {
         const std::string u = seerr_service::config().url;
         return u.empty() ? std::string(T("Ikke angitt")) : u;
     }
-    case SeerrAuth: return auth_name(seerr_service::config().auth);
+    case SeerrAuth: return auth_name(seerr_service::config().auth, m_client);
     case SeerrAccount: {
         using namespace seerr_service;
         const Snapshot sn = snapshot();
@@ -329,7 +347,10 @@ void SettingsScreen::change(Row r, int dir)
     }
     case SeerrAuth: {
         seerr_service::Config c = seerr_service::config();
-        c.auth = (seerr_service::Auth)cycle((int)c.auth, (int)seerr_service::Auth::Count);
+        /* From what the row shows; past Quick Connect where the server has none. */
+        c.auth = (seerr_service::Auth)cycle((int)effective_auth(c.auth, m_client), (int)seerr_service::Auth::Count);
+        if (effective_auth(c.auth, m_client) != c.auth)
+            c.auth = (seerr_service::Auth)cycle((int)c.auth, (int)seerr_service::Auth::Count);
         seerr_service::set_config(c);
         break;
     }
@@ -440,9 +461,10 @@ void SettingsScreen::draw(double, float dt)
             continue;
         }
         const int sec = section_of(r0);
-        int r1 = r0;
-        while (r1 + 1 < RowCount && section_of(r1 + 1) == sec && shown(r1 + 1))
-            r1++;
+        int r1 = r0;   /* the section's last row shown (past rows this server hides) */
+        for (int r = r0 + 1; r < RowCount && section_of(r) == sec; r++)
+            if (shown(r))
+                r1 = r;
         const gfx::Rect card{left - 8, ys[r0] - off - 8, width + 16, ys[r1] + row_h - ys[r0] + 16};
         if (card.y < gfx::H && card.y + card.h > 0)
             glass_panel(card, 24, 1.f, false);
@@ -478,15 +500,18 @@ void SettingsScreen::draw(double, float dt)
         }
     }
     gfx::text(left, y + 40 - off,
-              T("Lyd, undertekster og autoavspilling lagres på Jellyfin-kontoen din og gjelder i alle Jellyfin-apper."),
+              T("Lyd, undertekster og autoavspilling lagres på kontoen din på serveren og gjelder i alle appene du bruker med den."),
               {gfx::Regular, 20, width}, kText3);
     gfx::text(left, y + 72 - off, T("Språk følger PS5-en, eller velg her."), {gfx::Regular, 20, width}, kText3);
     gfx::text(left, y + 104 - off, T("Jelly5 er fri programvare (GPL-3.0) og bygger på EVO Player og Nuvio PS5."),
               {gfx::Regular, 20, width}, kText3);
     if (seerr_service::config().enabled)   /* only where it means something */
         gfx::text(left, y + 136 - off,
-                  T("Seerr henter alt fra TMDB selv: PS5-en snakker bare med Jellyfin og Seerr."),
+                  T("Seerr henter alt fra TMDB selv: PS5-en snakker bare med serveren din og Seerr."),
                   {gfx::Regular, 20, width}, kText3);
+    if (seerr_service::config().enabled && !m_client.features().quick_connect &&   /* Emby: why a password */
+        effective_auth(seerr_service::config().auth, m_client) == seerr_service::Auth::JellyfinPassword)
+        gfx::text(left, y + 168 - off, T("Emby har ikke Quick Connect: Seerr logger inn med Emby-passordet ditt og husker innloggingen i 30 dager."), {gfx::Regular, 20, width}, kText3);
 }
 
 } // namespace ui

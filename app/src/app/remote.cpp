@@ -62,6 +62,8 @@ void handle(const std::string &text)
         cJSON_ArrayForEach(id, cJSON_GetObjectItemCaseSensitive(d, "ItemIds"))
             if (cJSON_IsString(id))
                 c.item_ids.push_back(id->valuestring);
+            else if (cJSON_IsNumber(id))   /* Emby's ids are numbers ("ItemIds":[11]) */
+                c.item_ids.push_back(std::to_string((long long)id->valuedouble));
         c.start_index = (int)num(d, "StartIndex");
         c.start_ticks = num(d, "StartPositionTicks");
         c.play_command = str(d, "PlayCommand");
@@ -105,8 +107,7 @@ void run(jf::Client *client, std::function<bool()> alive, unsigned gen)
     while (current()) {
         jf::WebSocket ws;
         std::string err;
-        const std::string url = client->server() + "/socket?deviceId=" + client->device_id();
-        if (!ws.open(url, {client->auth_header()}, &err)) {
+        if (!ws.open(client->socket_url(), {client->auth_header()}, &err)) {
             evo_bt("remote: socket failed: %s", err.c_str());
             for (int i = 0; i < backoff * 10 && current(); i++)
                 usleep(100 * 1000);
