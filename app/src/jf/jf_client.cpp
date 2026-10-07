@@ -1217,8 +1217,30 @@ std::string Client::image_url(const std::string &owner, const char *type, const 
  * and HEVC Main/Main10 up to 3840x2176 and VP9; FFmpeg covers the rest in
  * software and every audio codec (multichannel PCM out). Dolby Vision plays
  * its HDR10 base layer, so only profiles with a compatible base are allowed.
- * AV1 needs dav1d, which this build does not have yet: the server transcodes it.
+ * AV1 needs dav1d: a build with JELLY5_AV1 (FFmpeg + libdav1d, see
+ * scripts/build-av1.sh) decodes AV1 Main (4:2:0, 8/10-bit) on the CPU, 4K
+ * capped at 30 fps until 4K60 is measured on the console. Without it the
+ * server transcodes AV1: FFmpeg's own av1 decoder crashes on the PS5.
  */
+#if defined(JELLY5_AV1)
+#define JELLY5_AV1_CODEC "av1,"
+#define JELLY5_AV1_PROFILES R"(
+    {"Type": "Video", "Codec": "av1", "Conditions": [
+      {"Condition": "LessThanEqual", "Property": "Width", "Value": "3840", "IsRequired": false},
+      {"Condition": "LessThanEqual", "Property": "VideoBitDepth", "Value": "10", "IsRequired": false},
+      {"Condition": "EqualsAny", "Property": "VideoProfile", "Value": "main", "IsRequired": false},
+      {"Condition": "EqualsAny", "Property": "VideoRangeType",
+       "Value": "SDR|HDR10|HLG|DOVIWithHDR10|DOVIWithHLG|DOVIWithSDR|HDR10Plus", "IsRequired": false}]},
+    {"Type": "Video", "Codec": "av1",
+     "ApplyConditions": [
+      {"Condition": "GreaterThanEqual", "Property": "Width", "Value": "2560", "IsRequired": false}],
+     "Conditions": [
+      {"Condition": "LessThanEqual", "Property": "VideoFramerate", "Value": "31", "IsRequired": false}]},)"
+#else
+#define JELLY5_AV1_CODEC ""
+#define JELLY5_AV1_PROFILES ""
+#endif
+
 std::string Client::device_profile_json(int64_t max_bitrate)
 {
     std::string profile = R"({
@@ -1229,7 +1251,7 @@ std::string Client::device_profile_json(int64_t max_bitrate)
   "DirectPlayProfiles": [
     {"Type": "Video",
      "Container": "mkv,webm,mp4,m4v,mov,ts,mpegts,m2ts,mts,avi,wmv,asf,flv,3gp,ogv,mpg,mpeg,vob",
-     "VideoCodec": "h264,hevc,vp9,mpeg2video,mpeg4,vc1,vp8,msmpeg4v3,wmv3,mpeg1video",
+     "VideoCodec": "h264,hevc,)" JELLY5_AV1_CODEC R"(vp9,mpeg2video,mpeg4,vc1,vp8,msmpeg4v3,wmv3,mpeg1video",
      "AudioCodec": "aac,ac3,eac3,truehd,dts,dca,flac,mp3,mp2,opus,vorbis,alac,pcm_s16le,pcm_s24le,pcm_s32le,pcm_bluray,wmav2,wmapro"},
     {"Type": "Audio", "Container": "mp3,flac,aac,m4a,m4b,ogg,oga,opus,wav,alac,ape,wv,wma"}
   ],
@@ -1239,7 +1261,7 @@ std::string Client::device_profile_json(int64_t max_bitrate)
      "MinSegments": "1", "BreakOnNonKeyFrames": true},
     {"Type": "Audio", "Container": "mp3", "Protocol": "http", "Context": "Streaming", "AudioCodec": "mp3"}
   ],
-  "CodecProfiles": [
+  "CodecProfiles": [)" JELLY5_AV1_PROFILES R"(
     {"Type": "Video", "Codec": "h264", "Conditions": [
       {"Condition": "LessThanEqual", "Property": "Width", "Value": "3840", "IsRequired": false},
       {"Condition": "LessThanEqual", "Property": "VideoLevel", "Value": "52", "IsRequired": false}]},

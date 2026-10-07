@@ -11,6 +11,9 @@ CXX ?= prospero-clang++
 TFLAGS ?=
 HB ?= /opt/ps5-payload-sdk/target/user/homebrew
 JELLY5_DEFS ?=
+# JELLY5_AV1=1 builds: -I for FFmpeg 7.1 + dav1d (scripts/build-av1.sh), ahead
+# of the sysroot's FFmpeg 7.0 headers.
+AV1_INC ?=
 
 OBJDIR := build/obj
 
@@ -23,7 +26,7 @@ DEFS := -DNUVIO_APP=1 -DEVO_APP_MODULE=1 -DEVO_AGC_DEVICE=1 -DEVO_AGC_HAVE_VIDEO
 INCS := -Isrc -Isrc/shim -Ithird_party \
         -Iengine/core/include -Iengine/include -Iengine/pp/include \
         -Iengine/media/include -Iengine/addons/include -Iengine/shaders/agc \
-        -I$(HB)/include -I$(HB)/include/freetype2 -I$(HB)/include/harfbuzz \
+        $(AV1_INC) -I$(HB)/include -I$(HB)/include/freetype2 -I$(HB)/include/harfbuzz \
         -I$(HB)/include/fribidi
 
 CFLAGS   := -O2 -g -Wall -Wno-unused-parameter $(TFLAGS) $(DEFS) $(INCS)

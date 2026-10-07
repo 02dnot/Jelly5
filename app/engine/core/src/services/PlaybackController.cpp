@@ -999,6 +999,13 @@ bool PlaybackController::startPlaybackSource(const PlaybackSource& source,
         if (vp.width * vp.height > 1920 * 1088) {
             const int cpus = av_cpu_count();
             vp.thread_count = cpus < 8 ? 8 : (cpus > 16 ? 16 : cpus);
+#if defined(NUVIO_APP)
+        } else if (vStream->codecpar->codec_id == AV_CODEC_ID_AV1) {
+            /* Jelly5: dav1d at 1080p (10-bit, up to 60 fps) wants more than
+             * 4 threads; leave room for render, demux/HTTPS and audio. */
+            const int cpus = av_cpu_count();
+            vp.thread_count = cpus < 6 ? 6 : (cpus > 12 ? 12 : cpus);
+#endif
         } else {
             vp.thread_count = 4;
         }

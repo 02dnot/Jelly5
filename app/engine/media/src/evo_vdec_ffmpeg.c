@@ -285,6 +285,14 @@ evo_vdec *evo_vdec_open(const evo_vdec_open_params *p, evo_vdec_backend *chosen)
     g_last_open_result = EVO_VDEC_OPEN_CTX_FAIL;
 
     const AVCodec *dec = avcodec_find_decoder((enum AVCodecID)p->codec_id);
+#if defined(NUVIO_APP)
+    /* Jelly5: AV1 only through dav1d. FFmpeg's own "av1" decoder needs an
+     * hwaccel, and on the PS5 it dereferences null after "platform doesn't
+     * support hardware accelerated AV1", so without libdav1d AV1 fails here
+     * cleanly instead. */
+    if (p->codec_id == AV_CODEC_ID_AV1)
+        dec = avcodec_find_decoder_by_name("libdav1d");
+#endif
     if (!dec) {
         g_last_open_result = EVO_VDEC_OPEN_NO_DECODER;
         return NULL;

@@ -186,11 +186,11 @@ Jelly5 talks to your Jellyfin or Emby server and, if you turn it on, your Seerr 
 
 Jelly5 builds on macOS (Apple silicon or Intel) and Linux with the [PS5 payload SDK](https://github.com/ps5-payload-dev/sdk) and pacbrew, which `scripts/setup-toolchain.sh` downloads (pinned by checksum) into the git-ignored `toolchain/` folder. First install:
 
-- **macOS**: `brew install llvm lld coreutils bash` (the system's bash 3.2 is too old for the build script).
-- **Linux** (Debian/Ubuntu): `sudo apt install build-essential clang lld llvm curl unzip zip python3-venv`. clang, lld and llvm must be the same version (tested with LLVM 21); set `LLVM_CONFIG` (e.g. `llvm-config-21`) if several are installed.
+- **macOS**: `brew install llvm lld coreutils bash nasm meson ninja pkgconf` (the system's bash 3.2 is too old for the build script).
+- **Linux** (Debian/Ubuntu): `sudo apt install build-essential clang lld llvm curl unzip zip python3-venv nasm meson ninja-build pkg-config`. clang, lld and llvm must be the same version (tested with LLVM 21); set `LLVM_CONFIG` (e.g. `llvm-config-21`) if several are installed.
 
 ```sh
-scripts/setup-toolchain.sh                  # once: SDK, pacbrew sysroot, host zlib
+scripts/setup-toolchain.sh                  # once: SDK, pacbrew sysroot, host zlib, AV1 (dav1d + FFmpeg 7.1)
 cd app
 eval "$(../scripts/setup-toolchain.sh --env)"
 scripts/build.sh --release                  # → build/app/Jelly5-<version>.zip

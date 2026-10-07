@@ -78,6 +78,18 @@ static const char *sweep_basename(const char *p)
     return s ? s + 1 : p;
 }
 
+/* Jelly5: the file's name for the log, without a URL's query: a stream URL
+ * carries the access token (ApiKey=), which is never logged. */
+static void sweep_name(char *out, size_t n, const char *path)
+{
+    char whole[1024];
+    char *q;
+    snprintf(whole, sizeof(whole), "%s", path ? path : "");
+    if ((q = strchr(whole, '?')) != NULL)   /* the query first: a '/' in it must not hide the token */
+        *q = '\0';
+    snprintf(out, n, "%s", sweep_basename(whole));
+}
+
 static uint64_t sweep_p95(const uint64_t *ring, uint32_t count)
 {
     uint64_t tmp[SWEEP_PRESENT_RING];
@@ -108,7 +120,7 @@ void evo_sweep_file_begin(const char *path, const char *codec_name,
                           int backend, int open_result)
 {
     memset(&g_rec, 0, sizeof(g_rec));
-    snprintf(g_rec.path, sizeof(g_rec.path), "%s", sweep_basename(path));
+    sweep_name(g_rec.path, sizeof(g_rec.path), path);
     snprintf(g_rec.codec, sizeof(g_rec.codec), "%s",
              (codec_name && codec_name[0]) ? codec_name : "?");
     g_rec.w = w;
@@ -126,7 +138,7 @@ void evo_sweep_file_failed(const char *path, const char *codec_name,
 {
     char name[SWEEP_NAME_MAX];
     g_rec.active = 0;
-    snprintf(name, sizeof(name), "%s", sweep_basename(path));
+    sweep_name(name, sizeof(name), path);
     evo_boot_log("sweep v=1 open=%s codec=%s res=%dx%d verdict=%s note=%s file=%s",
                  evo_vdec_open_result_name((evo_vdec_open_result)open_result),
                  (codec_name && codec_name[0]) ? codec_name : "?",
