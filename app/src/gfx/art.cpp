@@ -33,6 +33,7 @@ struct Entry {
     int max_w = 0, max_h = 0;
     gfx::Texture *tex = nullptr;
     double ready_at = 0;
+    double first_drawn = 0;       /* when it was first asked for to draw (not a prefetch) */
     uint64_t used = 0;
     size_t bytes = 0;
     bool failed = false;
@@ -162,6 +163,8 @@ const gfx::Texture *get(const std::string &url, int max_w, int max_h)
     e.used = s_tick;
     if (e.tex || e.failed)
         return e.tex;
+    if (e.first_drawn == 0)
+        e.first_drawn = now_s();
     e.max_w = max_w;
     e.max_h = max_h;
     if (e.handle < 0 || !ui_image_alive(e.handle))
@@ -176,7 +179,10 @@ const gfx::Texture *get(const std::string &url, int max_w, int max_h)
         if (e.tex) {
             e.bytes = (size_t)img->w * img->h * 4;
             s_bytes += e.bytes;
-            e.ready_at = now_s();
+            /* Ready at once (the disk cache, or fetched ahead): shown as it is, no
+             * BlurHash and no fade. Only a picture that had to wait fades in. */
+            const double now = now_s();
+            e.ready_at = now - e.first_drawn < 0.15 ? now - 60.0 : now;
         }
     } else if (!img && failed && ui_image_alive(e.handle)) {
         e.failed = true;
