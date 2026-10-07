@@ -36,6 +36,7 @@ source code is available from those projects and from the upstream projects belo
 | Library | Licence |
 | --- | --- |
 | [FFmpeg](https://ffmpeg.org) 7.0.1 (libavformat, libavcodec, libavutil, libswresample, libswscale), built with `--enable-version3`, without GPL-only or non-free parts | LGPL-3.0-or-later |
+| AV1 builds (`JELLY5_AV1=1`) instead: FFmpeg 7.1.1, the same configuration plus `--enable-libdav1d`, and [dav1d](https://code.videolan.org/videolan/dav1d) 1.5.1 - Copyright © 2018-2019 VideoLAN and dav1d authors | LGPL-3.0-or-later (FFmpeg); BSD-2-Clause (dav1d) |
 | [libass](https://github.com/libass/libass) | ISC |
 | [FreeType](https://freetype.org) | FreeType License. Portions of this software are copyright © The FreeType Project (www.freetype.org). All rights reserved. |
 | [HarfBuzz](https://harfbuzz.github.io) | MIT ("Old MIT") |

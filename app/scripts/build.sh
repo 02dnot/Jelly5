@@ -15,6 +15,10 @@
 #   ./scripts/build.sh --ffpfsc   # also pack PPSA99505.ffpfsc
 #   ./scripts/build.sh --release  # for sharing: no .env.local server, no log
 #                                 # target, packed as .ffpfsc and .zip
+#   JELLY5_AV1=1 ./scripts/build.sh  # with AV1 (dav1d): links FFmpeg 7.1 +
+#                                 # libdav1d from toolchain/av1-prefix
+#                                 # (scripts/build-av1.sh) and lets Jellyfin
+#                                 # direct-play AV1
 #
 # Output: build/app/PPSA99505/{eboot.bin, sce_sys/, sce_module/libc.prx}
 # The packaging steps follow the toolkit's app packaging (player mode);
@@ -36,7 +40,7 @@ for arg in "$@"; do
     case "${arg}" in
         --ffpfsc) FFPFSC=1 ;;
         --release) RELEASE=1; FFPFSC=1 ;;
-        -h|--help) sed -n '2,19p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,23p' "$0"; exit 0 ;;
         *) echo "unknown option: ${arg}" >&2; exit 2 ;;
     esac
 done
@@ -62,6 +66,19 @@ need() { [[ -e "$1" ]] || die "$2"; }
 PS5_SYSROOT="${PS5_PAYLOAD_SDK}/target"
 HB="${PS5_SYSROOT}/user/homebrew"
 NATIVE="${EVO_ROOT}/tools/native-app"
+# AV1: FFmpeg 7.1 with libdav1d from a prefix of its own (scripts/build-av1.sh),
+# used instead of the sysroot's FFmpeg 7.0, which has no AV1 decoder that
+# works on the PS5. Off by default: then AV1 stays out of the device profile.
+FF_LIB="${HB}/lib"; AV1_INC=""; AV1_ON=0
+if [[ "${JELLY5_AV1:-0}" == 1 ]]; then
+    AV1_ON=1
+    AV1_PREFIX="${JELLY5_AV1_PREFIX:-${NUVIO_ROOT}/toolchain/av1-prefix}"
+    need "${AV1_PREFIX}/lib/libdav1d.a" "JELLY5_AV1=1: no dav1d at ${AV1_PREFIX} (run scripts/build-av1.sh)"
+    [[ "$(llvm-nm "${AV1_PREFIX}/lib/libavcodec.a" 2>/dev/null | grep -c ' D ff_libdav1d_decoder$')" -gt 0 ]] ||
+        die "JELLY5_AV1=1: ${AV1_PREFIX}/lib/libavcodec.a has no libdav1d decoder"
+    FF_LIB="${AV1_PREFIX}/lib"
+    AV1_INC="-I${AV1_PREFIX}/include"
+fi
 LLD="$(command -v prospero-lld || echo "${PS5_PAYLOAD_SDK}/bin/prospero-lld")"
 AR="$(command -v prospero-ar || echo "${PS5_PAYLOAD_SDK}/bin/prospero-ar")"
 need "${NATIVE}/ps5-pie.ld" "native-app toolkit not found at ${NATIVE}"
@@ -139,10 +156,12 @@ fi
 JELLY5_DEFS="-DJELLY5_VERSION=\\\"$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["contentVersion"])' "${PARAM}")\\\""
 [[ -n "${JF_URL}" ]] && JELLY5_DEFS+=" -DJELLY5_SERVER=\\\"${JF_URL}\\\""
 [[ -n "${SEERR_URL}" ]] && JELLY5_DEFS+=" -DJELLY5_SEERR_URL=\\\"${SEERR_URL}\\\""
+(( AV1_ON )) && JELLY5_DEFS+=" -DJELLY5_AV1=1"
 [[ -n "${LOG_HOST}" ]] && JELLY5_DEFS+=" -DJELLY5_LOG_HOST=\\\"${LOG_HOST}\\\" -DJELLY5_LOG_PORT=${JELLY5_LOG_PORT:-5555}"
 ok "log -> ${LOG_HOST:-none}:${JELLY5_LOG_PORT:-5555}, server ${JF_URL:-default}, Seerr ${SEERR_URL:-not set}"
+(( AV1_ON )) && ok "AV1: FFmpeg + dav1d from ${FF_LIB%/lib}"
 make -C "${APP_ROOT}" -j"$(nproc)" objects \
-    CC="${TCC}" CXX="${TCXX}" TFLAGS="${TFLAGS[*]}" HB="${HB}" JELLY5_DEFS="${JELLY5_DEFS}" \
+    CC="${TCC}" CXX="${TCXX}" TFLAGS="${TFLAGS[*]}" HB="${HB}" JELLY5_DEFS="${JELLY5_DEFS}" AV1_INC="${AV1_INC}" \
     > "${BUILD}/compile.log" 2>&1 || { tail -40 "${BUILD}/compile.log"; die "compile failed"; }
 mapfile -t OBJS < <(make -C "${APP_ROOT}" -s print-objects | tr ' ' '\n' | grep -E '\.o$')
 if [[ -n "${JELLY5_PROBE:-}" ]]; then
@@ -203,8 +222,12 @@ log "linking"
 ARCHIVES=()
 # The overlay: libass (subtitles), FreeType/HarfBuzz/fribidi (text), and the
 # image decoders for artwork. libass links fontconfig, which is never used.
-for a in libavformat libavcodec libswresample libavutil libswscale \
-         libass libharfbuzz libfribidi libfontconfig libexpat libfreetype \
+for a in libavformat libavcodec libswresample libavutil libswscale; do
+    need "${FF_LIB}/${a}.a" "FFmpeg archive missing: ${FF_LIB}/${a}.a"
+    ARCHIVES+=("${FF_LIB}/${a}.a")
+done
+(( AV1_ON )) && ARCHIVES+=("${FF_LIB}/libdav1d.a")
+for a in libass libharfbuzz libfribidi libfontconfig libexpat libfreetype \
          libpng16 libjpeg libwebp libsharpyuv \
          libssl libcrypto libiconv libxml2 libz libbz2 liblzma libzstd libm; do
     need "${HB}/lib/${a}.a" "sysroot archive missing: ${a}.a"
