@@ -173,8 +173,10 @@ if has_sym "${AV1}/lib/libavcodec.a" ' D ff_av1_decoder$'; then
     die "FFmpeg still has its hardware-only av1 decoder"
 fi
 
-# pkg-config files carry the prefix they were built for: point them at the final one.
-grep -rl -- "${AV1}" "${AV1}" 2>/dev/null | while IFS= read -r f; do
+# pkg-config files carry the prefix they were built for: point them at the final
+# one. Only those text files: the archives hold the path in their debug info, and
+# an edit there corrupts them.
+find "${AV1}" -name '*.pc' -type f | while IFS= read -r f; do
     sed -i.bak "s#${AV1}#${FINAL}#g" "$f" && rm -f "$f.bak"
 done
 rm -rf -- "${FINAL}.old"
