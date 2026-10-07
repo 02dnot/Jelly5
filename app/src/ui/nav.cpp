@@ -87,10 +87,10 @@ void Nav::draw(float a, int active, int focus, float dt, bool *animating)
     localtime_r(&t, &tm);
     char clock[8];
     std::snprintf(clock, sizeof clock, "%02d:%02d", tm.tm_hour, tm.tm_min);
-    /* The initial on the brand gradient (as in Hvem ser på?); the picture fades in over it.
+    /* The initial on glass (as in Hvem ser på?); the picture fades in over it.
      * Jellyfin has no BlurHash for users. */
     const gfx::Rect av{gfx::W - kPad - 60, cy - 30, 60, 60};
-    gfx::fill_vgradient(av, alpha(0xffaa5cc3u, a), alpha(0xff00a4dcu, a), 30);
+    glass_panel(av, 30, a, false);
     const std::string initial = m_user.empty() ? "?" : m_user.substr(0, 1);
     gfx::text(gfx::W - kPad - 30, cy + 10, initial, {gfx::Bold, 28}, alpha(kText, a), 1);
     if (!m_avatar.empty()) {

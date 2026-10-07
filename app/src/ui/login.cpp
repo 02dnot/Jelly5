@@ -637,7 +637,7 @@ void Login::draw(double now, float dt)
                                             : client().server() + "/Users/" + users[i].id + "/Images/Primary?tag=" +
                                                   users[i].image_tag + "&fillWidth=240";
                 if (url.empty()) {
-                    gfx::fill(r, 0xff6e7fd6u, d / 2);
+                    glass_panel(r, d / 2, 1.f, false);
                     gfx::text(r.x + d / 2, r.y + d / 2 + 16, users[i].name.substr(0, 1), {gfx::Bold, 48}, kText, 1);
                 } else {
                     art::draw(r, url, "", 240, 240, d / 2);

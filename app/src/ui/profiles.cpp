@@ -211,7 +211,7 @@ void Profiles::draw(double, float dt)
         if (user) {
             const accounts::Account &a = m_list[i];
             name = a.user_name;
-            gfx::fill_vgradient(r, 0xffaa5cc3u, 0xff00a4dcu, dd / 2);
+            glass_panel(r, dd / 2, 1.f, false);
             gfx::text(r.x + dd / 2, r.y + dd / 2 + 32, name.substr(0, 1), {gfx::Bold, 90}, kText, 1);
             if (!a.image_tag.empty())
                 art::draw(r, a.server + "/Users/" + a.user_id + "/Images/Primary?tag=" + a.image_tag + "&fillWidth=440",
