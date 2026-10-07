@@ -218,7 +218,8 @@ void Album::draw(double now, float dt)
                                       : bs[i] == Shuffle ? T("Bland")
                                       : bs[i] == Mix     ? T("Miks")
                                                          : m_album.album_artist + " \xE2\x80\xBA";
-            const float bw = std::min(520.f, gfx::text_width(label, st)) + 80;
+            /* The artist's button takes what is left of the row (a long language, a long name). */
+            const float bw = std::max(160.f, std::min({520.f, gfx::text_width(label, st), gfx::W - kPad - bx - 80})) + 80;
             const gfx::Rect r{bx, kTop + 230, bw, 76};
             bx += bw + 20;
             if (pass == 0) {
@@ -227,7 +228,7 @@ void Album::draw(double now, float dt)
                     m_btn_drop.to(r, (int)bs[i]);
                 continue;
             }
-            gfx::text(r.x + r.w / 2, r.y + r.h / 2 + 9, label, {focus ? gfx::Bold : gfx::SemiBold, 26, 520}, kText, 1);
+            gfx::text(r.x + r.w / 2, r.y + r.h / 2 + 9, label, {focus ? gfx::Bold : gfx::SemiBold, 26, r.w - 80}, kText, 1);
         }
     }
 

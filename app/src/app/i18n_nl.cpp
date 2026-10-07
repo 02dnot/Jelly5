@@ -366,7 +366,7 @@ const std::unordered_map<std::string, const char *> &dutch_table()
         {"Venter på godkjenning", "Wacht op goedkeuring"},
         {"Venter", "In behandeling"},
         {"Forespurt", "Aangevraagd"},
-        {"Delvis tilgjengelig", "Gedeeltelijk beschikbaar"},
+        {"Delvis tilgjengelig", "Deels beschikbaar"},
         {"Tilgjengelig", "Beschikbaar"},
         {"Blokkert", "Geblokkeerd"},
         {"Ikke forespurt", "Niet aangevraagd"},

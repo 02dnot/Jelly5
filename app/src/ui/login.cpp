@@ -62,6 +62,16 @@ void button(const gfx::Rect &r, const std::string &label, bool focus, float, int
     });
 }
 
+/* A button's width: at least `min`, wider when a label (in bold, as when
+ * focused) needs it; every label it can show is passed, so it never jumps. */
+float button_w(float min, std::initializer_list<std::string> labels)
+{
+    float w = min;
+    for (const std::string &l : labels)
+        w = std::max(w, gfx::text_width(l, {gfx::Bold, 26}) + 64);
+    return w;
+}
+
 } // namespace
 
 Login::Login(const jf::Client &app_client, const std::string &server, const std::string &user, bool can_cancel,
@@ -576,9 +586,10 @@ void Login::draw(double now, float dt)
     if (m_step == ServerStep) {
         gfx::text(kX, 230, T("Koble til Jellyfin eller Emby"), {gfx::Bold, 64}, kText);
         gfx::text(kX, 290, T("Skriv inn adressen til Jellyfin- eller Emby-serveren din, for eksempel 192.168.0.10:8096."),
-                  {gfx::Medium, 28, 1200}, kText2);
+                  {gfx::Medium, 28, 1200, 2, 38}, kText2);
         field({kX, 390, kW, 84}, "SERVER", m_server, "http://", m_focus == 0, lift("srv", m_focus == 0));
-        button({kX, 530, 260, 76}, busy ? T("Kobler til \xE2\x80\xA6") : T("Fortsett"), m_focus == 1, lift("go", m_focus == 1));
+        button({kX, 530, button_w(260, {T("Kobler til \xE2\x80\xA6"), T("Fortsett")}), 76},
+               busy ? T("Kobler til \xE2\x80\xA6") : T("Fortsett"), m_focus == 1, lift("go", m_focus == 1));
         /* Servers on the network, found by asking (Jellyfin's discovery). */
         scan(now);
         std::vector<jf::FoundServer> found;
@@ -655,13 +666,17 @@ void Login::draw(double now, float dt)
         field({kX, y + 150, kW, 84}, T("PASSORD"), std::string(m_password.size(), '*'), T("Passord"), f == 1,
               lift("pass", f == 1));
         const float by = y + 270;
-        button({kX, by, 240, 76}, busy ? T("Logger inn \xE2\x80\xA6") : T("Logg inn"), f == 2, lift("in", f == 2));
-        if (m_has_quick_connect) {
-            button({kX + 260, by, 330, 76}, T("Bruk Quick Connect"), f == 3, lift("qc", f == 3));
-            button({kX + 610, by, 250, 76}, T("Annen server"), f == 4, lift("other", f == 4));
-        } else {   /* Emby: no Quick Connect */
-            button({kX + 260, by, 250, 76}, T("Annen server"), f == 4, lift("other", f == 4));
+        /* The row's buttons as wide as their labels need, side by side. */
+        float bx = kX;
+        const float w_in = button_w(240, {T("Logger inn \xE2\x80\xA6"), T("Logg inn")});
+        button({bx, by, w_in, 76}, busy ? T("Logger inn \xE2\x80\xA6") : T("Logg inn"), f == 2, lift("in", f == 2));
+        bx += w_in + 20;
+        if (m_has_quick_connect) {   /* Emby has no Quick Connect */
+            const float w_qc = button_w(330, {T("Bruk Quick Connect")});
+            button({bx, by, w_qc, 76}, T("Bruk Quick Connect"), f == 3, lift("qc", f == 3));
+            bx += w_qc + 20;
         }
+        button({bx, by, button_w(250, {T("Annen server")}), 76}, T("Annen server"), f == 4, lift("other", f == 4));
     } else {
         gfx::text(kX, 230, "Quick Connect", {gfx::Bold, 64}, kText);
         gfx::text(kX, 300,
@@ -702,14 +717,16 @@ void Login::draw(double now, float dt)
                 gfx::text(panel.x + side / 2, panel.y + side + 52, T("Skann med telefonen"), {gfx::SemiBold, 24},
                           kText2, 1);
                 gfx::text(panel.x + side / 2, panel.y + side + 86, T("og trykk Godkjenn i Jellyfin"),
-                          {gfx::Medium, 20}, kText3, 1);
+                          {gfx::Medium, 20, side + 60}, kText3, 1);
             }
         }
+        const float w_other = button_w(250, {T("Annen server")});
         if (m_checking) {   /* until the server answers, the way out is the only button */
-            button({kX, 690, 250, 76}, T("Annen server"), true, lift("other2", true));
+            button({kX, 690, w_other, 76}, T("Annen server"), true, lift("other2", true));
         } else {
-            button({kX, 690, 560, 76}, T("Logg inn med brukernavn og passord"), m_focus == 0, lift("pw", m_focus == 0));
-            button({kX + 580, 690, 250, 76}, T("Annen server"), m_focus == 1, lift("other2", m_focus == 1));
+            const float w_pw = button_w(560, {T("Logg inn med brukernavn og passord")});
+            button({kX, 690, w_pw, 76}, T("Logg inn med brukernavn og passord"), m_focus == 0, lift("pw", m_focus == 0));
+            button({kX + w_pw + 20, 690, w_other, 76}, T("Annen server"), m_focus == 1, lift("other2", m_focus == 1));
         }
     }
     if (!s_focused)

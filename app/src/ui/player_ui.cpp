@@ -859,8 +859,9 @@ void PlayerUi::draw_chapters(const NuvioStatus &st, float a, float dt)
                                                     : std::to_string(i + 1) + ". " + ch[i].name;
         const float hx = tx + gfx::text(tx, y + 48, name, {gfx::Bold, 26, lw - 520}, alpha(focus ? kText : kText2, a));
         if (i == now_i) {
-            gfx::fill({hx + 14, y + 24, 128, 30}, alpha(0xe600a4dcu, a), 15);
-            gfx::text(hx + 78, y + 46, T("SPILLER NÅ"), {gfx::Bold, 16}, alpha(kText, a), 1);
+            const float pw = gfx::text_width(T("SPILLER NÅ"), {gfx::Bold, 16}) + 32;
+            gfx::fill({hx + 14, y + 24, pw, 30}, alpha(0xe600a4dcu, a), 15);
+            gfx::text(hx + 14 + pw / 2, y + 46, T("SPILLER NÅ"), {gfx::Bold, 16}, alpha(kText, a), 1);
         }
         const int s = (int)ch[i].start;
         char t[16];
@@ -1058,7 +1059,20 @@ void PlayerUi::draw_skip_next(const NuvioStatus &st)
     a_next.to(card ? 1.f : 0.f);
     if (a_next.value > 0.01f && m_req->has_next) {
         const NuvioEpisode &n = m_req->next;
-        const gfx::Rect r{W - kPad - 560, H - 440 - (1.f - a_next.value) * 20 + (m_controls ? 0 : 290), 560, 156};
+        /* 560 wide, wider when the line under the title needs it (a long language). */
+        const bool counting = m_req->prefs.autoplay_next && m_card_since >= 0;
+        char c[48] = "";
+        if (counting) {
+            const double left = std::max(0.0, 10.0 - (st.now - m_card_since));
+            std::snprintf(c, sizeof c, T("Spilles om %d s"), (int)std::ceil(left));
+        }
+        const float line_w = counting ? gfx::text_width(T("Spilles om %d s"), {gfx::Medium, 20}) + 18 +
+                                            pad_hint_width(PadButton::Cross, T("Nå"), 24)
+                                      : pad_hint_width(PadButton::Cross, T("Spill av"), 24) + 24 * 0.9f +
+                                            pad_hint_width(PadButton::Circle, T("Se rulletekst"), 24);
+        const float cw_card = std::min(std::max(560.f, 270 + line_w + 8), W - 2 * kPad);
+        const gfx::Rect r{W - kPad - cw_card, H - 440 - (1.f - a_next.value) * 20 + (m_controls ? 0 : 290), cw_card,
+                          156};
         gfx::push_opacity(a_next.value);
         glass(r, 1.f);
         art::draw({r.x + 18, r.y + 18, 213, 120}, n.thumbnail, n.blurhash, 480, 270, 10);
@@ -1067,10 +1081,8 @@ void PlayerUi::draw_skip_next(const NuvioStatus &st)
         char title[256];
         std::snprintf(title, sizeof title, "S%d:E%d \xC2\xB7 %s", n.season, n.episode, n.title.c_str());
         gfx::text(tx, r.y + 80, title, {gfx::Bold, 24, r.w - 270}, kText);
-        if (m_req->prefs.autoplay_next && m_card_since >= 0) {
+        if (counting) {
             const double left = std::max(0.0, 10.0 - (st.now - m_card_since));
-            char c[48];
-            std::snprintf(c, sizeof c, T("Spilles om %d s"), (int)std::ceil(left));
             const float cw = gfx::text(tx, r.y + 116, c, {gfx::Medium, 20}, kText2);
             draw_pad_hint(tx + cw + 18, r.y + 109, PadButton::Cross, T("Nå"), 24);
             gfx::fill({tx, r.y + 132, r.w - 270, 4}, 0x33ffffffu, 2);
@@ -1124,10 +1136,12 @@ void PlayerUi::draw_tracks(const NuvioStatus &st, float a)
                 gfx::fill({lx + 6, y + row_h / 2 - 8, 3, 13}, alpha(fg, a), 1.5f);
             }
             lx += 28;
-            gfx::text(lx, y + 40, label, {selected ? gfx::Bold : gfx::Medium, 25, widths[c] - 60 - (right.empty() ? 0 : 150)},
-                      alpha(fg, a));
+            /* The tags on the right keep their width; the name gives way (at most half the column). */
+            const float rw = right.empty() ? 0
+                                           : std::min(gfx::text_width(right, {gfx::Medium, 20}) + 20, widths[c] / 2);
+            gfx::text(lx, y + 40, label, {selected ? gfx::Bold : gfx::Medium, 25, widths[c] - 60 - rw}, alpha(fg, a));
             if (!right.empty())
-                gfx::text(cols[c] + widths[c] - 18, y + 39, right, {gfx::Medium, 20},
+                gfx::text(cols[c] + widths[c] - 18, y + 39, right, {gfx::Medium, 20, widths[c] / 2 - 20},
                           alpha(focus ? kText2 : kText3, a), 2);
         }
     };
@@ -1324,11 +1338,13 @@ void PlayerUi::draw_episodes(float a, float dt)
         std::snprintf(title, sizeof title, "%d. %s", e.episode, e.title.c_str());
         float hx = tx + gfx::text(tx, y + 48, title, {gfx::Bold, 26, lw - 520}, alpha(focus ? kText : kText2, a));
         if (here) {
-            gfx::fill({hx + 14, y + 24, 128, 30}, alpha(0xe600a4dcu, a), 15);
-            gfx::text(hx + 78, y + 46, T("SPILLER NÅ"), {gfx::Bold, 16}, alpha(kText, a), 1);
+            const float pw = gfx::text_width(T("SPILLER NÅ"), {gfx::Bold, 16}) + 32;
+            gfx::fill({hx + 14, y + 24, pw, 30}, alpha(0xe600a4dcu, a), 15);
+            gfx::text(hx + 14 + pw / 2, y + 46, T("SPILLER NÅ"), {gfx::Bold, 16}, alpha(kText, a), 1);
         } else if (e.watched) {
-            gfx::fill({hx + 14, y + 24, 62, 30}, alpha(0x33ffffffu, a), 15);
-            gfx::text(hx + 45, y + 46, T("Sett"), {gfx::SemiBold, 17}, alpha(kText, a), 1);
+            const float bw = gfx::text_width(T("Sett"), {gfx::SemiBold, 17}) + 24;
+            gfx::fill({hx + 14, y + 24, bw, 30}, alpha(0x33ffffffu, a), 15);
+            gfx::text(hx + 14 + bw / 2, y + 46, T("Sett"), {gfx::SemiBold, 17}, alpha(kText, a), 1);
         }
         gfx::text(lx + lw - 24, y + 48, e.runtime, {gfx::Medium, 20}, alpha(kText3, a), 2);
         gfx::text(tx, y + 88, e.overview.empty() ? T("Ingen beskrivelse.") : e.overview,

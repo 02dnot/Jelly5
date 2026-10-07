@@ -551,7 +551,7 @@ void RequestSheet::draw(float dt, bool *animating)
     const bool on_buttons = m_rows[m_focus].kind == Buttons;
     const std::string send_label = !m_error.empty() && m_retry ? T("Prøv igjen") : T("Be om");
     const gfx::TextStyle bt{gfx::Bold, 26};
-    const float bw0 = gfx::text_width(send_label, bt) + 96, bw1 = gfx::text_width(T("Avbryt"), bt) + 80;
+    const float bw0 = std::max(gfx::text_width(send_label, bt), gfx::text_width(T("Sender \xE2\x80\xA6"), bt)) + 96, bw1 = gfx::text_width(T("Avbryt"), bt) + 80;
     const gfx::Rect b0{r.x + 48, y, bw0, 76}, b1{r.x + 48 + bw0 + 20, y, bw1, 76};
     glass_panel(b0, 16, a, false);
     glass_panel(b1, 16, a, false);
@@ -562,7 +562,12 @@ void RequestSheet::draw(float dt, bool *animating)
     gfx::text(b0.x + b0.w / 2, b0.y + 47, sending ? T("Sender \xE2\x80\xA6") : send_label, bt, alpha(kText, a), 1);
     gfx::text(b1.x + b1.w / 2, b1.y + 47, T("Avbryt"), {on_buttons && m_button == 1 ? gfx::Bold : gfx::SemiBold, 26},
               alpha(kText, a), 1);
-    draw_pad_hints(r.x + r.w - 48, b0.y + 38, {{PadButton::Cross, T("Velg")}, {PadButton::Circle, T("Lukk")}}, 2, 26, a);
+    /* The hints on the right, where the buttons leave room for them. */
+    const float hints_w = pad_hint_width(PadButton::Cross, T("Velg"), 26) + 26 * 0.9f +
+                          pad_hint_width(PadButton::Circle, T("Lukk"), 26);
+    if (b1.x + b1.w + 32 + hints_w <= r.x + r.w - 48)
+        draw_pad_hints(r.x + r.w - 48, b0.y + 38, {{PadButton::Cross, T("Velg")}, {PadButton::Circle, T("Lukk")}}, 2, 26,
+                       a);
 }
 
 } // namespace ui

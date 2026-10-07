@@ -669,7 +669,10 @@ void Detail::draw_top(float y0, float dt)
     /* Glass buttons: the panes, then the focus drop over them, then their labels. */
     if (m_zone != Buttons || m_sheet.active())
         m_btn_drop.hide();
-    for (int pass = 0; pass < 2; pass++) {
+    /* Pass -1 only measures: a row wider than the screen (a long language) drops
+     * the Play button's "12 min left" and keeps its progress bar. */
+    bool short_play = false;
+    for (int pass = -1; pass < 2; pass++) {
     if (pass == 1)
         m_btn_drop.draw(dt, 1.f, &m_animating, 16);
     float bx = kPad;
@@ -687,7 +690,8 @@ void Detail::draw_top(float y0, float dt)
             if (resume) {
                 pct = (float)t.position_ticks / (float)t.runtime_ticks;
                 const int left = (int)((t.runtime_ticks - t.position_ticks) / jf::kTicksPerSecond / 60);
-                sub = TN(std::max(1, left), "%d min igjen", "%d min igjen");
+                if (!short_play)
+                    sub = TN(std::max(1, left), "%d min igjen", "%d min igjen");
             }
         }
         float w = 76;
@@ -698,9 +702,16 @@ void Detail::draw_top(float y0, float dt)
         if (bs[i] == TrailerButton)
             w = gfx::text_width("Trailer", st) + 64;
         if (bs[i] == PlayButton)
-            w = 40 + 30 + 14 + gfx::text_width(label, st) + (pct >= 0 ? 14 + 90 + 14 + gfx::text_width(sub, {gfx::Medium, 24}) : 0) + 40;
+            w = 40 + 30 + 14 + gfx::text_width(label, st) +
+                (pct >= 0 ? 14 + 90 + (sub.empty() ? 0 : 14 + gfx::text_width(sub, {gfx::Medium, 24})) : 0) + 40;
         const float k = 1.f;
         const gfx::Rect r{bx, by, w, 76};
+        if (pass < 0) {
+            bx += w + 20;
+            if (i + 1 == bs.size())
+                short_play = bx - 20 > gfx::W - kPad;
+            continue;
+        }
         if (pass == 0) {
             glass_panel(r, 16, 1.f, false);
             if (focus)
@@ -719,7 +730,8 @@ void Detail::draw_top(float y0, float dt)
                 tx += 14;
                 gfx::fill({tx, cy - 3, 90, 6}, 0x40ffffffu, 3);
                 gfx::fill({tx, cy - 3, 90 * pct, 6}, fg, 3);
-                gfx::text(tx + 104, cy + 8, sub, {gfx::Medium, 24}, alpha(fg, 0.75f));
+                if (!sub.empty())
+                    gfx::text(tx + 104, cy + 8, sub, {gfx::Medium, 24}, alpha(fg, 0.75f));
             }
         } else if (bs[i] == RestartButton) {
             gfx::text(r.x + r.w / 2, cy + 9, T("Fra start"), st, fg, 1);
@@ -865,8 +877,9 @@ void Detail::draw_sections(float dt)
                                   0xffffffffu, 3);
                     }
                     if (e.played) {
-                        gfx::fill({r.x + r.w - 76, r.y + 14, 62, 30}, 0xa6000000u, 15);
-                        gfx::text(r.x + r.w - 45, r.y + 36, T("Sett"), {gfx::SemiBold, 18}, kText, 1);
+                        const float bw = gfx::text_width(T("Sett"), {gfx::SemiBold, 18}) + 24;
+                        gfx::fill({r.x + r.w - 14 - bw, r.y + 14, bw, 30}, 0xa6000000u, 15);
+                        gfx::text(r.x + r.w - 14 - bw / 2, r.y + 36, T("Sett"), {gfx::SemiBold, 18}, kText, 1);
                     }
                     const float ty = y + kEpH + 44;
                     char title[300];

@@ -152,9 +152,10 @@ void draw_poster(jf::Client &c, const jf::Item &it, const gfx::Rect &r, float li
 const char *seerr_status_label(int status, bool full = false);
 uint32_t seerr_status_color(int status);
 /* The status chip, its top left at (x, y); size is the type's. Returns the width (0: none). */
-float draw_status_chip(float x, float y, int status, float opacity, float size = 15.f);
+float draw_status_chip(float x, float y, int status, float opacity, float size = 15.f, float max_w = 0);
 /* The same chip with a label and a dot of its own ("Avslått" ...). */
-float draw_label_chip(float x, float y, const char *label, uint32_t color, float opacity, float size = 15.f);
+float draw_label_chip(float x, float y, const char *label, uint32_t color, float opacity, float size = 15.f,
+                      float max_w = 0);
 /* A note at the top of the screen on a pill of glass (how a request went):
  * opacity 0 draws nothing. */
 void draw_note(const std::string &text, float opacity, uint32_t dot = 0xff30d158u);

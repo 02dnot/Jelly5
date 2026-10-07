@@ -285,7 +285,7 @@ void Home::draw_card_art(const jf::Item &it, const gfx::Rect &r, float radius, f
     if (it.external()) {   /* Seerr's: its name on its colours, the picture over it, where it stands */
         draw_glass_placeholder(r, radius, a);
         art::draw(r, it.ext.thumb, "", 640, 360, radius, a, 0);
-        draw_status_chip(r.x + 12, r.y + 12, seerr_service::status_of(it), a);
+        draw_status_chip(r.x + 12, r.y + 12, seerr_service::status_of(it), a, 15.f, r.w - 24);
         return;
     }
     art::draw(r, card_url(it), it.thumb_blurhash.empty() ? it.backdrop_blurhash : it.thumb_blurhash, 640, 360,

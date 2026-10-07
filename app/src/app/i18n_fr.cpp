@@ -340,7 +340,7 @@ const std::unordered_map<std::string, const char *> &french_table()
         {"Venter på godkjenning", "En attente d'approbation"},
         {"Venter", "En attente"},
         {"Forespurt", "Demandé"},
-        {"Delvis tilgjengelig", "Partiellement disponible"},
+        {"Delvis tilgjengelig", "Dispo en partie"},
         {"Tilgjengelig", "Disponible"},
         {"Blokkert", "Bloqué"},
         {"Ikke forespurt", "Non demandé"},

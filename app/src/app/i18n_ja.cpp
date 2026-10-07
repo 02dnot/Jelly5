@@ -368,7 +368,7 @@ const std::unordered_map<std::string, const char *> &japanese_table()
         {"Forespurt", "リクエスト済み"},
         {"Delvis tilgjengelig", "一部視聴可能"},
         {"Tilgjengelig", "視聴可能"},
-        {"Blokkert", "ブロックリスト登録済み"},
+        {"Blokkert", "ブロック済み"},
         {"Ikke forespurt", "未リクエスト"},
         {"Fra Seerr", "Seerrから"},
         {"Seerr svarer ikke", "Seerrが応答しません"},
