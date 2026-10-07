@@ -138,5 +138,11 @@ if [[ ! -f "${HZ}/lib/libz.a" ]]; then
     rm -rf "${tmp}"
 fi
 
+# AV1 (dav1d + FFmpeg 7.1) for the app, in toolchain/av1-prefix: once, ~5-10 min.
+# --no-av1 skips it (then build with JELLY5_AV1=0).
+if [[ " $* " != *" --no-av1 "* ]]; then
+    "${ROOT}/scripts/build-av1.sh"
+fi
+
 echo "==> toolchain ready at ${SDK}"
 echo "    eval \"\$(scripts/setup-toolchain.sh --env)\""

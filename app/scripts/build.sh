@@ -15,10 +15,10 @@
 #   ./scripts/build.sh --ffpfsc   # also pack PPSA99505.ffpfsc
 #   ./scripts/build.sh --release  # for sharing: no .env.local server, no log
 #                                 # target, packed as .ffpfsc and .zip
-#   JELLY5_AV1=1 ./scripts/build.sh  # with AV1 (dav1d): links FFmpeg 7.1 +
-#                                 # libdav1d from toolchain/av1-prefix
-#                                 # (scripts/build-av1.sh) and lets Jellyfin
-#                                 # direct-play AV1
+#   JELLY5_AV1=0 ./scripts/build.sh  # without AV1: the sysroot's FFmpeg 7.0,
+#                                 # and the server transcodes AV1 (by default
+#                                 # FFmpeg 7.1 + libdav1d from
+#                                 # toolchain/av1-prefix, scripts/build-av1.sh)
 #
 # Output: build/app/PPSA99505/{eboot.bin, sce_sys/, sce_module/libc.prx}
 # The packaging steps follow the toolkit's app packaging (player mode);
@@ -68,14 +68,16 @@ HB="${PS5_SYSROOT}/user/homebrew"
 NATIVE="${EVO_ROOT}/tools/native-app"
 # AV1: FFmpeg 7.1 with libdav1d from a prefix of its own (scripts/build-av1.sh),
 # used instead of the sysroot's FFmpeg 7.0, which has no AV1 decoder that
-# works on the PS5. Off by default: then AV1 stays out of the device profile.
+# works on the PS5. On by default; JELLY5_AV1=0 builds without it (then AV1
+# stays out of the device profile and the server transcodes it).
 FF_LIB="${HB}/lib"; AV1_INC=""; AV1_ON=0
-if [[ "${JELLY5_AV1:-0}" == 1 ]]; then
+if [[ "${JELLY5_AV1:-1}" == 1 ]]; then
     AV1_ON=1
     AV1_PREFIX="${JELLY5_AV1_PREFIX:-${NUVIO_ROOT}/toolchain/av1-prefix}"
-    need "${AV1_PREFIX}/lib/libdav1d.a" "JELLY5_AV1=1: no dav1d at ${AV1_PREFIX} (run scripts/build-av1.sh)"
+    need "${AV1_PREFIX}/lib/libdav1d.a" \
+        "no AV1 decoder at ${AV1_PREFIX}: run scripts/build-av1.sh once (or build with JELLY5_AV1=0)"
     [[ "$(llvm-nm "${AV1_PREFIX}/lib/libavcodec.a" 2>/dev/null | grep -c ' D ff_libdav1d_decoder$')" -gt 0 ]] ||
-        die "JELLY5_AV1=1: ${AV1_PREFIX}/lib/libavcodec.a has no libdav1d decoder"
+        die "${AV1_PREFIX}/lib/libavcodec.a has no libdav1d decoder (scripts/build-av1.sh --force)"
     FF_LIB="${AV1_PREFIX}/lib"
     AV1_INC="-I${AV1_PREFIX}/include"
 fi

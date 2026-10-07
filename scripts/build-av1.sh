@@ -5,11 +5,11 @@
 # Builds AV1 software decoding for the console: dav1d (with its x86-64 asm)
 # and FFmpeg 7.1 with --enable-libdav1d, cross-compiled with the PS5 SDK.
 # Installs into a prefix of its own, toolchain/av1-prefix/{include,lib}, and
-# leaves the SDK sysroot (pacbrew's FFmpeg 7.0) untouched. The app uses it
-# only when built with JELLY5_AV1=1 (app/scripts/build.sh).
+# leaves the SDK sysroot (pacbrew's FFmpeg 7.0) untouched. The app builds with
+# it by default (app/scripts/build.sh; JELLY5_AV1=0 builds without).
 #
-#   scripts/setup-toolchain.sh          # first: SDK + pacbrew sysroot
-#   scripts/build-av1.sh                # then this (once; ~5-10 min)
+#   scripts/setup-toolchain.sh          # runs this at its end (--no-av1 skips it)
+#   scripts/build-av1.sh                # on its own (once; ~5-10 min)
 #   scripts/build-av1.sh --force        # rebuild
 #
 # Host tools: nasm, meson, ninja, pkg-config (brew install nasm meson ninja
