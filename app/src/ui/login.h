@@ -66,6 +66,7 @@ private:
     Anim m_found_scroll;              /* the found servers' row, when more than fit */
     Anim m_users_scroll;              /* the server's users, likewise */
     void check_server();
+    void check_known_server();
     void sign_in();
     void start_quick_connect();
 

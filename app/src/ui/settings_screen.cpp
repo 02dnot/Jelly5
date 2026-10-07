@@ -502,7 +502,8 @@ void SettingsScreen::draw(double, float dt)
         gfx::text(left, y + 136 - off,
                   T("Seerr henter alt fra TMDB selv: PS5-en snakker bare med serveren din og Seerr."),
                   {gfx::Regular, 20, width}, kText3);
-    if (seerr_service::config().enabled && !m_client.features().quick_connect)   /* Emby: why a password */
+    if (seerr_service::config().enabled && !m_client.features().quick_connect &&   /* Emby: why a password */
+        effective_auth(seerr_service::config().auth, m_client) == seerr_service::Auth::JellyfinPassword)
         gfx::text(left, y + 168 - off, T("Emby har ikke Quick Connect: Seerr logger inn med Emby-passordet ditt og husker innloggingen i 30 dager."), {gfx::Regular, 20, width}, kText3);
 }
 

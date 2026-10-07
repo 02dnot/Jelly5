@@ -74,16 +74,13 @@ std::string trim(const std::string &s)
     return s.substr(a, b - a);
 }
 
-/* Seerr's media server is Emby (its public settings say so: mediaServerType 3). */
-std::atomic<bool> s_emby{false};
-
 /* A Jellyfin item id, as Seerr reports it: 32 hex digits (dashes allowed), or
  * when Seerr's media server is Emby, Emby's (Seerr keeps those in the same
  * field): digits. Else none. It goes into the server's request paths, which
  * carry the viewer's token: nothing else may ride along ("../System/Restart"). */
-std::string jellyfin_id_of(const std::string &v)
+std::string jellyfin_id_of(const std::string &v, bool emby)
 {
-    if (s_emby && !v.empty() && v.size() <= 20 && v.find_first_not_of("0123456789") == std::string::npos)
+    if (emby && !v.empty() && v.size() <= 20 && v.find_first_not_of("0123456789") == std::string::npos)
         return v;
     int hex = 0;
     for (const char ch : v) {
@@ -102,7 +99,7 @@ Status status_of(int v) { return v >= 1 && v <= 7 ? (Status)v : Status::Unknown;
 
 /* A title's fields from a result or a details page (Seerr names films' and
  * series' fields differently: title / name, releaseDate / firstAirDate). */
-Title title_of(const cJSON *o, bool tv)
+Title title_of(const cJSON *o, bool tv, bool emby)
 {
     Title t;
     t.id = int_of(o, "id");
@@ -123,7 +120,7 @@ Title title_of(const cJSON *o, bool tv)
     const cJSON *media = cJSON_GetObjectItemCaseSensitive(o, "mediaInfo");
     if (cJSON_IsObject(media)) {
         t.status = status_of(int_of(media, "status", 1));
-        t.jellyfin_id = jellyfin_id_of(str_of(media, "jellyfinMediaId"));
+        t.jellyfin_id = jellyfin_id_of(str_of(media, "jellyfinMediaId"), emby);
         const cJSON *active = cJSON_GetObjectItemCaseSensitive(media, "hasActiveRequest");
         t.active_request = cJSON_IsBool(active) ? cJSON_IsTrue(active)   /* older Seerr: what the status says */
                                                 : t.status == Status::Pending || t.status == Status::Processing;
@@ -373,7 +370,6 @@ bool Client::status(std::string *version)
 bool Client::public_settings(PublicSettings *out)
 {
     std::string body;
-    s_emby = false;   /* until this Seerr says what it serves */
     if (!get("/settings/public", &body))
         return false;
     cJSON *j = cJSON_Parse(body.c_str());
@@ -381,7 +377,7 @@ bool Client::public_settings(PublicSettings *out)
         return false;
     out->title = str_of(j, "applicationTitle");
     out->media_server = int_of(j, "mediaServerType");
-    s_emby = out->media_server == 3;
+    emby_ = out->media_server == 3;   /* this Seerr's ids are Emby's */
     out->media_server_login = bool_of(j, "mediaServerLogin", true);
     out->local_login = bool_of(j, "localLogin", true);
     out->partial_requests = bool_of(j, "partialRequestsEnabled", true);
@@ -498,7 +494,7 @@ std::vector<Title> Client::titles_from(const std::string &body, int *pages)
     cJSON_ArrayForEach(r, cJSON_GetObjectItemCaseSensitive(j, "results")) {
         const std::string type = str_of(r, "mediaType");   /* people and collections are left out */
         if (type == "movie" || type == "tv")
-            out.push_back(title_of(r, type == "tv"));
+            out.push_back(title_of(r, type == "tv", emby_));
     }
     cJSON_Delete(j);
     return out;
@@ -543,9 +539,9 @@ std::vector<Title> Client::related(int tmdb_id, bool tv, bool similar, int page)
 }
 
 /* What films' and series' pages share. */
-static void detail_fields(const cJSON *j, bool tv, Detail *out)
+static void detail_fields(const cJSON *j, bool tv, Detail *out, bool emby)
 {
-    out->title = title_of(j, tv);
+    out->title = title_of(j, tv, emby);
     out->tagline = str_of(j, "tagline");
     const cJSON *v;
     cJSON_ArrayForEach(v, cJSON_GetObjectItemCaseSensitive(j, "genres"))
@@ -579,7 +575,7 @@ bool Client::movie(int tmdb_id, Detail *out)
     if (!j)
         return false;
     *out = Detail();
-    detail_fields(j, false, out);
+    detail_fields(j, false, out, emby_);
     out->runtime = int_of(j, "runtime");
     cJSON_Delete(j);
     return out->title.id > 0;
@@ -594,7 +590,7 @@ bool Client::tv(int tmdb_id, Detail *out)
     if (!j)
         return false;
     *out = Detail();
-    detail_fields(j, true, out);
+    detail_fields(j, true, out, emby_);
     if (const cJSON *rt = cJSON_GetArrayItem(cJSON_GetObjectItemCaseSensitive(j, "episodeRunTime"), 0))
         out->runtime = cJSON_IsNumber(rt) ? rt->valueint : 0;
     out->tvdb_id = int_of(cJSON_GetObjectItemCaseSensitive(j, "externalIds"), "tvdbId");

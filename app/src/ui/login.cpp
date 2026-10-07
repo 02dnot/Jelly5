@@ -84,10 +84,23 @@ void Login::activate()
     ime::init();
     if (m_known_server && !m_server.empty() && !m_checking) {
         m_checking = true;
-        m_step = QuickConnectStep;   /* its code box waits with "…"; an error goes to the address */
         m_focus = 0;
-        check_server();
+        check_known_server();
     }
+}
+
+/* A saved server checked again: its Quick Connect code box waits with "…" (an
+ * error goes to the address); one saved as Emby, which has no Quick Connect,
+ * waits on name and password. */
+void Login::check_known_server()
+{
+    bool emby = false;
+    for (const accounts::Account &a : accounts::load())
+        emby = emby || (a.server == m_server && a.kind == jf::kind_key(jf::Kind::Emby));
+    check_server();   /* (it resets what is known of Quick Connect: set after it) */
+    m_has_quick_connect = !emby;
+    m_no_quick_connect = emby;
+    m_step = emby ? UserStep : QuickConnectStep;
 }
 
 /* "Annen server": the address step. Empty when the address here is a saved one
@@ -119,9 +132,8 @@ void Login::back_to_known()
     m_known_server = true;
     m_back_to_known = false;
     m_checking = true;
-    m_step = QuickConnectStep;
     m_focus = 1;
-    check_server();
+    check_known_server();
 }
 
 /* The keyboard's callbacks point at this screen: close it with the screen. */
@@ -165,15 +177,16 @@ void Login::scan(double now)
                 f.end());
         /* A server can name an address the PS5 cannot reach (one in Docker: its
          * container's 172.17.x.x), and signing in there only times out: offered
-         * are the ones that answer where they said. Each address is asked once
-         * while this sign-in shows. */
-        std::vector<char> reachable(f.size(), 0), known(f.size(), 0);
+         * are the ones that answer where they said. One that answered is not
+         * asked again while this sign-in shows; one that did not is asked again
+         * at the next search (it may still be starting). */
+        std::vector<char> reachable(f.size(), 0), known(f.size(), 0), seen(f.size(), 0);
         {
             std::lock_guard<std::mutex> g(sh->lock);
             for (size_t i = 0; i < f.size(); i++) {
                 const auto at = sh->answers.find(f[i].address);
-                known[i] = at != sh->answers.end();
-                reachable[i] = known[i] && at->second;
+                seen[i] = at != sh->answers.end();
+                known[i] = reachable[i] = seen[i] && at->second;
             }
         }
         std::vector<std::function<void()>> checks;
@@ -195,7 +208,7 @@ void Login::scan(double now)
         }
         for (size_t i = f.size(); i-- > 0;)
             if (!reachable[i]) {
-                if (!known[i])
+                if (!seen[i])   /* (once) */
                     evo_bt("login: %s answered the search but not at %s", f[i].name.c_str(), f[i].address.c_str());
                 f.erase(f.begin() + (long)i);
             }

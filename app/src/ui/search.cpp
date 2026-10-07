@@ -148,7 +148,8 @@ void Search::merge(Data &d)
 Search::Grid Search::grid()
 {
     std::lock_guard<std::mutex> g(m_data->lock);
-    return {(int)m_data->items.size(), (int)m_data->seerr_shown.size()};
+    /* Seerr's results only while Seerr is on (they stay from before it was turned off). */
+    return {(int)m_data->items.size(), seerr_service::config().enabled ? (int)m_data->seerr_shown.size() : 0};
 }
 
 void Search::more_seerr()
@@ -374,7 +375,8 @@ void Search::draw(double now, float dt)
     {
         std::lock_guard<std::mutex> g(m_data->lock);
         items = m_data->items;
-        seerr = m_data->seerr_shown;
+        if (seerr_service::config().enabled)   /* (see grid) */
+            seerr = m_data->seerr_shown;
         for_query = m_data->for_query;
         seerr_pending = m_data->seerr_pending;
         seerr_asked = m_data->for_seerr == for_query;

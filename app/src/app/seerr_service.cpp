@@ -40,8 +40,8 @@ constexpr int kRetrySeconds = 30;
 
 /* Everything below; held only for moments (never across a request). */
 std::mutex s_lock;
-jf::Client *s_jf = nullptr;
-std::atomic<bool> s_sign_in_notice{false};   /* see take_sign_in_notice */             /* the account in use (clients are never freed) */
+jf::Client *s_jf = nullptr;             /* the account in use (clients are never freed) */
+std::atomic<bool> s_sign_in_notice{false};   /* see take_sign_in_notice; set and cleared under s_lock */
 std::string s_server, s_account;        /* its Jellyfin server; "server|user id" */
 unsigned s_epoch = 0;                   /* bumped when the account or the settings change */
 Snapshot s_snap;
@@ -263,11 +263,14 @@ template <class F> void publish(unsigned epoch, F change)
 
 /* A sign-in came to an end, one way or the other. */
 void finish(unsigned epoch, const std::shared_ptr<seerr::Client> &cl, bool ok, const seerr::User &u,
-            const std::string &version, const seerr::PublicSettings &ps, Why why, std::string error)
+            const std::string &version, const seerr::PublicSettings &ps, Why why, std::string error,
+            bool lost_session = false)
 {
     std::lock_guard<std::mutex> g(s_lock);
     if (epoch != s_epoch)
-        return;
+        return;   /* another account or setting since: nothing of this one is said */
+    if (!ok && lost_session && why != Why::SignedOut)
+        s_sign_in_notice = true;   /* a saved session lost, and not renewed here: tell the viewer once */
     s_snap.version = version;
     s_snap.settings = ps;
     if (ok && !cl->has_session()) {
@@ -377,9 +380,7 @@ void connect_worker(unsigned epoch)
             why = cl->last_status() == 403 ? Why::NotInSeerr : Why::AutoFailed;
             error = "Quick Connect: " + cl->last_error();
         }
-        if (!ok && had_session && why != Why::SignedOut)
-            s_sign_in_notice = true;   /* a saved session lost, and not renewed here: tell the viewer once */
-        finish(epoch, cl, ok, u, version, ps, why, error);
+        finish(epoch, cl, ok, u, version, ps, why, error, had_session);
         return;
     }
 }
@@ -448,6 +449,7 @@ void attach(jf::Client *client)
     s_jf = client;
     s_server = server;
     s_account = account;
+    s_sign_in_notice = false;   /* the last account's */
     s_stored = loaded;
     s_seen_ready = false;
     s_last_lost = -1e9;
@@ -468,6 +470,7 @@ void attach(jf::Client *client)
 void detach()
 {
     std::lock_guard<std::mutex> g(s_lock);
+    s_sign_in_notice = false;
     s_epoch++;
     s_snap.testing = false;   /* a test of the last epoch never answers now */
     s_jf = nullptr;
@@ -492,6 +495,7 @@ Config config()
 void set_config(const Config &c)
 {
     std::lock_guard<std::mutex> g(s_lock);
+    s_sign_in_notice = false;   /* the viewer is at it in the settings */
     if (s_account.empty())
         return;
     const Config old = s_stored.config;
