@@ -6,6 +6,7 @@
  */
 #include "ui/player_ui.h"
 #include "evo_audio_out.h"
+#include "jelly5_bitstream.h"
 
 #include "app/remote.h"
 #include "app/settings.h"
@@ -653,6 +654,10 @@ void PlayerUi::input_local(const nuvio_input_state &in, const NuvioStatus &st, s
             }
             case Button::Tracks: open_overlay(Overlay::Tracks); break;
             case Button::Speed: {   /* 1x, 1.25x, 1.5x, 2x, 0.75x, round again */
+                if (jelly5_bs_active()) {   /* the receiver decodes it: it plays as it is */
+                    toast(T("Hastighet virker ikke med HDMI-bitstr\xC3\xB8m"), now);
+                    break;
+                }
                 static const float speeds[] = {1.0f, 1.25f, 1.5f, 2.0f, 0.75f};
                 const float now_sp = evo_audio_speed();
                 int k = 0;

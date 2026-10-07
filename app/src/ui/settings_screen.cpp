@@ -87,6 +87,7 @@ const char *label_of(int row)
                                          T("Hopp over intro automatisk"),
                                          T("Lydforsinkelse"),
                                          T("Nattmodus"),
+                                         T("HDMI-bitstr\xC3\xB8m"),
                                          T("Temamusikk"),
                                          "Seerr",
                                          T("Adresse"),
@@ -187,6 +188,7 @@ std::string SettingsScreen::value(Row r) const
     case Autoplay: return s.server.autoplay_next ? T("På") : T("Av");
     case AutoSkip: return s.local.auto_skip_intro ? T("På") : T("Av");
     case NightMode: return s.local.night_mode ? T("På") : T("Av");
+    case Bitstream: return s.local.hdmi_bitstream ? T("På") : T("Av");
     case ThemeMusic: return s.local.theme_music ? T("På") : T("Av");
     case Updates: return s.local.check_updates ? T("På") : T("Av");
     case AudioDelay:
@@ -261,6 +263,10 @@ void SettingsScreen::change(Row r, int dir)
         s.local.night_mode = !s.local.night_mode;
         settings::set_local(s.local);
         evo_audio_set_night(s.local.night_mode);
+        break;
+    case Bitstream:   /* from the next playback */
+        s.local.hdmi_bitstream = !s.local.hdmi_bitstream;
+        settings::set_local(s.local);
         break;
     case ThemeMusic:
         s.local.theme_music = !s.local.theme_music;

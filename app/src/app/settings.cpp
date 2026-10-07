@@ -55,6 +55,8 @@ void load_local()
     s_all.local.language = (int)cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(j, "language"));
     if (const cJSON *v = cJSON_GetObjectItemCaseSensitive(j, "nightMode"))
         s_all.local.night_mode = cJSON_IsTrue(v);
+    if (const cJSON *v = cJSON_GetObjectItemCaseSensitive(j, "hdmiBitstream"))
+        s_all.local.hdmi_bitstream = cJSON_IsTrue(v);
     if (const cJSON *v = cJSON_GetObjectItemCaseSensitive(j, "themeMusic"))
         s_all.local.theme_music = cJSON_IsTrue(v);
     if (const cJSON *v = cJSON_GetObjectItemCaseSensitive(j, "checkUpdates"))
@@ -94,6 +96,7 @@ void set_local(const Local &l)
     cJSON_AddBoolToObject(j, "refresh120", l.refresh_120);
     cJSON_AddNumberToObject(j, "audioDelayMs", l.audio_delay_ms);
     cJSON_AddBoolToObject(j, "nightMode", l.night_mode);
+    cJSON_AddBoolToObject(j, "hdmiBitstream", l.hdmi_bitstream);
     cJSON_AddBoolToObject(j, "themeMusic", l.theme_music);
     cJSON_AddBoolToObject(j, "checkUpdates", l.check_updates);
     cJSON *st = cJSON_CreateObject();

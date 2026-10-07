@@ -29,6 +29,7 @@
 #include "evo_boot_log.h"
 #include "evo_speaker_cal.h"
 #include "jelly5_tempo.h"
+#include "jelly5_bitstream.h"
 
 #ifndef SCREEN_PLAYER
 #define SCREEN_PLAYER 2
@@ -86,7 +87,12 @@ static evo_pcm_t audio_queue[AUDIO_QUEUE_BLOCKS][AUDIO_BLOCK_SAMPLES * EVO_AUDIO
 static volatile float s_speed = 1.0f;
 static volatile float s_play_speed = 1.0f;
 static volatile int s_tempo_flush;
-void evo_audio_set_speed(float speed) { s_speed = speed < 0.5f ? 0.5f : speed > 2.0f ? 2.0f : speed; }
+void evo_audio_set_speed(float speed)
+{
+    if (jelly5_bs_active())
+        speed = 1.0f;   /* an HDMI bitstream plays as it is: the receiver decodes it */
+    s_speed = speed < 0.5f ? 0.5f : speed > 2.0f ? 2.0f : speed;
+}
 float evo_audio_speed(void) { return s_speed; }
 float evo_audio_play_speed(void) { return s_play_speed; }
 void evo_audio_flush_speed(void) { s_tempo_flush = 1; }
@@ -257,7 +263,10 @@ void *audio_output_thread(void *arg) {
              * give back the moment the scrub commits. */
             video_rel_at_wait = -1.0;
             video_stuck_iters = 0;
-            usleep(2000);
+            if (jelly5_bs_active() && audio_handle >= 1)
+                sceAudioOutOutput(audio_handle, jelly5_bs_silence());   /* keeps the receiver locked */
+            else
+                usleep(2000);
             continue;
         }
         if (screen == 2 && !player_paused && audio_handle >= 1) {
@@ -319,6 +328,22 @@ void *audio_output_thread(void *arg) {
                 usleep(2000);
                 continue;
             }
+            if (jelly5_bs_active()) {
+                /* Jelly5: HDMI bitstream. One port grain of IEC 61937 bursts at a
+                 * time, untouched (no gain, speed or night mode can apply). The
+                 * clock moves on by the 48 kHz media samples a grain carries;
+                 * an empty buffer plays silence and leaves the clock alone. */
+                s_play_speed = 1.0f;
+                const int16_t *grain = jelly5_bs_pop();
+                if (grain) {
+                    sceAudioOutOutput(audio_handle, grain);
+                    audio_samples_played += jelly5_bs_media_samples();
+                    audio_clock_seconds = (double)audio_samples_played / 48000.0;
+                } else {
+                    sceAudioOutOutput(audio_handle, jelly5_bs_silence());
+                }
+                continue;
+            }
             double media = 0.0;
             const evo_pcm_t *blk = next_output_block(&media);
             if (blk) {
@@ -351,6 +376,8 @@ void *audio_output_thread(void *arg) {
                  */
                 sceAudioOutOutput(audio_handle, silence);
             }
+        } else if (jelly5_bs_active() && audio_handle >= 1 && screen == 2) {
+            sceAudioOutOutput(audio_handle, jelly5_bs_silence());   /* paused: the port and the receiver stay locked */
         } else {
             usleep(200);
         }
@@ -684,6 +711,20 @@ void *audio_decode_thread_func(void *arg) {
                     : 1000
             );
 
+            continue;
+        }
+
+        if (jelly5_bs_active()) {
+            /* Jelly5: HDMI bitstream - the packet goes to the receiver as it is. */
+            if (pkt->pts != AV_NOPTS_VALUE && play_fmt && audio_stream_index >= 0) {
+                audio_pts_seconds = pkt->pts * av_q2d(play_fmt->streams[audio_stream_index]->time_base);
+                if (first_audio_pts_seconds < 0.0) {
+                    first_audio_pts_seconds = audio_pts_seconds;
+                    anchor_resume_base();
+                }
+            }
+            jelly5_bs_feed(pkt->data, pkt->size, &audio_decode_thread_running);
+            av_packet_free(&pkt);
             continue;
         }
 
