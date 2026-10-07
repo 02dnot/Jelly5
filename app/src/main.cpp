@@ -1251,6 +1251,7 @@ bool s_group_play = false;              /* this Play came from the SyncPlay grou
  * thread; s_theme_gen tells a starting theme whether it is still wanted. */
 std::atomic<bool> s_theme_on{false};
 std::atomic<unsigned> s_theme_gen{0};
+std::atomic<unsigned> s_theme_playing_gen{0};   /* the gen the playing theme was started for */
 std::string s_theme_for;   /* the page whose theme is wanted (main thread) */
 
 void stop_theme(bool wait)
@@ -1276,6 +1277,15 @@ void theme_follow()
             if (t == "Movie" || t == "Series" || t == "Season" || t == "Episode")
                 want = d->item().id;
         }
+    /* A theme that started after its page had closed (a stop sent while the player
+     * was still opening is lost): stopped again until it is quiet. */
+    static double s_restop_at = 0;
+    if (s_theme_on && s_theme_playing_gen != s_theme_gen && now_s() > s_restop_at) {
+        s_restop_at = now_s() + 0.5;
+        remote::Command c;
+        c.kind = remote::Command::Stop;
+        remote::send(c);
+    }
     if (want == s_theme_for)
         return;
     stop_theme(false);
@@ -1293,6 +1303,7 @@ void theme_follow()
         const std::vector<jf::Item> songs = c->theme_songs(want);
         if (songs.empty() || gen != s_theme_gen || s_music_on)
             return;
+        s_theme_playing_gen = gen;
         s_theme_on = true;
         nuvio_player_set_headless(1);
         jelly5_play_theme(*c, songs.front());
