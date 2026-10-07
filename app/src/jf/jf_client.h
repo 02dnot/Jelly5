@@ -73,7 +73,7 @@ struct MediaStream {
     int index = -1;
     std::string type;                         /* Video, Audio, Subtitle */
     std::string codec, language, title, display_title, profile;
-    std::string video_range, video_range_type;
+    std::string video_range, video_range_type;   /* Jellyfin's words (Emby's are translated): HDR; HDR10, DOVI ... */
     int width = 0, height = 0, channels = 0, bit_depth = 0;
     bool is_default = false, is_forced = false, is_external = false, is_text = false;
     std::string delivery_url;                 /* external subtitles */
@@ -349,6 +349,9 @@ public:
 
 private:
     std::vector<Item> items_of(const std::string &body);
+    /* One PlaybackInfo; transcode: no direct play, no video copy (Dolby Vision 5). */
+    bool playback_info_as(const std::string &item_id, int64_t start_ticks, int audio_index, int subtitle_index,
+                          Playback *out, int64_t max_bitrate, bool transcode);
     bool emby() const { return kind_ == Kind::Emby; }
     /* The signed-in user (Jellyfin's /Users/Me, Emby's /Users/{id}), and one of
      * their items with its query begun: "&fields=..." follows (Jellyfin:

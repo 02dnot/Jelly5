@@ -193,6 +193,27 @@ MediaStream stream_of(const cJSON *s, const std::string &server)
     m.profile = str_of(s, "Profile");
     m.video_range = str_of(s, "VideoRange");
     m.video_range_type = str_of(s, "VideoRangeType");
+    if (m.type == "Video" && m.video_range_type.empty()) {
+        /* Emby: VideoRange "SDR" / "HDR 10" ..., the kind in ExtendedVideoType and
+         * SubType. Said the way Jellyfin does, so the badges and the Dolby Vision
+         * check below read one language. */
+        const std::string ext = str_of(s, "ExtendedVideoType"), sub = str_of(s, "ExtendedVideoSubType");
+        if (ext == "DolbyVision")
+            m.video_range_type = sub == "DoviProfile50"   ? "DOVI"   /* no compatible base layer */
+                                 : sub == "DoviProfile84" ? "DOVIWithHLG"
+                                 : sub == "DoviProfile82" ? "DOVIWithSDR"
+                                                          : "DOVIWithHDR10";
+        else if (ext == "Hdr10")
+            m.video_range_type = "HDR10";
+        else if (ext == "Hdr10Plus")
+            m.video_range_type = "HDR10Plus";
+        else if (ext == "HyperLogGamma")
+            m.video_range_type = "HLG";
+        else if (!ext.empty())
+            m.video_range_type = "SDR";
+        if (!ext.empty())
+            m.video_range = m.video_range_type == "SDR" || m.video_range_type == "DOVIWithSDR" ? "SDR" : "HDR";
+    }
     m.width = (int)num_of(s, "Width", 0);
     m.height = (int)num_of(s, "Height", 0);
     m.channels = (int)num_of(s, "Channels", 0);
@@ -1161,12 +1182,31 @@ std::string Client::device_profile_json(int64_t max_bitrate)
 bool Client::playback_info(const std::string &item_id, int64_t start_ticks, int audio_index,
                            int subtitle_index, Playback *out, int64_t max_bitrate)
 {
+    if (!playback_info_as(item_id, start_ticks, audio_index, subtitle_index, out, max_bitrate, false))
+        return false;
+    /* Dolby Vision profile 5 has no base layer the PS5 shows right (green and
+     * purple): Jellyfin's profile already keeps it from playing directly
+     * (VideoRangeType); Emby's profile cannot say so, so it is asked again,
+     * this time for a transcode. */
+    for (const MediaStream &s : out->streams)
+        if (s.type == "Video" && s.video_range_type == "DOVI" && out->play_method != "Transcode") {
+            stop_encoding(*out);
+            return playback_info_as(item_id, start_ticks, audio_index, subtitle_index, out, max_bitrate, true);
+        }
+    return true;
+}
+
+bool Client::playback_info_as(const std::string &item_id, int64_t start_ticks, int audio_index,
+                              int subtitle_index, Playback *out, int64_t max_bitrate, bool transcode)
+{
     const int64_t cap = max_bitrate > 0 ? max_bitrate : 200000000;
+    const char *direct = transcode ? "false" : "true";
     std::string req = "{\"DeviceProfile\":" + device_profile_json(max_bitrate) +
                       ",\"MaxStreamingBitrate\":" + std::to_string(cap) +
                       ",\"StartTimeTicks\":" + std::to_string(start_ticks) +
-                      ",\"EnableDirectPlay\":true,\"EnableDirectStream\":true,\"EnableTranscoding\":true"
-                      ",\"AllowVideoStreamCopy\":true,\"AllowAudioStreamCopy\":true,\"AutoOpenLiveStream\":true";
+                      ",\"EnableDirectPlay\":" + direct + ",\"EnableDirectStream\":" + direct +
+                      ",\"EnableTranscoding\":true,\"AllowVideoStreamCopy\":" + direct +
+                      ",\"AllowAudioStreamCopy\":true,\"AutoOpenLiveStream\":true";
     if (audio_index >= 0)
         req += ",\"AudioStreamIndex\":" + std::to_string(audio_index);
     if (subtitle_index >= -1)
@@ -1202,7 +1242,7 @@ bool Client::playback_info(const std::string &item_id, int64_t start_ticks, int 
                 range = str_of(s, "VideoRange");
             }
         const std::string transcoding = str_of(ms, "TranscodingUrl");
-        if (bool_of(ms, "SupportsDirectPlay")) {
+        if (bool_of(ms, "SupportsDirectPlay") && !transcode) {
             c.v.play_method = "DirectPlay";
             /* Jellyfin: ApiKey (10.8 on; the legacy api_key counts only with the server's
              * legacy authorization on, which newer servers have off). Emby: api_key only. */
@@ -1219,7 +1259,8 @@ bool Client::playback_info(const std::string &item_id, int64_t start_ticks, int 
         for (char &ch : codec)
             ch = (char)std::toupper((unsigned char)ch);
         c.v.label = (c.v.height ? std::to_string(c.v.height) + "p" : std::string()) +
-                    (codec.empty() ? "" : " \xC2\xB7 " + codec) + (range == "HDR" ? " \xC2\xB7 HDR" : "");
+                    (codec.empty() ? "" : " \xC2\xB7 " + codec) +
+                    (range.rfind("HDR", 0) == 0 ? " \xC2\xB7 HDR" : "");   /* (Emby: "HDR 10") */
         found.push_back(std::move(c));
     }
     if (found.empty()) {
