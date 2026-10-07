@@ -173,6 +173,13 @@ if has_sym "${AV1}/lib/libavcodec.a" ' D ff_av1_decoder$'; then
     die "FFmpeg still has its hardware-only av1 decoder"
 fi
 
+# Their licences travel with the binaries (dav1d's BSD-2-Clause asks for its text):
+# the release build copies share/licenses into its zip.
+mkdir -p "${AV1}/share/licenses"
+cp "${WORK}/dav1d-${DAV1D_V}/COPYING" "${AV1}/share/licenses/dav1d-COPYING.txt"
+cp "${WORK}/ffmpeg-${FF_V}/COPYING.LGPLv3" "${AV1}/share/licenses/FFmpeg-COPYING.LGPLv3.txt"
+cp "${WORK}/ffmpeg-${FF_V}/LICENSE.md" "${AV1}/share/licenses/FFmpeg-LICENSE.md"
+
 # pkg-config files carry the prefix they were built for: point them at the final
 # one. Only those text files: the archives hold the path in their debug info, and
 # an edit there corrupts them.

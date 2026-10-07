@@ -325,6 +325,11 @@ if (( RELEASE )); then
     rm -rf -- "${LIC}" && mkdir -p "${LIC}"
     cp "${NUVIO_ROOT}/LICENSE" "${NUVIO_ROOT}/THIRD_PARTY_NOTICES.md" "${LIC}/"
     cp "${APP_ROOT}"/assets/fonts/*.txt "${LIC}/"
+    if (( AV1_ON )); then   # FFmpeg 7.1.1's and dav1d's own (scripts/build-av1.sh)
+        need "${FF_LIB%/lib}/share/licenses/dav1d-COPYING.txt" \
+            "the AV1 prefix has no licence files: scripts/build-av1.sh --force"
+        cp "${FF_LIB%/lib}"/share/licenses/* "${LIC}/"
+    fi
     (cd "${BUILD}/app" && zip -qr "Jelly5-${VER}.zip" "${TITLE_ID}" "${TITLE_ID}.ffpfsc" licenses)
     ok "release: ${BUILD#"${NUVIO_ROOT}/"}/app/Jelly5-${VER}.zip"
 fi
