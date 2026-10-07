@@ -139,6 +139,9 @@ fi
 JELLY5_DEFS="-DJELLY5_VERSION=\\\"$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["contentVersion"])' "${PARAM}")\\\""
 [[ -n "${JF_URL}" ]] && JELLY5_DEFS+=" -DJELLY5_SERVER=\\\"${JF_URL}\\\""
 [[ -n "${SEERR_URL}" ]] && JELLY5_DEFS+=" -DJELLY5_SEERR_URL=\\\"${SEERR_URL}\\\""
+# JELLY5_REMOTE_LOG=1: a remote test build (issue #12), raw remote samples in
+# /download0/jelly5/remote-log.txt.
+[[ -n "${JELLY5_REMOTE_LOG:-}" ]] && JELLY5_DEFS+=" -DJELLY5_REMOTE_LOG=1"
 [[ -n "${LOG_HOST}" ]] && JELLY5_DEFS+=" -DJELLY5_LOG_HOST=\\\"${LOG_HOST}\\\" -DJELLY5_LOG_PORT=${JELLY5_LOG_PORT:-5555}"
 ok "log -> ${LOG_HOST:-none}:${JELLY5_LOG_PORT:-5555}, server ${JF_URL:-default}, Seerr ${SEERR_URL:-not set}"
 make -C "${APP_ROOT}" -j"$(nproc)" objects \

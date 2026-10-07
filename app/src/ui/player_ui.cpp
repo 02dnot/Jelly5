@@ -545,6 +545,14 @@ void PlayerUi::input_local(const nuvio_input_state &in, const NuvioStatus &st, s
         a_stats.to(m_stats ? 1.f : 0.f);
         return;
     }
+    if (p & NUVIO_BTN_PLAYPAUSE) {   /* the Media Remote's play/pause, wherever the focus is */
+        out.push_back({OsdCmd::TogglePause});
+        if (!m_music) {
+            m_flash_icon = st.paused ? "play" : "pause";
+            a_flash.snap(1.f);
+        }
+        return;
+    }
     if (m_music) {
         music_input(p, st, out);
         return;

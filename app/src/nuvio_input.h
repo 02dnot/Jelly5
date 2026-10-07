@@ -9,8 +9,8 @@
  * buttons injected by the payload's command channel ("key" commands), merged
  * into one stream of presses with auto-repeat for held directions.
  *
- * Jelly5: also the TV remote (HDMI Device Link), when the console has one, on
- * the same stream. Its menus and the player share this input; both pads are
+ * Jelly5: also the TV remote (HDMI Device Link) and the PlayStation Media
+ * Remote, when the console has one, on the same stream. Its menus and the player share this input; both pads are
  * closed at handoff.
  */
 #include <stdint.h>
@@ -37,6 +37,9 @@ enum {
     NUVIO_BTN_CROSS    = 0x00004000,
     NUVIO_BTN_SQUARE   = 0x00008000,
     NUVIO_BTN_TOUCHPAD = 0x00100000,
+    /* Jelly5: no pad has it; the Media Remote's play/pause (and play, pause)
+     * keys. The player toggles pause on it; the menus ignore it. */
+    NUVIO_BTN_PLAYPAUSE = 0x40000000,
 
     NUVIO_BTN_DPAD = NUVIO_BTN_UP | NUVIO_BTN_RIGHT | NUVIO_BTN_DOWN | NUVIO_BTN_LEFT,
 };

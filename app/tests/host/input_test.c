@@ -28,16 +28,24 @@ static int test_clock_gettime(clockid_t id, struct timespec *out)
 #include "../../src/nuvio_input.c"
 #undef clock_gettime
 
-enum { STANDARD_HANDLE = 10, REMOTE_HANDLE = 20 };
-static pad_data standard, remote;
-static int standard_available, remote_available, standard_error, remote_error;
-static int opens[2], closes[2], output_calls;
+enum { STANDARD_HANDLE = 10, REMOTE_HANDLE = 20, USER_REMOTE_HANDLE = 30 };
+static pad_data standard, remote, user_remote;
+static int standard_available, remote_available, user_remote_available, standard_error, remote_error;
+static int opens[2], closes[2], user_opens, user_closes, output_calls;
+static int system_overlay;   /* the system's menu is over the app */
+int sceSystemServiceGetStatus(system_service_status *status)
+{
+    status->system_ui_overlaid = (uint8_t)system_overlay;
+    return 0;
+}
 static cec_sample queued[64];
 static int queue_count;
 static uint64_t queue_timestamp;
 int scePadRead(int handle, void *out, int count)
 {
-    assert(handle == REMOTE_HANDLE && count == 64);
+    assert((handle == REMOTE_HANDLE || handle == USER_REMOTE_HANDLE) && count == 64);
+    if (handle == USER_REMOTE_HANDLE)
+        return 0;   /* the user's port: snapshots only */
     if (remote_error) return -1;
     memcpy(out, queued, sizeof(cec_sample) * (size_t)queue_count);
     int result = queue_count;
@@ -71,16 +79,28 @@ static void enqueue_remote_key(uint32_t buttons, unsigned code, unsigned length)
 int scePadOpen(int user, int type, int index, void *param)
 {
     assert(index == 0 && param == NULL);
-    assert(user == (type == PAD_PORT_REMOTE_CONTROL ? 0xff : 7));
-    assert(type == 0 || type == 16);
-    int which = type == 16;
-    ++opens[which];
-    return (which ? remote_available : standard_available) ?
-        (which ? REMOTE_HANDLE : STANDARD_HANDLE) : -1;
+    if (type == PAD_PORT_STANDARD) {
+        assert(user == 7);
+        ++opens[0];
+        return standard_available ? STANDARD_HANDLE : -1;
+    }
+    if (user == 0xff) {
+        assert(type == PAD_PORT_REMOTE_CONTROL);
+        ++opens[1];
+        return remote_available ? REMOTE_HANDLE : -1;
+    }
+    /* The signed-in user's special port. */
+    assert(user == 7 && type == PAD_PORT_SPECIAL);
+    ++user_opens;
+    return user_remote_available ? USER_REMOTE_HANDLE : -1;
 }
 int scePadReadState(int handle, pad_data *out)
 {
-    assert(handle == STANDARD_HANDLE || handle == REMOTE_HANDLE);
+    assert(handle == STANDARD_HANDLE || handle == REMOTE_HANDLE || handle == USER_REMOTE_HANDLE);
+    if (handle == USER_REMOTE_HANDLE) {
+        *out = user_remote;
+        return 0;
+    }
     if (handle == REMOTE_HANDLE ? remote_error : standard_error)
         return -1;
     *out = handle == REMOTE_HANDLE ? remote : standard;
@@ -88,8 +108,11 @@ int scePadReadState(int handle, pad_data *out)
 }
 int scePadClose(int handle)
 {
-    assert(handle == STANDARD_HANDLE || handle == REMOTE_HANDLE);
-    ++closes[handle == REMOTE_HANDLE];
+    assert(handle == STANDARD_HANDLE || handle == REMOTE_HANDLE || handle == USER_REMOTE_HANDLE);
+    if (handle == USER_REMOTE_HANDLE)
+        ++user_closes;
+    else
+        ++closes[handle == REMOTE_HANDLE];
     return 0;
 }
 static int output(int handle)
@@ -109,6 +132,7 @@ static void reset(int have_standard, int have_remote)
     nuvio_input_close();
     memset(&standard, 0, sizeof standard);
     memset(&remote, 0, sizeof remote);
+    memset(&user_remote, 0, sizeof user_remote);
     memset(standard.sticks, 128, sizeof standard.sticks);
     memset(remote.sticks, 128, sizeof remote.sticks);
     memset(opens, 0, sizeof opens);
@@ -116,6 +140,7 @@ static void reset(int have_standard, int have_remote)
     standard_available = have_standard;
     remote_available = have_remote;
     standard_error = remote_error = output_calls = 0;
+    user_remote_available = user_opens = user_closes = system_overlay = 0;
     queue_count = 0;
     queue_timestamp = 0;
     test_time = 1;
@@ -308,14 +333,18 @@ static void remote_key_regressions(void)
             assert(poll().pressed == keys[i].button);
         }
 
-        /* System-intercepted samples suppress aliases and regular button bits. */
+        /* Intercepted samples while the system's menu is up suppress aliases
+         * and regular button bits; with the app in front they are ours (SDL). */
         reset(1, 1);
         nuvio_input_open(7);
+        system_overlay = 1;
         remote.buttons = 0x80000000u | keys[i].button;
         set_remote_key(&remote, keys[i].code, 1);
         enqueue_remote_key(remote.buttons, keys[i].code, 1);
         state = poll();
         assert(state.pressed == 0 && state.held == 0);
+        system_overlay = 0;
+        assert(poll().pressed == keys[i].button);
     }
 
     /* SDL's remote ABI reads the key byte even when uniqueDataLen is zero. */
@@ -387,11 +416,67 @@ static void remote_key_regressions(void)
     nuvio_input_close();
 }
 
+/* The Media Remote's keys (SDL's remote_key_map) and the user's own ports. */
+static void media_remote_regressions(void)
+{
+    const struct { unsigned code; uint32_t button; } keys[] = {
+        {18, NUVIO_BTN_OPTIONS}, {27, NUVIO_BTN_OPTIONS}, {22, NUVIO_BTN_PLAYPAUSE},
+        {26, NUVIO_BTN_PLAYPAUSE}, {45, NUVIO_BTN_PLAYPAUSE}, {23, NUVIO_BTN_L2}, {24, NUVIO_BTN_R2},
+    };
+    for (unsigned i = 0; i < sizeof keys / sizeof keys[0]; ++i) {
+        reset(1, 1);
+        nuvio_input_open(7);
+        set_remote_key(&remote, keys[i].code, 1);
+        nuvio_input_state state = poll();
+        assert(state.pressed == keys[i].button && state.held == keys[i].button);
+        if (keys[i].button == NUVIO_BTN_L2)
+            assert(state.l2 >= 0.6f && state.r2 == 0);
+        if (keys[i].button == NUVIO_BTN_R2)
+            assert(state.r2 >= 0.6f && state.l2 == 0);
+        set_remote_key(&remote, 0, 1);
+        assert(poll().released == keys[i].button);
+    }
+
+    /* Held rewind repeats like a held trigger (the player scrubs). */
+    reset(1, 1);
+    nuvio_input_open(7);
+    set_remote_key(&remote, 24, 1);
+    assert(poll().pressed == NUVIO_BTN_R2);
+    test_time = 1.41;
+    assert(poll().repeats == NUVIO_BTN_R2);
+
+    /* The signed-in user's special port is read like the system's remote port. */
+    reset(1, 0);
+    user_remote_available = 1;
+    nuvio_input_open(7);
+    assert(opens[1] == 1 && user_opens == 1);
+    user_remote.buttons = NUVIO_BTN_UP;
+    assert(poll().pressed == NUVIO_BTN_UP);
+    user_remote.buttons = 0;
+    assert(poll().released == NUVIO_BTN_UP);
+    set_remote_key(&user_remote, 45, 1);
+    assert(poll().pressed == NUVIO_BTN_PLAYPAUSE);
+    set_remote_key(&user_remote, 0, 1);
+    poll();
+    /* A key held at open stays ignored on that source until let go. */
+    nuvio_input_close();
+    assert(user_closes == 1);
+    user_remote.buttons = NUVIO_BTN_CROSS;
+    nuvio_input_open(7);
+    assert(poll().pressed == 0);
+    user_remote.buttons = 0;
+    poll();
+    user_remote.buttons = NUVIO_BTN_CROSS;
+    assert(poll().pressed == NUVIO_BTN_CROSS);
+    nuvio_input_close();
+}
+
 
 int main(void)
 {
     queue_regressions();
     remote_key_regressions();
+    media_remote_regressions();
     /* HDMI navigation shares the shell/player buttons and their repeat policy. */
     reset(1, 1);
     nuvio_input_open(7);
@@ -428,8 +513,13 @@ int main(void)
     assert(poll().released == NUVIO_BTN_CROSS);
     remote.buttons = 0x80000000u; /* Intercepted/unknown flags are not UI actions. */
     assert(poll().held == 0 && poll().pressed == 0);
+    system_overlay = 1;
     remote.buttons |= NUVIO_BTN_CROSS;
-    assert(poll().held == 0 && poll().pressed == 0); /* System-owned OK is not ours. */
+    assert(poll().held == 0 && poll().pressed == 0); /* OK under the system's menu is not ours. */
+    system_overlay = 0;
+    assert(poll().pressed == NUVIO_BTN_CROSS);       /* with the app in front it is */
+    remote.buttons = 0;
+    poll();
     remote.buttons = NUVIO_BTN_UP;
     poll();
     remote_error = 1;
