@@ -236,14 +236,15 @@ public:
     bool get_prefs(UserPrefs *out);
     bool set_prefs(const UserPrefs &p);
 
-    std::vector<Item> resume(int limit, const std::string &parent_id = std::string());
-    std::vector<Item> next_up(int limit, const std::string &series_id = std::string());
-    std::vector<Item> views();
+    /* raw (optional): the server's answer as it came, for the saved home screen (items_of). */
+    std::vector<Item> resume(int limit, const std::string &parent_id = std::string(), std::string *raw = nullptr);
+    std::vector<Item> next_up(int limit, const std::string &series_id = std::string(), std::string *raw = nullptr);
+    std::vector<Item> views(std::string *raw = nullptr);
     /* Random movies and series that have both a logo and a backdrop (the hero). */
     std::vector<Item> featured(int limit, std::string *raw = nullptr);
     /* The same from a response saved earlier (the hero is cached between launches). */
     std::vector<Item> featured_from(const std::string &raw, int limit);
-    std::vector<Item> latest(const std::string &parent_id, int limit);
+    std::vector<Item> latest(const std::string &parent_id, int limit, std::string *raw = nullptr);
     std::vector<Item> episodes(const std::string &series_id, const std::string &season_id);
     /* A library page: types e.g. "Movie" or "Series"; sort_by e.g. "DateCreated,SortName". */
     /* filter: extra query, e.g. "&AlbumArtistIds=<id>" (an artist's albums). */
@@ -302,7 +303,7 @@ public:
     /* Drops the resume point: the title leaves "Fortsett å se". */
     bool clear_position(const std::string &id);
     /* Min liste: the user's favourite movies, series and collections, newest first. */
-    std::vector<Item> favorites(int limit);
+    std::vector<Item> favorites(int limit, std::string *raw = nullptr);
     /* A folder's or collection's direct children, e.g. sort_by "PremiereDate,SortName". */
     std::vector<Item> children(const std::string &parent_id, const std::string &sort_by, int limit);
     std::vector<Segment> segments(const std::string &item_id);
@@ -354,8 +355,10 @@ public:
     bool get_json(const std::string &path, std::string *body, int timeout_s = 0);
     bool post_json(const std::string &path, const std::string &json, std::string *body);
 
-private:
+    /* Items from a list answer (one the client fetched before: the saved home screen). */
     std::vector<Item> items_of(const std::string &body);
+
+private:
     /* One PlaybackInfo; transcode: no direct play, no video copy (Dolby Vision 5). */
     bool playback_info_as(const std::string &item_id, int64_t start_ticks, int audio_index, int subtitle_index,
                           Playback *out, int64_t max_bitrate, bool transcode);

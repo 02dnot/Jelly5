@@ -426,47 +426,95 @@ void check_for_update()
     }).detach();
 }
 
-void load_home(jf::Client &c, unsigned session, bool keep_hero = false)
+/* The home screen's ingredients: the server's answers as they came, kept per user
+ * (home-<user>.json) so the next start shows the same screen at once, before the
+ * server is asked again (it takes seconds over favourites and Next up). No token
+ * is in them: item lists only. */
+struct HomeRaw {
+    std::string resume, next, favorites, views;
+    std::vector<std::string> sections;
+    std::vector<std::pair<std::string, std::string>> latest;   /* library id, its answer */
+};
+
+std::string home_file(const jf::Client &c) { return "/download0/jelly5/home-" + c.user_id() + ".json"; }
+
+void save_home(const jf::Client &c, const HomeRaw &r)
 {
-    {
-        std::lock_guard<std::mutex> g(s_state.lock);
-        if (session != s_session)
-            return;
-        if (s_state.phase != Phase::Home) {
-            s_state.phase = Phase::Loading;
-            s_state.message = T("Henter biblioteket \xE2\x80\xA6");
+    cJSON *j = cJSON_CreateObject();
+    cJSON_AddNumberToObject(j, "v", 1);
+    cJSON_AddStringToObject(j, "resume", r.resume.c_str());
+    cJSON_AddStringToObject(j, "next", r.next.c_str());
+    cJSON_AddStringToObject(j, "favorites", r.favorites.c_str());
+    cJSON_AddStringToObject(j, "views", r.views.c_str());
+    cJSON *sec = cJSON_AddArrayToObject(j, "sections");
+    for (const std::string &x : r.sections)
+        cJSON_AddItemToArray(sec, cJSON_CreateString(x.c_str()));
+    cJSON *lat = cJSON_AddArrayToObject(j, "latest");
+    for (const auto &l : r.latest) {
+        cJSON *o = cJSON_CreateObject();
+        cJSON_AddStringToObject(o, "id", l.first.c_str());
+        cJSON_AddStringToObject(o, "raw", l.second.c_str());
+        cJSON_AddItemToArray(lat, o);
+    }
+    if (char *text = cJSON_PrintUnformatted(j)) {
+        write_file(home_file(c), text);
+        cJSON_free(text);
+    }
+    cJSON_Delete(j);
+}
+
+bool read_home(const jf::Client &c, HomeRaw *r)
+{
+    cJSON *j = cJSON_Parse(read_file(home_file(c)).c_str());
+    if (!j)
+        return false;
+    auto str = [&](const char *k) {
+        const char *v = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(j, k));
+        return std::string(v ? v : "");
+    };
+    const bool ok = cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(j, "v")) == 1;
+    if (ok) {
+        r->resume = str("resume");
+        r->next = str("next");
+        r->favorites = str("favorites");
+        r->views = str("views");
+        const cJSON *x;
+        cJSON_ArrayForEach(x, cJSON_GetObjectItemCaseSensitive(j, "sections"))
+            if (cJSON_IsString(x))
+                r->sections.push_back(x->valuestring);
+        cJSON_ArrayForEach(x, cJSON_GetObjectItemCaseSensitive(j, "latest")) {
+            const char *id = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(x, "id"));
+            const char *raw = cJSON_GetStringValue(cJSON_GetObjectItemCaseSensitive(x, "raw"));
+            if (id && raw)
+                r->latest.push_back({id, raw});
         }
     }
-    std::vector<jf::Item> hero, resume, next, views, mylist;
-    std::vector<std::thread> jobs;
-    if (!keep_hero) {
-        hero = c.featured_from(read_file(hero_file(c)), 6);
-        if (hero.empty())
-            jobs.emplace_back([&] { refresh_hero_cache(c, &hero); });
-        else   /* the next launch's pick (the client outlives every request) */
-            std::thread([&c] { refresh_hero_cache(c, nullptr); }).detach();
-    }
-    jobs.emplace_back([&] { resume = c.resume(20); });
-    jobs.emplace_back([&] { next = c.next_up(20); });
-    jobs.emplace_back([&] { views = c.views(); });
-    jobs.emplace_back([&] { mylist = c.favorites(30); });
-    std::vector<std::string> sections;
-    jobs.emplace_back([&] { sections = c.home_sections(); });
-    for (auto &j : jobs)
-        j.join();
-    /* Rows for video libraries; music opens from Biblioteker. Books and photos are not here. */
-    auto video = [](const jf::Item &v) {
-        const std::string &t = v.collection_type;
-        return t == "movies" || t == "tvshows" || t == "homevideos" || t == "musicvideos" || t == "boxsets" ||
-               t.empty();
-    };
-    /* A "Nylig lagt til" row per video library, unless the user left it out (Jellyfin:
-     * Innstillinger -> Hjem). */
+    cJSON_Delete(j);
+    return ok && !r->views.empty();
+}
+
+/* Rows for video libraries; music opens from Biblioteker. Books and photos are not here. */
+bool video_library(const jf::Item &v)
+{
+    const std::string &t = v.collection_type;
+    return t == "movies" || t == "tvshows" || t == "homevideos" || t == "musicvideos" || t == "boxsets" ||
+           t.empty();
+}
+
+/* A "Nylig lagt til" row per video library, unless the user left it out (Jellyfin:
+ * Innstillinger -> Hjem). */
+bool has_latest(const jf::Client &c, const jf::Item &v)
+{
     const std::vector<std::string> &excluded = c.latest_excludes();
-    auto has_latest = [&](const jf::Item &v) {
-        return video(v) && v.collection_type != "boxsets" &&
-               std::find(excluded.begin(), excluded.end(), v.id) == excluded.end();
-    };
+    return video_library(v) && v.collection_type != "boxsets" &&
+           std::find(excluded.begin(), excluded.end(), v.id) == excluded.end();
+}
+
+/* The home screen from the server's answers (fresh, or saved from the last time). */
+ui::HomeModel build_home(jf::Client &c, const HomeRaw &raw, std::vector<jf::Item> hero, std::vector<jf::Item> *views_out)
+{
+    std::vector<jf::Item> resume = c.items_of(raw.resume), next = c.items_of(raw.next),
+                          mylist = c.items_of(raw.favorites), views = c.items_of(raw.views);
     bool has_music = false;
     for (const jf::Item &v : views)
         has_music = has_music || v.collection_type == "music";
@@ -479,24 +527,13 @@ void load_home(jf::Client &c, unsigned session, bool keep_hero = false)
     };
     std::vector<std::pair<std::string, std::vector<jf::Item>>> latest;
     for (const jf::Item &v : views)
-        if (has_latest(v))
-            latest.push_back({T("Nylig lagt til i ") + v.name, {}});
-    jobs.clear();
-    size_t k = 0;
-    for (const jf::Item &v : views)
-        if (has_latest(v)) {
-            auto *slot = &latest[k++].second;
-            const std::string id = v.id;
-            jobs.emplace_back([&c, slot, id] { *slot = c.latest(id, 20); });
-        }
-    for (auto &j : jobs)
-        j.join();
+        if (has_latest(c, v))
+            for (const auto &l : raw.latest)
+                if (l.first == v.id)
+                    latest.push_back({T("Nylig lagt til i ") + v.name, c.items_of(l.second)});
 
     ui::HomeModel m;
-    {
-        std::lock_guard<std::mutex> g(s_state.lock);
-        m.hero = keep_hero ? s_state.model.hero : std::move(hero);
-    }
+    m.hero = std::move(hero);
     using Row = ui::HomeRow;
     if (!resume.empty()) m.rows.push_back({T("Fortsett å se"), std::move(resume), true, Row::Resume});
     if (!next.empty()) m.rows.push_back({T("Neste episode"), std::move(next), true, Row::NextUp});
@@ -520,7 +557,7 @@ void load_home(jf::Client &c, unsigned session, bool keep_hero = false)
      * its sections in that order, the ones left out hidden; ours (Min liste,
      * recommendations, genres) after them; Biblioteker always, as it is the way
      * to what no tab covers. */
-    if (!sections.empty()) {
+    if (!raw.sections.empty()) {
         std::vector<Row> ordered;
         auto take = [&](Row::Kind kind) {
             for (auto it = m.rows.begin(); it != m.rows.end();)
@@ -531,7 +568,7 @@ void load_home(jf::Client &c, unsigned session, bool keep_hero = false)
                     ++it;
                 }
         };
-        for (const std::string &sec : sections) {
+        for (const std::string &sec : raw.sections) {
             if (sec == "resume") take(Row::Resume);
             else if (sec == "nextup") take(Row::NextUp);
             else if (sec == "latestmedia") take(Row::Latest);
@@ -546,6 +583,93 @@ void load_home(jf::Client &c, unsigned session, bool keep_hero = false)
             ordered.push_back(std::move(r));
         m.rows = std::move(ordered);
     }
+    if (views_out)
+        *views_out = std::move(views);
+    return m;
+}
+
+/* At start: the home screen as it was the last time, at once (signed in, before the
+ * server is asked); load_home then replaces it in place. */
+bool show_saved_home(jf::Client &c, unsigned session)
+{
+    HomeRaw raw;
+    if (!read_home(c, &raw))
+        return false;
+    std::vector<jf::Item> views;
+    ui::HomeModel m = build_home(c, raw, c.featured_from(read_file(hero_file(c)), 6), &views);
+    std::lock_guard<std::mutex> g(s_state.lock);
+    if (session != s_session || s_state.phase == Phase::Home)
+        return false;
+    s_state.model = std::move(m);
+    s_state.views = std::move(views);
+    s_model_version++;
+    s_state.phase = Phase::Home;
+    s_state.message.clear();
+    startup_mark("home (saved)");
+    return true;
+}
+
+void load_home(jf::Client &c, unsigned session, bool keep_hero = false)
+{
+    {
+        std::lock_guard<std::mutex> g(s_state.lock);
+        if (session != s_session)
+            return;
+        if (s_state.phase != Phase::Home) {
+            s_state.phase = Phase::Loading;
+            s_state.message = T("Henter biblioteket \xE2\x80\xA6");
+        }
+    }
+    std::vector<jf::Item> hero;
+    std::vector<std::function<void()>> jobs;   /* (side by side: jelly5::run_all) */
+    if (!keep_hero) {
+        hero = c.featured_from(read_file(hero_file(c)), 6);
+        if (hero.empty())
+            jobs.emplace_back([&] { refresh_hero_cache(c, &hero); });
+        else   /* the next launch's pick (the client outlives every request) */
+            std::thread([&c] { refresh_hero_cache(c, nullptr); }).detach();
+    }
+    /* One round: the libraries' "Nylig lagt til" are asked alongside the rest, for
+     * the libraries of the last time (they rarely change); a new one is asked after. */
+    HomeRaw raw, saved;
+    std::vector<std::string> ids;
+    if (read_home(c, &saved))
+        for (const jf::Item &v : c.items_of(saved.views))
+            if (has_latest(c, v))
+                ids.push_back(v.id);
+    raw.latest.resize(ids.size());
+    jobs.emplace_back([&] { c.resume(20, std::string(), &raw.resume); });
+    jobs.emplace_back([&] { c.next_up(20, std::string(), &raw.next); });
+    jobs.emplace_back([&] { c.views(&raw.views); });
+    jobs.emplace_back([&] { c.favorites(30, &raw.favorites); });
+    jobs.emplace_back([&] { raw.sections = c.home_sections(); });
+    for (size_t i = 0; i < ids.size(); i++) {
+        raw.latest[i].first = ids[i];
+        auto *slot = &raw.latest[i].second;
+        const std::string id = ids[i];
+        jobs.emplace_back([&c, slot, id] { c.latest(id, 20, slot); });
+    }
+    jelly5::run_all(jobs);
+    jobs.clear();
+    for (const jf::Item &v : c.items_of(raw.views))
+        if (has_latest(c, v) && std::find(ids.begin(), ids.end(), v.id) == ids.end())
+            raw.latest.push_back({v.id, std::string()});
+    for (auto &l : raw.latest)
+        if (std::find(ids.begin(), ids.end(), l.first) == ids.end()) {
+            auto *slot = &l.second;
+            const std::string id = l.first;
+            jobs.emplace_back([&c, slot, id] { c.latest(id, 20, slot); });
+        }
+    jelly5::run_all(jobs);
+
+    if (keep_hero) {
+        std::lock_guard<std::mutex> g(s_state.lock);
+        hero = s_state.model.hero;
+    }
+    std::vector<jf::Item> views;
+    ui::HomeModel m = build_home(c, raw, std::move(hero), &views);
+    if (!raw.views.empty())   /* (the server answered: the next start shows this) */
+        save_home(c, raw);
     std::lock_guard<std::mutex> g(s_state.lock);
     if (session != s_session)
         return;   /* the account changed while this loaded */
@@ -1000,6 +1124,7 @@ void use_account(jf::Client &c, unsigned session, accounts::Account a)
             startup_mark("signed in");
             evo_bt("jelly5: signed in as %s on %s %s (%s)", c.user_name().c_str(), name.c_str(), version.c_str(),
                    jf::kind_key(c.kind()));
+            show_saved_home(c, session);   /* the last home screen at once; fresh rows replace it */
             load_home(c, session);
             if (session == s_session)
                 seerr_service::attach(&c);   /* Seerr, when this account has it on */

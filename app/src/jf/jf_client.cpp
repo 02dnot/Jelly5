@@ -534,7 +534,7 @@ std::vector<Item> Client::items_of(const std::string &body)
     return out;
 }
 
-std::vector<Item> Client::resume(int limit, const std::string &parent_id)
+std::vector<Item> Client::resume(int limit, const std::string &parent_id, std::string *raw)
 {
     std::string body;
     if (!get_json((emby() ? "/Users/" + user_id_ + "/Items/Resume?UserId=" : "/UserItems/Resume?userId=") +
@@ -542,10 +542,12 @@ std::vector<Item> Client::resume(int limit, const std::string &parent_id)
                       "&mediaTypes=Video&enableTotalRecordCount=false&fields=" + kFields +
                       (parent_id.empty() ? std::string() : "&parentId=" + parent_id), &body))
         return {};
+    if (raw)
+        *raw = body;
     return items_of(body);
 }
 
-std::vector<Item> Client::next_up(int limit, const std::string &series_id)
+std::vector<Item> Client::next_up(int limit, const std::string &series_id, std::string *raw)
 {
     std::string body;
     std::string path = "/Shows/NextUp?userId=" + user_id_ + "&limit=" + std::to_string(limit) +
@@ -554,16 +556,20 @@ std::vector<Item> Client::next_up(int limit, const std::string &series_id)
         path += "&seriesId=" + series_id;
     if (!get_json(path, &body))
         return {};
+    if (raw)
+        *raw = body;
     return items_of(body);
 }
 
-std::vector<Item> Client::views()
+std::vector<Item> Client::views(std::string *raw)
 {
     std::string body;
     /* Emby: without channels and Live TV, which are views there too (Jelly5 shows neither). */
     if (!get_json(emby() ? "/Users/" + user_id_ + "/Views?IncludeExternalContent=false" : "/UserViews?userId=" + user_id_,
                   &body))
         return {};
+    if (raw)
+        *raw = body;
     return items_of(body);
 }
 
@@ -590,13 +596,15 @@ std::vector<Item> Client::featured_from(const std::string &body, int limit)
     return out;
 }
 
-std::vector<Item> Client::latest(const std::string &parent_id, int limit)
+std::vector<Item> Client::latest(const std::string &parent_id, int limit, std::string *raw)
 {
     std::string body;
     if (!get_json((emby() ? "/Users/" + user_id_ + "/Items/Latest?UserId=" : "/Items/Latest?userId=") + user_id_ +
                       "&parentId=" + parent_id + "&limit=" +
                       std::to_string(limit) + "&fields=" + kFields, &body))
         return {};
+    if (raw)
+        *raw = body;
     return items_of(body);
 }
 
@@ -1023,13 +1031,15 @@ bool Client::clear_position(const std::string &id)
                      "{\"PlaybackPositionTicks\":0}", nullptr);
 }
 
-std::vector<Item> Client::favorites(int limit)
+std::vector<Item> Client::favorites(int limit, std::string *raw)
 {
     std::string body;
     if (!get_json("/Items?userId=" + user_id_ + "&Filters=IsFavorite&IncludeItemTypes=Movie,Series,BoxSet"
                   "&Recursive=true&SortBy=DateCreated,SortName&SortOrder=Descending&EnableTotalRecordCount=false"
                   "&Limit=" + std::to_string(limit) + "&fields=" + kFields, &body))
         return {};
+    if (raw)
+        *raw = body;
     return items_of(body);
 }
 
