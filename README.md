@@ -47,6 +47,7 @@ it).
 - Trickplay thumbnails, a chapter menu, *Skip intro* from Jellyfin's media segments, auto-play of the next episode
 - Choice between versions when a title has several
 - Playback speed from 0.75× to 2×, the pitch kept
+- **HDMI bitstream** (optional): Dolby Digital, Dolby Digital Plus (with Atmos) and DTS go to your TV or receiver untouched, when it supports them
 - An audio delay setting for soundbars and receivers, and a night mode that evens out loud and quiet with the dialogue lifted
 - Playback info on L3: how the server serves it, codecs, decoder, bitrate and buffer
 - Keeps going through network hiccups: a stream that breaks off resumes where it stopped
@@ -78,7 +79,7 @@ it).
 | --- | --- | --- |
 | Video | H.264, HEVC (Main, Main 10), VP9 and older formats | AV1 is transcoded by the server |
 | HDR | HDR10, HLG, HDR10+ (as HDR10), Dolby Vision (its HDR10 base layer) | Dolby Vision profile 5 is transcoded |
-| Audio | AAC, AC3, E-AC3, TrueHD, DTS (incl. DTS-HD MA), FLAC, Opus, MP3 and more | Decoded to multichannel PCM |
+| Audio | AAC, AC3, E-AC3, TrueHD, DTS (incl. DTS-HD MA), FLAC, Opus, MP3 and more | Decoded to multichannel PCM; with *HDMI bitstream* on, Dolby Digital, Dolby Digital Plus and DTS go to the TV/receiver as they are (TrueHD and DTS-HD MA stay lossless PCM) |
 | Subtitles | SRT, ASS/SSA, PGS, DVD and DVB subtitles, WebVTT | Embedded or external |
 | Containers | MKV, MP4, TS/M2TS, AVI and more | Blu-ray folders and ISO files are not supported |
 | 3D | — | Side-by-side and top-and-bottom files are refused; 3D Blu-ray (MVC) plays in 2D |
