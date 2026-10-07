@@ -34,6 +34,8 @@ struct Entry {
     gfx::Texture *tex = nullptr;
     double ready_at = 0;
     double first_drawn = 0;       /* when it was first asked for to draw (not a prefetch) */
+    double prefetched_at = -100;  /* the last prefetch (not repeated while recent) */
+    bool ahead = false;           /* its request was a prefetch: promoted when drawn */
     uint64_t used = 0;
     size_t bytes = 0;
     bool failed = false;
@@ -150,10 +152,17 @@ void prefetch(const std::string &url, int max_w, int max_h)
     e.used = s_tick;
     if (e.tex || e.failed || (e.handle >= 0 && ui_image_alive(e.handle)))
         return;
+    const double now = now_s();
+    if (now - e.prefetched_at < 5.0)
+        return;   /* asked lately (and evicted or refused since): not again every frame */
+    e.prefetched_at = now;
     e.max_w = max_w;
     e.max_h = max_h;
     e.handle = ui_image_prefetch(url.c_str(), max_w, max_h);   /* after what is on screen */
+    e.ahead = e.handle >= 0;
 }
+
+double now() { return now_s(); }
 
 const gfx::Texture *get(const std::string &url, int max_w, int max_h)
 {
@@ -167,8 +176,10 @@ const gfx::Texture *get(const std::string &url, int max_w, int max_h)
         e.first_drawn = now_s();
     e.max_w = max_w;
     e.max_h = max_h;
-    if (e.handle < 0 || !ui_image_alive(e.handle))
-        e.handle = ui_image_request(url.c_str(), max_w, max_h, 0);
+    if (e.handle < 0 || !ui_image_alive(e.handle) || e.ahead) {
+        e.handle = ui_image_request(url.c_str(), max_w, max_h, 0);   /* (a prefetched one moves to the front) */
+        e.ahead = false;
+    }
     int failed = 0;
     const ui_image *img = ui_image_get(e.handle, &failed);
     if (img && s_uploads < kUploadsPerFrame) {

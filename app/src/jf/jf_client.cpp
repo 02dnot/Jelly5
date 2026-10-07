@@ -630,6 +630,7 @@ Page Client::library(const std::string &parent_id, const std::string &types, con
                       "&StartIndex=" + std::to_string(start) + "&Limit=" + std::to_string(limit) +
                       "&fields=" + kFields + "&EnableTotalRecordCount=true" + filter, &body))
         return page;
+    page.ok = true;
     page.items = items_of(body);
     if (cJSON *j = cJSON_Parse(body.c_str())) {
         page.total = (int)num_of(j, "TotalRecordCount", (double)page.items.size());
@@ -932,6 +933,7 @@ Page Client::album_artists(const std::string &parent_id, const std::string &sort
                       std::to_string(start) + "&Limit=" + std::to_string(limit) + "&fields=" + kFields +
                       "&EnableTotalRecordCount=true", &body))
         return page;
+    page.ok = true;
     page.items = items_of(body);
     if (cJSON *j = cJSON_Parse(body.c_str())) {
         page.total = (int)num_of(j, "TotalRecordCount", (double)page.items.size());

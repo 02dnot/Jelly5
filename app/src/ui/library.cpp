@@ -149,7 +149,11 @@ void Library::preload()
         have = m_data->items.size();
     }
     if (need) {
-        load_more();
+        const double now = art::now();
+        if (now - m_preload_at > 10.0) {   /* a failed first page: again after a while, not every frame */
+            m_preload_at = now;
+            load_more();
+        }
         return;
     }
     if (m_warmed || have == 0 || square())
@@ -203,6 +207,11 @@ void Library::load_more()
         std::lock_guard<std::mutex> g(d->lock);
         if (gen != d->generation)
             return;   /* the sort changed meanwhile */
+        if (!page.ok && start == 0) {   /* failed (not empty): asked again when wanted */
+            d->total = -1;
+            d->loading = false;
+            return;
+        }
         d->items.insert(d->items.end(), page.items.begin(), page.items.end());
         d->total = page.items.empty() && start == 0 ? 0 : std::max(page.total, (int)d->items.size());
         d->loading = false;

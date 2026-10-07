@@ -23,6 +23,8 @@ const gfx::Texture *get(const std::string &url, int max_w, int max_h);
 /* Starts fetching url ahead of its first draw (a tab not opened yet): get() at
  * the same size then finds it ready. No texture is made until it is drawn. */
 void prefetch(const std::string &url, int max_w, int max_h);
+/* Monotonic seconds (the clock the cache uses). */
+double now();
 /* The picture at url could not be had (missing on the server, broken). */
 bool failed(const std::string &url);
 

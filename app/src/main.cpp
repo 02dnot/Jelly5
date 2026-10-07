@@ -54,6 +54,7 @@
 #include "evo_vdec.h"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cmath>
 #include <cstdarg>
@@ -104,6 +105,8 @@ extern "C" uint64_t sceKernelGetProcessTime(void);
 #ifdef JELLY5_LOG_HOST
 static void startup_mark(const char *what)
 {
+    static std::mutex lock;   /* marked from the sign-in, home and main threads */
+    std::lock_guard<std::mutex> g(lock);
     static const char *seen[8];
     for (const char *&s : seen) {
         if (s == what)
@@ -438,6 +441,19 @@ struct HomeRaw {
 
 std::string home_file(const jf::Client &c) { return "/download0/jelly5/home-" + c.user_id() + ".json"; }
 
+/* The fresh rows are in (not only the saved ones): the tabs may load behind them. */
+std::atomic<bool> s_home_fresh{false};
+std::array<bool, 3> s_tabs_shown{};   /* Filmer, Serier, Musikk on the top bar (apply_views) */
+/* Saves one at a time, and only the newest load's answers (loads overlap: a
+ * favourite toggled twice, a return from playback). */
+std::mutex s_home_save_lock;
+std::atomic<unsigned> s_home_load_seq{0};
+/* The saved screen as show_saved_home read it, for load_home right after (one read
+ * of the file at start, not two). Taken once; for that user only. */
+std::mutex s_home_read_lock;
+HomeRaw s_home_read;
+std::string s_home_read_for;
+
 void save_home(const jf::Client &c, const HomeRaw &r)
 {
     cJSON *j = cJSON_CreateObject();
@@ -595,6 +611,12 @@ bool show_saved_home(jf::Client &c, unsigned session)
     HomeRaw raw;
     if (!read_home(c, &raw))
         return false;
+    {
+        std::lock_guard<std::mutex> g(s_home_read_lock);
+        s_home_read = raw;
+        s_home_read_for = c.user_id();
+    }
+    s_home_fresh = false;
     std::vector<jf::Item> views;
     ui::HomeModel m = build_home(c, raw, c.featured_from(read_file(hero_file(c)), 6), &views);
     std::lock_guard<std::mutex> g(s_state.lock);
@@ -629,11 +651,24 @@ void load_home(jf::Client &c, unsigned session, bool keep_hero = false)
         else   /* the next launch's pick (the client outlives every request) */
             std::thread([&c] { refresh_hero_cache(c, nullptr); }).detach();
     }
+    const unsigned seq = ++s_home_load_seq;
     /* One round: the libraries' "Nylig lagt til" are asked alongside the rest, for
      * the libraries of the last time (they rarely change); a new one is asked after. */
     HomeRaw raw, saved;
     std::vector<std::string> ids;
-    if (read_home(c, &saved))
+    bool have_saved = false;
+    {
+        std::lock_guard<std::mutex> g(s_home_read_lock);
+        if (s_home_read_for == c.user_id() && !s_home_read.views.empty()) {
+            saved = std::move(s_home_read);
+            have_saved = true;
+        }
+        s_home_read = HomeRaw();
+        s_home_read_for.clear();
+    }
+    if (!have_saved)
+        have_saved = read_home(c, &saved);
+    if (have_saved)
         for (const jf::Item &v : c.items_of(saved.views))
             if (has_latest(c, v))
                 ids.push_back(v.id);
@@ -666,10 +701,32 @@ void load_home(jf::Client &c, unsigned session, bool keep_hero = false)
         std::lock_guard<std::mutex> g(s_state.lock);
         hero = s_state.model.hero;
     }
+    /* A request that failed (no answer at all; an empty row is an answer) keeps what
+     * the saved screen had: a slow moment must not empty a row, now or next start. */
+    bool fresh = false;
+    auto keep = [&](std::string &got, const std::string &had) {
+        if (!got.empty())
+            fresh = true;
+        else if (have_saved)
+            got = had;
+    };
+    keep(raw.resume, saved.resume);
+    keep(raw.next, saved.next);
+    keep(raw.favorites, saved.favorites);
+    keep(raw.views, saved.views);
+    for (auto &l : raw.latest)
+        for (const auto &s : saved.latest)
+            if (l.first == s.first)
+                keep(l.second, s.second);
+    if (!fresh && !have_saved)
+        evo_bt("jelly5: the home rows did not load");
     std::vector<jf::Item> views;
     ui::HomeModel m = build_home(c, raw, std::move(hero), &views);
-    if (!raw.views.empty())   /* (the server answered: the next start shows this) */
-        save_home(c, raw);
+    if (fresh) {   /* (the server answered: the next start shows this) */
+        std::lock_guard<std::mutex> g(s_home_save_lock);
+        if (seq == s_home_load_seq)
+            save_home(c, raw);
+    }
     std::lock_guard<std::mutex> g(s_state.lock);
     if (session != s_session)
         return;   /* the account changed while this loaded */
@@ -677,6 +734,7 @@ void load_home(jf::Client &c, unsigned session, bool keep_hero = false)
     s_state.views = std::move(views);
     s_model_version++;
     s_state.phase = Phase::Home;
+    s_home_fresh = fresh || !have_saved;
     startup_mark("home rows");
     s_state.message.clear();
 }
@@ -1251,8 +1309,20 @@ bool s_group_play = false;              /* this Play came from the SyncPlay grou
  * thread; s_theme_gen tells a starting theme whether it is still wanted. */
 std::atomic<bool> s_theme_on{false};
 std::atomic<unsigned> s_theme_gen{0};
-std::atomic<unsigned> s_theme_playing_gen{0};   /* the gen the playing theme was started for */
 std::string s_theme_for;   /* the page whose theme is wanted (main thread) */
+
+/* Stops left in the queue after a theme has ended (sent for it as it finished on
+ * its own, or as it never started) - the next film or song would take them. The
+ * first other command goes back where it was. */
+void drop_stale_stops()
+{
+    remote::Command c;
+    while (remote::take(&c))
+        if (c.kind != remote::Command::Stop) {
+            remote::put_back(c);
+            break;
+        }
+}
 
 void stop_theme(bool wait)
 {
@@ -1277,15 +1347,6 @@ void theme_follow()
             if (t == "Movie" || t == "Series" || t == "Season" || t == "Episode")
                 want = d->item().id;
         }
-    /* A theme that started after its page had closed (a stop sent while the player
-     * was still opening is lost): stopped again until it is quiet. */
-    static double s_restop_at = 0;
-    if (s_theme_on && s_theme_playing_gen != s_theme_gen && now_s() > s_restop_at) {
-        s_restop_at = now_s() + 0.5;
-        remote::Command c;
-        c.kind = remote::Command::Stop;
-        remote::send(c);
-    }
     if (want == s_theme_for)
         return;
     stop_theme(false);
@@ -1303,11 +1364,16 @@ void theme_follow()
         const std::vector<jf::Item> songs = c->theme_songs(want);
         if (songs.empty() || gen != s_theme_gen || s_music_on)
             return;
-        s_theme_playing_gen = gen;
         s_theme_on = true;
-        nuvio_player_set_headless(1);
-        jelly5_play_theme(*c, songs.front());
-        nuvio_player_set_headless(0);
+        /* Checked again now that it says it plays: a page closed in between either
+         * sees s_theme_on and sends its Stop (taken by this player), or bumped the
+         * gen before, which is caught here. */
+        if (gen == s_theme_gen) {
+            nuvio_player_set_headless(1);
+            jelly5_play_theme(*c, songs.front());
+            nuvio_player_set_headless(0);
+        }
+        drop_stale_stops();   /* a Stop meant for this theme must not reach the next player */
         s_theme_on = false;
     }).detach();
 }
@@ -1690,6 +1756,7 @@ void apply_views(const std::vector<jf::Item> &views)
     if (!movies.empty()) { tabs.push_back(ui::Nav::Movies); s_movies->set_sources(movies); }
     if (!shows.empty()) { tabs.push_back(ui::Nav::Shows); s_shows->set_sources(shows); }
     if (!music.empty()) { tabs.push_back(ui::Nav::Music); s_music->set_sources(music); }
+    s_tabs_shown = {!movies.empty(), !shows.empty(), !music.empty()};
     if (seerr_service::available())
         tabs.push_back(ui::Nav::Discover);
     tabs.push_back(ui::Nav::Search);
@@ -1763,17 +1830,19 @@ bool draw_frame(double t, float dt)
         message = s_state.message;
         /* The tabs fill in behind the home screen: two seconds after it is up, each
          * one's first page and first posters, so opening a tab shows a full grid. */
-        {
-            static unsigned s_home_at_version = 0;
+        {   /* (after the fresh rows, not the saved ones: it must not slow those down) */
+            static bool s_fresh_seen = false;
             static double s_home_since = 0;
-            if (phase != Phase::Home)
-                s_home_at_version = 0;
-            else if (!s_home_at_version)
-                s_home_at_version = 1, s_home_since = now_s();
+            if (phase != Phase::Home || !s_home_fresh)
+                s_fresh_seen = false;
+            else if (!s_fresh_seen)
+                s_fresh_seen = true, s_home_since = now_s();
             else if (now_s() - s_home_since > 2.0 && s_stack.empty())
-                for (ui::Library *lib : {s_movies.get(), s_shows.get(), s_music.get()})
-                    if (lib)
+                for (int i = 0; i < 3; i++) {   /* the tabs the account has (none: nothing to load) */
+                    ui::Library *lib = i == 0 ? s_movies.get() : i == 1 ? s_shows.get() : s_music.get();
+                    if (lib && s_tabs_shown[i])
                         lib->preload();
+                }
         }
         if (phase == Phase::Home && s_model_version != s_home_version) {
             s_home_version = s_model_version;
@@ -2018,8 +2087,16 @@ void play(jf::Item item, bool from_start, bool shuffle = false, const std::vecto
     stop_theme(true);   /* the page's theme song makes way */
     if (queue && !queue->empty())
         item = (*queue)[std::min(start, queue->size() - 1)];
-    if (from_start)
+    if (from_start) {
         item.position_ticks = 0;
+    } else if (item.type == "Movie" || item.type == "Episode") {
+        /* Where the server has it now: a card can be older than that (the saved home
+         * screen, a page left open, another device watched on), and playing from its
+         * position would also report that old position back. */
+        jf::Item fresh;
+        if (s_client->item(item.id, &fresh))
+            item.position_ticks = fresh.position_ticks;
+    }
     /* Side-by-side and top-and-bottom 3D: the PS5 has no 3D output, and the two
      * squeezed pictures are no way to watch. MVC (3D Blu-ray) plays its 2D view. */
     if (item.video3d.find("SideBySide") != std::string::npos || item.video3d.find("TopAndBottom") != std::string::npos) {
@@ -2282,7 +2359,9 @@ int main()
                 refresh_discover(0, true);
             }
         }
-        if (!chose && !s_music_on && phase == Phase::Home && s_home_version == s_model_version) {
+        /* (Not while a theme plays: its headless player takes the commands - a Stop
+         * taken here was lost, and the theme played on everywhere.) */
+        if (!chose && !s_music_on && !s_theme_on && phase == Phase::Home && s_home_version == s_model_version) {
             remote::Command rc;
             if (remote::take(&rc)) {
                 remote_idle(rc);

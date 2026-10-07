@@ -153,6 +153,7 @@ struct PublicUser {
 struct Page {
     std::vector<Item> items;
     int total = 0;
+    bool ok = false;   /* the server answered (an empty library is ok, a failed request is not) */
 };
 
 /* A subtitle Jellyfin's subtitle plugins found for a title. */

@@ -102,6 +102,7 @@ private:
     ItemMenu m_menu;
     std::shared_ptr<Data> m_data = std::make_shared<Data>();
     bool m_warmed = false;              /* the first screen of posters asked for ahead */
+    double m_preload_at = -100;         /* the last first-page request preload made */
 
     int m_sort = 0;
     bool m_in_pills = false;
