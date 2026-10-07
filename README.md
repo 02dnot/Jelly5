@@ -181,13 +181,20 @@ screens work on both. What differs on Emby:
   with Emby Premiere; without it there is nothing to skip.
 - **Trickplay** uses Emby's thumbnails: turn on *Thumbnail image extraction* in
   the library's settings.
-- **Transcoding** on an Emby server without Premiere is software only, and
-  there is no HDR tone mapping. Dolby Vision profile 5, which the PS5 cannot
-  play directly, is then transcoded without it.
+- **Transcoding** on an Emby server without Premiere is software only (heavy
+  for 4K on a small server), and there is no HDR tone mapping. Dolby Vision
+  profile 5, which the PS5 cannot play directly, is then transcoded without it,
+  and its colours may be off.
+- **Emby Premiere's device limit:** on a server with Premiere, Jelly5 counts as
+  a device, one per PS5 user who uses it.
+- **Seerr** signs in with your Emby password (Seerr has Quick Connect for
+  Jellyfin only) and keeps the session for 30 days; when it runs out, the PS5
+  shows a note, and you type the password again under *Settings* → *Seerr*.
 - **Artwork** loads on a pane of glass: Emby has no BlurHash placeholders.
 
 Jelly5 itself needs no Emby Premiere or app unlock. It was tested with Emby
-Server 4.10 without Premiere.
+Server 4.10 without Premiere. Versions before 0.4.0 do not know Emby: an Emby
+account opened in one of them does not connect, and works again after updating.
 
 ### Update
 
@@ -219,6 +226,7 @@ sees it); nothing else on the console is touched.
 | The receiver shows PCM, not Dolby Atmos | Expected: the PS5 gives apps no bitstream passthrough (see *Known limits*). |
 | Seerr: "Not answering" | The address must be one the console reaches on your network (Seerr's local address, port 5055 by default). Check it with *Test connection*. |
 | Seerr: "Automatic sign-in failed" | Seerr is older than 3.4, Quick Connect is off in Jellyfin, or your Jellyfin user is not in Seerr. Choose *Jellyfin password* under *Sign-in*, or import the user in Seerr. |
+| Emby: no *Skip intro* | Emby detects intros and credits only with Emby Premiere. |
 | Seerr: no pictures | Seerr fetches them from TMDB: the Seerr server itself needs Internet. |
 
 ## Controls
