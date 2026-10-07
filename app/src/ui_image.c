@@ -454,6 +454,23 @@ static void cache_init(void)
 
 static uint8_t *fetch_network(const char *url, size_t *len);
 
+static int s_from_disk, s_from_net;
+static long long s_net_us;
+
+static long long mono_us(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (long long)ts.tv_sec * 1000000 + ts.tv_nsec / 1000;
+}
+
+void ui_image_fetch_stats(int *disk, int *net, double *net_ms)
+{
+    *disk = __atomic_load_n(&s_from_disk, __ATOMIC_RELAXED);
+    *net = __atomic_load_n(&s_from_net, __ATOMIC_RELAXED);
+    *net_ms = __atomic_load_n(&s_net_us, __ATOMIC_RELAXED) / 1000.0;
+}
+
 static uint8_t *fetch(const char *url, size_t *len)
 {
     *len = 0;
@@ -461,10 +478,15 @@ static uint8_t *fetch(const char *url, size_t *len)
     if (keep) {
         cache_init();
         uint8_t *hit = cache_read(url, len);
-        if (hit)
+        if (hit) {
+            __atomic_fetch_add(&s_from_disk, 1, __ATOMIC_RELAXED);
             return hit;
+        }
     }
+    const long long t0 = mono_us();
     uint8_t *data = fetch_network(url, len);
+    __atomic_fetch_add(&s_from_net, 1, __ATOMIC_RELAXED);
+    __atomic_fetch_add(&s_net_us, mono_us() - t0, __ATOMIC_RELAXED);
     if (data && keep)
         cache_write(url, data, *len);
     return data;

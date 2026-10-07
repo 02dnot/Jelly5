@@ -32,6 +32,10 @@ int ui_image_alive(int handle);
 /* Bumped whenever an image finishes, so the overlay knows to redraw. */
 unsigned ui_image_generation(void);
 
+/* Jelly5: how many pictures came from the disk cache and how many from the
+ * network since start, and the network fetches' total time (ms). */
+void ui_image_fetch_stats(int *disk, int *net, double *net_ms);
+
 /* Decodes an in-memory PNG/JPEG/WebP/SVG into a premultiplied image. */
 int ui_image_decode(const uint8_t *data, size_t size, int max_w, int max_h, ui_image *out);
 

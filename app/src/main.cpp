@@ -97,6 +97,32 @@ extern int g_ps5_user_id;
 #define JELLY5_VERSION "0.0.1"
 #endif
 
+/* Development builds: the start-up timeline, in seconds since the process began
+ * (the system's own clock, so the time before main counts too), with where the
+ * pictures came from. Each mark once per start. */
+extern "C" uint64_t sceKernelGetProcessTime(void);
+#ifdef JELLY5_LOG_HOST
+static void startup_mark(const char *what)
+{
+    static const char *seen[8];
+    for (const char *&s : seen) {
+        if (s == what)
+            return;
+        if (!s) {
+            s = what;
+            int disk = 0, net = 0;
+            double net_ms = 0;
+            ui_image_fetch_stats(&disk, &net, &net_ms);
+            evo_bt("startup: %-14s %6.2f s   (pictures: %d from disk, %d from the network in %.0f ms)", what,
+                   sceKernelGetProcessTime() / 1e6, disk, net, net_ms);
+            return;
+        }
+    }
+}
+#else
+static void startup_mark(const char *) {}
+#endif
+
 namespace evo {
 extern int DisplayWidth;
 extern int DisplayHeight;
@@ -527,6 +553,7 @@ void load_home(jf::Client &c, unsigned session, bool keep_hero = false)
     s_state.views = std::move(views);
     s_model_version++;
     s_state.phase = Phase::Home;
+    startup_mark("home rows");
     s_state.message.clear();
 }
 
@@ -970,6 +997,7 @@ void use_account(jf::Client &c, unsigned session, accounts::Account a)
                 s_state.server_name = name;
                 s_state.server_version = version;
             }
+            startup_mark("signed in");
             evo_bt("jelly5: signed in as %s on %s %s (%s)", c.user_name().c_str(), name.c_str(), version.c_str(),
                    jf::kind_key(c.kind()));
             load_home(c, session);
@@ -1742,6 +1770,10 @@ bool draw_frame(double t, float dt)
         break;
     }
     gfx::end_frame();
+    startup_mark("first frame");
+    /* The first screen complete: home up, the splash gone, no picture still on its way. */
+    if (phase == Phase::Home && s_splash.value <= 0.f && !art::animating())
+        startup_mark("home complete");
     return animating;
 }
 
@@ -1974,6 +2006,7 @@ int main()
 {
     install_crash_handler();
     evo_bt("jelly5: app start " JELLY5_VERSION);
+    startup_mark("main");
     for (int i = 0; i < nuvio_import_count(); i++)
         if (const char *name = nuvio_import_null(i))
             evo_bt("jelly5: import %s is NULL on this console", name);
