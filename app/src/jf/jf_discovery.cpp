@@ -45,8 +45,12 @@ std::vector<FoundServer> discover(int timeout_ms)
     to.sin_family = AF_INET;
     to.sin_port = htons(7359);
     to.sin_addr.s_addr = htonl(INADDR_BROADCAST);
-    static const char kAsk[] = "who is JellyfinServer?";
-    if (sendto(fd, kAsk, sizeof kAsk - 1, 0, (const struct sockaddr *)&to, sizeof to) < 0) {
+    /* Jellyfin and Emby answer only their own question, with the same reply. */
+    static const char *const kAsk[] = {"who is JellyfinServer?", "who is EmbyServer?"};
+    int sent = 0;
+    for (const char *ask : kAsk)
+        sent += sendto(fd, ask, strlen(ask), 0, (const struct sockaddr *)&to, sizeof to) >= 0;
+    if (!sent) {
         close(fd);
         return out;
     }

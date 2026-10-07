@@ -209,6 +209,43 @@ MediaStream stream_of(const cJSON *s, const std::string &server)
 
 } // namespace
 
+const char *kind_key(Kind k) { return k == Kind::Emby ? "emby" : "jellyfin"; }
+
+Kind kind_of_key(const std::string &key) { return key == "emby" ? Kind::Emby : Kind::Jellyfin; }
+
+Kind kind_of_info(const std::string &product_name, const std::string &version)
+{
+    std::string p = product_name;
+    for (char &c : p)
+        c = (char)std::tolower((unsigned char)c);
+    if (p.find("jellyfin") != std::string::npos)
+        return Kind::Jellyfin;
+    if (p.find("emby") != std::string::npos)
+        return Kind::Emby;
+    /* No product name: Emby's versions are 4.x.y.z, Jellyfin's 10.x and up. */
+    const int major = std::atoi(version.c_str());
+    return !version.empty() && major > 0 && major < 10 ? Kind::Emby : Kind::Jellyfin;
+}
+
+Features Client::features() const
+{
+    Features f;
+    if (emby()) {
+        f.quick_connect = f.syncplay = f.lyrics = f.trickplay = f.media_segments = false;
+        f.remote_control = false;   /* Emby's websocket is /embywebsocket: not yet */
+        f.home_sections = false;
+    }
+    return f;
+}
+
+std::string Client::me_path() const { return emby() ? "/Users/" + user_id_ : std::string("/Users/Me"); }
+
+std::string Client::user_item_path(const std::string &id) const
+{
+    return emby() ? "/Users/" + user_id_ + "/Items/" + id + "?UserId=" + user_id_
+                  : "/Items/" + id + "?userId=" + user_id_;
+}
+
 Client::Client(std::string server, std::string device_id, std::string device_name)
     : server_(std::move(server)), device_id_(std::move(device_id)), device_name_(std::move(device_name))
 {
@@ -269,7 +306,7 @@ bool Client::post_json(const std::string &path, const std::string &json, std::st
     return true;
 }
 
-bool Client::public_info(std::string *name, std::string *version, std::string *id)
+bool Client::public_info(std::string *name, std::string *version, std::string *id, Kind *kind)
 {
     std::string body;
     if (!get_json("/System/Info/Public", &body))
@@ -283,6 +320,8 @@ bool Client::public_info(std::string *name, std::string *version, std::string *i
         *version = str_of(j, "Version");
     if (id)
         *id = str_of(j, "Id");
+    if (kind)
+        *kind = kind_of_info(str_of(j, "ProductName"), str_of(j, "Version"));
     cJSON_Delete(j);
     return true;
 }
@@ -318,6 +357,10 @@ bool Client::authenticate(const std::string &user, const std::string &password)
 
 bool Client::quick_connect_start(QuickConnect *out)
 {
+    if (emby()) {
+        set_error("Quick Connect: not on Emby");
+        return false;
+    }
     std::string body;
     if (!post_json("/QuickConnect/Initiate", "", &body))
         return false;
@@ -352,6 +395,10 @@ bool Client::quick_connect_poll(const QuickConnect &qc, bool *approved)
 
 bool Client::quick_connect_authorize(const std::string &code)
 {
+    if (emby()) {
+        set_error("Quick Connect: not on Emby");
+        return false;
+    }
     std::string body;
     if (!post_json("/QuickConnect/Authorize?code=" + url_escape(code), "", &body))
         return false;
@@ -365,7 +412,7 @@ bool Client::quick_connect_authorize(const std::string &code)
 bool Client::validate()
 {
     std::string body;
-    if (!get_json("/Users/Me", &body))
+    if (!get_json(me_path(), &body))
         return false;
     if (cJSON *j = cJSON_Parse(body.c_str())) {
         user_image_tag_ = str_of(j, "PrimaryImageTag");
@@ -407,7 +454,7 @@ std::vector<PublicUser> Client::public_users()
 bool Client::get_prefs(UserPrefs *out)
 {
     std::string body;
-    if (!get_json("/Users/Me", &body))
+    if (!get_json(me_path(), &body))
         return false;
     cJSON *j = cJSON_Parse(body.c_str());
     const cJSON *cfg = cJSON_GetObjectItemCaseSensitive(j, "Configuration");
@@ -425,7 +472,7 @@ bool Client::set_prefs(const UserPrefs &p)
 {
     /* The server takes the whole configuration: read it, change ours, send it back. */
     std::string body;
-    if (!get_json("/Users/Me", &body))
+    if (!get_json(me_path(), &body))
         return false;
     cJSON *j = cJSON_Parse(body.c_str());
     cJSON *cfg = cJSON_DetachItemFromObjectCaseSensitive(j, "Configuration");
@@ -439,7 +486,9 @@ bool Client::set_prefs(const UserPrefs &p)
     put("EnableNextEpisodeAutoPlay", cJSON_CreateBool(p.autoplay_next));
     char *text = cJSON_PrintUnformatted(cfg);
     cJSON_Delete(cfg);
-    const bool ok = post_json("/Users/Configuration?userId=" + user_id_, text, nullptr);
+    const bool ok = post_json(emby() ? "/Users/" + user_id_ + "/Configuration"
+                                     : "/Users/Configuration?userId=" + user_id_,
+                              text, nullptr);
     std::free(text);
     return ok;
 }
@@ -461,7 +510,8 @@ std::vector<Item> Client::items_of(const std::string &body)
 std::vector<Item> Client::resume(int limit, const std::string &parent_id)
 {
     std::string body;
-    if (!get_json("/UserItems/Resume?userId=" + user_id_ + "&limit=" + std::to_string(limit) +
+    if (!get_json((emby() ? "/Users/" + user_id_ + "/Items/Resume?UserId=" : "/UserItems/Resume?userId=") +
+                      user_id_ + "&limit=" + std::to_string(limit) +
                       "&mediaTypes=Video&enableTotalRecordCount=false&fields=" + kFields +
                       (parent_id.empty() ? std::string() : "&parentId=" + parent_id), &body))
         return {};
@@ -483,7 +533,7 @@ std::vector<Item> Client::next_up(int limit, const std::string &series_id)
 std::vector<Item> Client::views()
 {
     std::string body;
-    if (!get_json("/UserViews?userId=" + user_id_, &body))
+    if (!get_json(emby() ? "/Users/" + user_id_ + "/Views" : "/UserViews?userId=" + user_id_, &body))
         return {};
     return items_of(body);
 }
@@ -514,7 +564,8 @@ std::vector<Item> Client::featured_from(const std::string &body, int limit)
 std::vector<Item> Client::latest(const std::string &parent_id, int limit)
 {
     std::string body;
-    if (!get_json("/Items/Latest?userId=" + user_id_ + "&parentId=" + parent_id + "&limit=" +
+    if (!get_json((emby() ? "/Users/" + user_id_ + "/Items/Latest?UserId=" : "/Items/Latest?userId=") + user_id_ +
+                      "&parentId=" + parent_id + "&limit=" +
                       std::to_string(limit) + "&fields=" + kFields, &body))
         return {};
     return items_of(body);
@@ -601,6 +652,8 @@ int unreachable_streak() { return g_unreachable.load(); }
 std::vector<std::string> Client::home_sections()
 {
     std::vector<std::string> out;
+    if (!features().home_sections)
+        return out;   /* Emby keeps its home elsewhere: the default order */
     std::string body;
     if (!get_json("/DisplayPreferences/usersettings?userId=" + user_id_ + "&client=emby", &body))
         return out;
@@ -664,7 +717,9 @@ std::vector<Item> Client::genre_items(const std::string &genre, int limit)
 std::vector<Item> Client::special_features(const std::string &id)
 {
     std::string body;
-    if (!get_json("/Items/" + id + "/SpecialFeatures?userId=" + user_id_, &body))
+    if (!get_json(emby() ? "/Users/" + user_id_ + "/Items/" + id + "/SpecialFeatures"
+                         : "/Items/" + id + "/SpecialFeatures?userId=" + user_id_,
+                  &body))
         return {};
     return items_of(body);   /* a bare array */
 }
@@ -680,7 +735,7 @@ std::vector<Item> Client::theme_songs(const std::string &id)
 bool Client::item(const std::string &id, Item *out, Detail *detail)
 {
     std::string body;
-    if (!get_json("/Items/" + id + "?userId=" + user_id_ + "&fields=" + kItemFields, &body))
+    if (!get_json(user_item_path(id) + "&fields=" + kItemFields, &body))
         return false;
     cJSON *j = cJSON_Parse(body.c_str());
     if (!j)
@@ -743,7 +798,8 @@ std::vector<Item> Client::person_items(const std::string &person_id, const std::
 bool Client::set_favorite(const std::string &id, bool favorite)
 {
     HttpResponse r = tracked_request(favorite ? "POST" : "DELETE",
-                                  server_ + "/UserFavoriteItems/" + id + "?userId=" + user_id_,
+                                  server_ + (emby() ? "/Users/" + user_id_ + "/FavoriteItems/" + id
+                                                    : "/UserFavoriteItems/" + id + "?userId=" + user_id_),
                                   {auth_header()}, "", kTimeout);
     return r.ok();
 }
@@ -751,7 +807,9 @@ bool Client::set_favorite(const std::string &id, bool favorite)
 std::vector<Item> Client::local_trailers(const std::string &id)
 {
     std::string body;
-    if (!get_json("/Items/" + id + "/LocalTrailers?userId=" + user_id_, &body))
+    if (!get_json(emby() ? "/Users/" + user_id_ + "/Items/" + id + "/LocalTrailers"
+                         : "/Items/" + id + "/LocalTrailers?userId=" + user_id_,
+                  &body))
         return {};
     /* A bare array, not {"Items": [...]}. */
     std::vector<Item> out;
@@ -856,7 +914,8 @@ std::vector<Item> Client::playlist_items(const std::string &playlist_id)
 std::vector<LyricLine> Client::lyrics(const std::string &item_id)
 {
     std::vector<LyricLine> out;
-    std::string body;
+    if (!features().lyrics)
+        return out;
     HttpResponse r = tracked_request("GET", server_ + "/Audio/" + item_id + "/Lyrics",
                                   {auth_header(), "Accept: application/json"}, "", kTimeout);
     if (!r.ok())
@@ -920,7 +979,8 @@ std::vector<Item> Client::instant_mix(const std::string &id, int limit)
 bool Client::set_played(const std::string &id, bool played)
 {
     HttpResponse r = tracked_request(played ? "POST" : "DELETE",
-                                  server_ + "/UserPlayedItems/" + id + "?userId=" + user_id_,
+                                  server_ + (emby() ? "/Users/" + user_id_ + "/PlayedItems/" + id
+                                                    : "/UserPlayedItems/" + id + "?userId=" + user_id_),
                                   {auth_header()}, "", kTimeout);
     return r.ok();
 }
@@ -929,7 +989,9 @@ bool Client::set_played(const std::string &id, bool played)
  * (as "Remove from Continue Watching" does in Jellyfin's own clients). */
 bool Client::clear_position(const std::string &id)
 {
-    return post_json("/UserItems/" + id + "/UserData?userId=" + user_id_, "{\"PlaybackPositionTicks\":0}", nullptr);
+    return post_json(emby() ? "/Users/" + user_id_ + "/Items/" + id + "/UserData"
+                            : "/UserItems/" + id + "/UserData?userId=" + user_id_,
+                     "{\"PlaybackPositionTicks\":0}", nullptr);
 }
 
 std::vector<Item> Client::favorites(int limit)
@@ -955,13 +1017,17 @@ bool Client::media_extras(const std::string &item_id, const std::string &media_s
                           std::vector<Chapter> *chapters, Trickplay *tp)
 {
     std::string body;
-    if (!get_json("/Items/" + item_id + "?userId=" + user_id_ + "&fields=Chapters,Trickplay", &body))
+    if (!get_json(user_item_path(item_id) + (emby() ? "&fields=Chapters" : "&fields=Chapters,Trickplay"), &body))
         return false;
     cJSON *j = cJSON_Parse(body.c_str());
     if (!j)
         return false;
     const cJSON *c;
     cJSON_ArrayForEach(c, cJSON_GetObjectItemCaseSensitive(j, "Chapters")) {
+        /* Emby marks intros and credits as chapters (MarkerType IntroStart ...): not chapters. */
+        const std::string marker = str_of(c, "MarkerType");
+        if (!marker.empty() && marker != "Chapter")
+            continue;
         Chapter ch;
         ch.start = num_of(c, "StartPositionTicks") / (double)kTicksPerSecond;
         ch.name = str_of(c, "Name");
@@ -991,7 +1057,7 @@ bool Client::media_extras(const std::string &item_id, const std::string &media_s
         tp->tile_h = (int)num_of(best, "TileHeight");
         tp->count = (int)num_of(best, "ThumbnailCount");
         tp->interval = num_of(best, "Interval") / 1000.0;
-        /* The sheets need the session: ApiKey (the legacy api_key is refused). */
+        /* The sheets need the session: ApiKey (Jellyfin 12 refuses the legacy api_key). */
         tp->url_base = server_ + "/Videos/" + item_id + "/Trickplay/" + std::to_string(best_w) + "/";
         tp->url_query = "?MediaSourceId=" + (src && src->string ? std::string(src->string) : media_source_id) +
                         "&ApiKey=" + token_;
@@ -1003,6 +1069,8 @@ bool Client::media_extras(const std::string &item_id, const std::string &media_s
 std::vector<Segment> Client::segments(const std::string &item_id)
 {
     std::vector<Segment> out;
+    if (!features().media_segments)
+        return out;
     std::string body;
     if (!get_json("/MediaSegments/" + item_id, &body))
         return out;
@@ -1136,10 +1204,10 @@ bool Client::playback_info(const std::string &item_id, int64_t start_ticks, int 
         const std::string transcoding = str_of(ms, "TranscodingUrl");
         if (bool_of(ms, "SupportsDirectPlay")) {
             c.v.play_method = "DirectPlay";
-            /* ApiKey (Jellyfin 10.8 on): the legacy api_key counts only with the server's
-             * legacy authorization on, which newer servers have off. */
+            /* Jellyfin: ApiKey (10.8 on; the legacy api_key counts only with the server's
+             * legacy authorization on, which newer servers have off). Emby: api_key only. */
             c.v.url = server_ + "/Videos/" + item_id + "/stream?static=true&mediaSourceId=" + c.v.id +
-                      "&playSessionId=" + session + "&ApiKey=" + token_;
+                      "&playSessionId=" + session + "&" + token_param() + "=" + token_;
             c.rank = 3;
         } else if (!transcoding.empty()) {
             c.v.play_method = transcoding.find("/stream") != std::string::npos ? "DirectStream" : "Transcode";

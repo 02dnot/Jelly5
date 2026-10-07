@@ -165,6 +165,7 @@ jf::Client *new_client(const std::string &server)
 jf::Client *client_for(const accounts::Account &a)
 {
     jf::Client *c = new_client(a.server);
+    c->set_kind(jf::kind_of_key(a.kind));
     c->set_session(a.token, a.user_id, a.user_name);
     c->note_image_tag(a.image_tag);
     return c;
@@ -916,7 +917,8 @@ void use_account(jf::Client &c, unsigned session, accounts::Account a)
     while (session == s_session) {
         if (c.validate()) {
             std::string name, version, id;
-            c.public_info(&name, &version, &id);   /* (before the check below: it waits on the server) */
+            jf::Kind kind = c.kind();
+            const bool answered = c.public_info(&name, &version, &id, &kind);   /* (before the check below: it waits on the server) */
             if (session != s_session)
                 return;   /* switched away meanwhile: leave "last account" and prefs alone */
             a.user_name = c.user_name();
@@ -925,6 +927,8 @@ void use_account(jf::Client &c, unsigned session, accounts::Account a)
                 a.server_name = name;
             if (!id.empty())     /* saved before the Id was kept */
                 a.server_id = id;
+            if (answered)        /* (the next session's client is made for it) */
+                a.kind = jf::kind_key(kind);
             remember_account(a);   /* (also the last used) */
             settings::load_server(c);
             c.check_subtitle_search();
@@ -933,12 +937,14 @@ void use_account(jf::Client &c, unsigned session, accounts::Account a)
                 s_state.server_name = name;
                 s_state.server_version = version;
             }
-            evo_bt("jelly5: signed in as %s on %s %s", c.user_name().c_str(), name.c_str(), version.c_str());
+            evo_bt("jelly5: signed in as %s on %s %s (%s)", c.user_name().c_str(), name.c_str(), version.c_str(),
+                   jf::kind_key(c.kind()));
             load_home(c, session);
             if (session == s_session)
                 seerr_service::attach(&c);   /* Seerr, when this account has it on */
             /* Controllable from Jellyfin's apps ("Spill på PS5") while this session lasts. */
-            remote::start(&c, [session] { return session == s_session; });
+            if (c.features().remote_control)
+                remote::start(&c, [session] { return session == s_session; });
             syncplay::attach(&c);
             load_extras(c, session);
             check_for_update();

@@ -175,6 +175,7 @@ void Login::scan(double now)
 void Login::check_server()
 {
     m_no_quick_connect = false;
+    m_has_quick_connect = true;   /* until the check says what kind of server it is */
     m_own = std::make_shared<jf::Client>("", client().device_id(), client().device_name());
     m_own->set_server(m_server);
     m_server = client().server();
@@ -189,7 +190,10 @@ void Login::check_server()
     }
     const bool started = jelly5::spawn([sh, c, gen] {
         std::string name, version, id;
-        const bool ok = c->public_info(&name, &version, &id);
+        jf::Kind kind = jf::Kind::Jellyfin;
+        const bool ok = c->public_info(&name, &version, &id, &kind);
+        if (ok)
+            c->set_kind(kind);   /* (before its users are asked for and anyone signs in) */
         std::vector<jf::PublicUser> users = ok ? c->public_users() : std::vector<jf::PublicUser>();
         std::lock_guard<std::mutex> g(sh->lock);
         if (sh->gen != gen)
@@ -202,6 +206,7 @@ void Login::check_server()
         sh->server_name = name;
         sh->server_version = version;
         sh->server_id = id;
+        sh->kind = kind;
         sh->users = std::move(users);
         sh->checked = true;
     });
@@ -237,7 +242,7 @@ void Login::sign_in()
             return;
         }
         sh->result = {c->server(), sh->server_name, c->user_id(), c->user_name(), c->user_image_tag(), c->token(),
-                      sh->server_id};
+                      sh->server_id, jf::kind_key(c->kind())};
         sh->signed_in = true;
     });
     if (!started) {
@@ -293,7 +298,7 @@ void Login::start_quick_connect()
                 if (!sh->qc_alive || sh->gen != gen)
                     return;   /* left meanwhile: not this sign-in any more */
                 sh->result = {c->server(), sh->server_name, c->user_id(), c->user_name(), c->user_image_tag(),
-                              c->token(), sh->server_id};
+                              c->token(), sh->server_id, jf::kind_key(c->kind())};
                 sh->signed_in = true;
                 return;
             }
@@ -402,10 +407,10 @@ Action Login::input(uint32_t p)
         m_focus = on_buttons ? m_focus : std::min(buttons, m_focus + 1);
     else if (p & NUVIO_BTN_UP)
         m_focus = on_buttons ? buttons - 1 : std::max(0, m_focus - 1);
-    else if (on_buttons && (p & NUVIO_BTN_RIGHT))
-        m_focus = std::min(last, m_focus + 1);
+    else if (on_buttons && (p & NUVIO_BTN_RIGHT))   /* (past Quick Connect where there is none) */
+        m_focus = std::min(last, m_focus + 1 + (!m_has_quick_connect && m_focus + 1 == base + 3));
     else if (on_buttons && (p & NUVIO_BTN_LEFT))
-        m_focus = std::max(buttons, m_focus - 1);
+        m_focus = std::max(buttons, m_focus - 1 - (!m_has_quick_connect && m_focus - 1 == base + 3));
     else if (nu > 0 && m_focus == 0 && (p & NUVIO_BTN_LEFT))
         m_user_col = std::max(0, m_user_col - 1);
     else if (nu > 0 && m_focus == 0 && (p & NUVIO_BTN_RIGHT))
@@ -434,7 +439,7 @@ Action Login::input(uint32_t p)
         } else if (f == 2) {
             if (!m_user.empty())
                 sign_in();
-        } else if (f == 3) {
+        } else if (f == 3 && m_has_quick_connect) {
             start_quick_connect();
         } else if (f == 4) {
             other_server();
@@ -449,6 +454,7 @@ void Login::draw(double now, float dt)
     bool anim = false;
     std::string error, server_name, version, code;
     bool busy, checked;
+    jf::Kind kind;
     std::vector<jf::PublicUser> users;
     {
         std::lock_guard<std::mutex> g(m_shared->lock);
@@ -458,12 +464,22 @@ void Login::draw(double now, float dt)
         code = m_shared->qc_code;
         busy = m_shared->busy;
         checked = m_shared->checked;
+        kind = m_shared->kind;
         users = m_shared->users;
         if (checked)
             m_shared->checked = false;
     }
-    if (checked)   /* the server answered: Quick Connect first */
-        m_checking = false, start_quick_connect();
+    if (checked) {   /* the server answered: Quick Connect first, where the server has it */
+        m_checking = false;
+        m_has_quick_connect = kind != jf::Kind::Emby;
+        if (m_has_quick_connect) {
+            start_quick_connect();
+        } else {
+            m_no_quick_connect = true;
+            m_step = UserStep;
+            m_focus = 0;
+        }
+    }
     if (m_checking && !busy && !error.empty()) {   /* a known server did not answer: its address, and why */
         m_checking = false;
         m_known_server = false;   /* what is typed now is a new address: ○ goes back a step at a time */
@@ -568,8 +584,12 @@ void Login::draw(double now, float dt)
               lift("pass", f == 1));
         const float by = y + 270;
         button({kX, by, 240, 76}, busy ? T("Logger inn \xE2\x80\xA6") : T("Logg inn"), f == 2, lift("in", f == 2));
-        button({kX + 260, by, 330, 76}, T("Bruk Quick Connect"), f == 3, lift("qc", f == 3));
-        button({kX + 610, by, 250, 76}, T("Annen server"), f == 4, lift("other", f == 4));
+        if (m_has_quick_connect) {
+            button({kX + 260, by, 330, 76}, T("Bruk Quick Connect"), f == 3, lift("qc", f == 3));
+            button({kX + 610, by, 250, 76}, T("Annen server"), f == 4, lift("other", f == 4));
+        } else {   /* Emby: no Quick Connect */
+            button({kX + 260, by, 250, 76}, T("Annen server"), f == 4, lift("other", f == 4));
+        }
     } else {
         gfx::text(kX, 230, "Quick Connect", {gfx::Bold, 64}, kText);
         gfx::text(kX, 300,

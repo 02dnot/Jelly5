@@ -2,9 +2,9 @@
  * Jelly5 — Jellyfin for PS5
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * Finding Jellyfin servers on the local network, as Jellyfin's own apps do: a
- * UDP broadcast of "who is JellyfinServer?" to port 7359, which every server
- * answers with its name, id and address.
+ * Finding Jellyfin and Emby servers on the local network, as their own apps do:
+ * UDP broadcasts of "who is JellyfinServer?" and "who is EmbyServer?" to port
+ * 7359, which every server answers with its name, id and address.
  */
 #pragma once
 

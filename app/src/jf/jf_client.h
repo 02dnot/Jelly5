@@ -6,6 +6,12 @@
  * the home rows, items, playback negotiation with the PS5 device profile and
  * playback reporting. Plain blocking calls; callers keep them off the render
  * thread. Builds on the console and on a development machine.
+ *
+ * Emby speaks the same API with other routes for the user's own items
+ * (/Users/{id}/Items/...), its token as api_key, and without Quick Connect,
+ * SyncPlay, MediaSegments, trickplay sheets, lyrics and BlurHash: a client is
+ * made for one kind of server (Kind), and features() tells the screens what
+ * that server has.
  */
 #pragma once
 
@@ -168,6 +174,26 @@ struct QuickConnect {
     std::string code, secret;
 };
 
+enum class Kind { Jellyfin, Emby };
+/* "emby" / "jellyfin" (an account's kind in accounts.json); anything else is Jellyfin. */
+const char *kind_key(Kind k);
+Kind kind_of_key(const std::string &key);
+/* What the server answers to /System/Info/Public: Jellyfin names itself in
+ * ProductName ("Jellyfin Server"); Emby has none and a version 4.x.y.z. */
+Kind kind_of_info(const std::string &product_name, const std::string &version);
+
+/* What a kind of server offers beyond the shared API (the screens ask these,
+ * never the kind). */
+struct Features {
+    bool quick_connect = true;
+    bool syncplay = true;                     /* "Se sammen" */
+    bool lyrics = true;
+    bool trickplay = true;                    /* Jellyfin's thumbnail sheets */
+    bool media_segments = true;               /* intro/credits skip */
+    bool remote_control = true;               /* "Spill på PS5" (the /socket websocket) */
+    bool home_sections = true;                /* the web client's home order (DisplayPreferences) */
+};
+
 class Client {
 public:
     Client(std::string server, std::string device_id, std::string device_name);
@@ -176,6 +202,12 @@ public:
     const std::string &device_id() const { return device_id_; }
     const std::string &device_name() const { return device_name_; }
     void set_server(std::string server);
+    /* The kind of server; set with the server, before anyone uses the client. */
+    Kind kind() const { return kind_; }
+    void set_kind(Kind k) { kind_ = k; }
+    Features features() const;
+    /* The query parameter that carries the token in a URL: ApiKey (Jellyfin) or api_key (Emby). */
+    const char *token_param() const { return kind_ == Kind::Emby ? "api_key" : "ApiKey"; }
     const std::string &user_image_tag() const { return user_image_tag_; }
     const std::string &token() const { return token_; }
     const std::string &user_id() const { return user_id_; }
@@ -186,8 +218,8 @@ public:
     /* Safe from any thread: requests may run in parallel. */
     std::string last_error() const { std::lock_guard<std::mutex> g(error_lock_); return error_; }
 
-    /* Server name, version and Id from /System/Info/Public; false if unreachable. */
-    bool public_info(std::string *name, std::string *version, std::string *id = nullptr);
+    /* Server name, version, Id and kind from /System/Info/Public; false if unreachable. */
+    bool public_info(std::string *name, std::string *version, std::string *id = nullptr, Kind *kind = nullptr);
 
     bool authenticate(const std::string &user, const std::string &password);
     bool quick_connect_start(QuickConnect *out);
@@ -317,7 +349,14 @@ public:
 
 private:
     std::vector<Item> items_of(const std::string &body);
+    bool emby() const { return kind_ == Kind::Emby; }
+    /* The signed-in user (Jellyfin's /Users/Me, Emby's /Users/{id}), and one of
+     * their items with its query begun: "&fields=..." follows (Jellyfin:
+     * /Items/{id}?userId=, Emby: /Users/{id}/Items/{id}?UserId=). */
+    std::string me_path() const;
+    std::string user_item_path(const std::string &id) const;
 
+    Kind kind_ = Kind::Jellyfin;
     std::string server_, device_id_, device_name_;
     std::string token_, user_id_, user_name_, user_image_tag_;
     bool is_admin_ = false, manages_subtitles_ = false, subtitle_search_ = false;

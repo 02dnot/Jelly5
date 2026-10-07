@@ -46,6 +46,7 @@ private:
         bool busy = false;
         std::string error;
         std::string server_name, server_version, server_id;
+        jf::Kind kind = jf::Kind::Jellyfin;   /* what the check found */
         std::vector<jf::PublicUser> users;
         bool checked = false;           /* the server answered: go on to the user */
         bool signed_in = false;
@@ -77,6 +78,7 @@ private:
     bool m_can_cancel, m_known_server;
     bool m_checking = false;          /* a known server being checked: Quick Connect's "…" meanwhile */
     bool m_no_quick_connect = false;  /* this server has it off: ○ on the user step goes back past it */
+    bool m_has_quick_connect = true;  /* the kind of server has it at all (Emby does not): its button shows */
     std::string m_known_address;      /* the known server's, to come back to */
     bool m_back_to_known = false;     /* the address step came from its Quick Connect: ○ goes back there */
     bool m_offer_moved = false;       /* it did not answer: offer it where the network finds it now */

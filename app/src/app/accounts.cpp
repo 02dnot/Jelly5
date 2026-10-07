@@ -53,6 +53,7 @@ Account account_of(const cJSON *o)
     a.image_tag = str(o, "imageTag");
     a.token = str(o, "token");
     a.server_id = str(o, "serverId");
+    a.kind = str(o, "kind");
     return a;
 }
 
@@ -109,6 +110,7 @@ void write_store(const Store &s)
         cJSON_AddStringToObject(o, "imageTag", a.image_tag.c_str());
         cJSON_AddStringToObject(o, "token", a.token.c_str());
         cJSON_AddStringToObject(o, "serverId", a.server_id.c_str());
+        cJSON_AddStringToObject(o, "kind", a.kind.empty() ? "jellyfin" : a.kind.c_str());
         cJSON_AddItemToArray(arr, o);
     }
     cJSON_AddItemToObject(j, "accounts", arr);
@@ -205,6 +207,8 @@ std::vector<std::string> remember(const Account &a)
             x.server_id = a.server_id;
         if (!a.server_name.empty())
             x.server_name = a.server_name;
+        if (!a.kind.empty())
+            x.kind = a.kind;   /* the same server: the same kind */
         keep.push_back(x);
     }
     if (!placed)
