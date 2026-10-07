@@ -930,6 +930,7 @@ void use_account(jf::Client &c, unsigned session, accounts::Account a)
             if (answered)        /* (the next session's client is made for it) */
                 a.kind = jf::kind_key(kind);
             remember_account(a);   /* (also the last used) */
+            settings::use_server(a.server_id.empty() ? a.server : a.server_id);   /* its quality cap */
             settings::load_server(c);
             c.check_subtitle_search();
             {
