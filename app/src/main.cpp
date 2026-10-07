@@ -1311,19 +1311,6 @@ std::atomic<bool> s_theme_on{false};
 std::atomic<unsigned> s_theme_gen{0};
 std::string s_theme_for;   /* the page whose theme is wanted (main thread) */
 
-/* Stops left in the queue after a theme has ended (sent for it as it finished on
- * its own, or as it never started) - the next film or song would take them. The
- * first other command goes back where it was. */
-void drop_stale_stops()
-{
-    remote::Command c;
-    while (remote::take(&c))
-        if (c.kind != remote::Command::Stop) {
-            remote::put_back(c);
-            break;
-        }
-}
-
 void stop_theme(bool wait)
 {
     s_theme_for.clear();
@@ -1365,15 +1352,9 @@ void theme_follow()
         if (songs.empty() || gen != s_theme_gen || s_music_on)
             return;
         s_theme_on = true;
-        /* Checked again now that it says it plays: a page closed in between either
-         * sees s_theme_on and sends its Stop (taken by this player), or bumped the
-         * gen before, which is caught here. */
-        if (gen == s_theme_gen) {
-            nuvio_player_set_headless(1);
-            jelly5_play_theme(*c, songs.front());
-            nuvio_player_set_headless(0);
-        }
-        drop_stale_stops();   /* a Stop meant for this theme must not reach the next player */
+        nuvio_player_set_headless(1);
+        jelly5_play_theme(*c, songs.front());
+        nuvio_player_set_headless(0);
         s_theme_on = false;
     }).detach();
 }
@@ -2359,9 +2340,7 @@ int main()
                 refresh_discover(0, true);
             }
         }
-        /* (Not while a theme plays: its headless player takes the commands - a Stop
-         * taken here was lost, and the theme played on everywhere.) */
-        if (!chose && !s_music_on && !s_theme_on && phase == Phase::Home && s_home_version == s_model_version) {
+        if (!chose && !s_music_on && phase == Phase::Home && s_home_version == s_model_version) {
             remote::Command rc;
             if (remote::take(&rc)) {
                 remote_idle(rc);
