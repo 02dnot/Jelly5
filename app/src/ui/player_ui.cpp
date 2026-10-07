@@ -786,7 +786,7 @@ void PlayerUi::draw_bar(const NuvioStatus &st, float a)
             /* One thumbnail of a sheet of tile_w x tile_h: sheet = i / per, cell = i % per. */
             const int per = tp.tile_w * tp.tile_h;
             const int i = std::max(0, std::min(tp.count - 1, (int)(pos / tp.interval)));
-            const std::string url = tp.url_base + std::to_string(i / per) + ".jpg" + tp.url_query;
+            const std::string url = tp.sheet_url(i / per);
             const gfx::Rect pr{r.x + 8, r.y + 8, bw - 16, ph};
             gfx::fill(pr, alpha(0xff101014u, a), 20);
             if (const gfx::Texture *sheet = art::get(url, tp.width * tp.tile_w, tp.height * tp.tile_h)) {
@@ -814,7 +814,7 @@ bool PlayerUi::trick_thumb(const gfx::Rect &r, double pos, float a, float radius
         return false;
     const int per = tp.tile_w * tp.tile_h;
     const int i = std::max(0, std::min(tp.count - 1, (int)(pos / tp.interval)));
-    const std::string url = tp.url_base + std::to_string(i / per) + ".jpg" + tp.url_query;
+    const std::string url = tp.sheet_url(i / per);
     const gfx::Texture *sheet = art::get(url, tp.width * tp.tile_w, tp.height * tp.tile_h);
     if (!sheet)
         return true;   /* coming */

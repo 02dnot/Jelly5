@@ -90,13 +90,15 @@ struct Chapter {
     std::string image_tag;                    /* the server's chapter image, if it made one */
 };
 
-/* Scrubbing previews: sheets of tile_w x tile_h thumbnails, one every interval. */
+/* Scrubbing previews: sheets of tile_w x tile_h thumbnails, one every interval
+ * (Emby's are single thumbnails: sheets of 1 x 1, found by their time). */
 struct Trickplay {
     int width = 0, height = 0;                /* one thumbnail */
     int tile_w = 0, tile_h = 0, count = 0;
     double interval = 0;                      /* seconds between thumbnails */
-    std::string url_base;                     /* + "<sheet>.jpg?..." (see sheet_url) */
+    std::string url_base;                     /* + "<sheet>.jpg" + url_query; Emby: + its time in ticks */
     std::string url_query;
+    int64_t sheet_ticks = 0;                  /* Emby: the ticks between sheets (0: Jellyfin's numbered sheets) */
     bool valid() const { return width > 0 && height > 0 && tile_w > 0 && tile_h > 0 && count > 0 && interval > 0; }
 };
 
@@ -188,8 +190,7 @@ struct Features {
     bool quick_connect = true;
     bool syncplay = true;                     /* "Se sammen" */
     bool lyrics = true;
-    bool trickplay = true;                    /* Jellyfin's thumbnail sheets */
-    bool media_segments = true;               /* intro/credits skip */
+    bool media_segments = true;               /* intro/credits skip (Emby: its chapter markers) */
     bool remote_control = true;               /* "Spill på PS5" (the websocket, socket_url) */
     bool home_sections = true;                /* the web client's home order (DisplayPreferences) */
 };
@@ -304,6 +305,8 @@ public:
     /* A folder's or collection's direct children, e.g. sort_by "PremiereDate,SortName". */
     std::vector<Item> children(const std::string &parent_id, const std::string &sort_by, int limit);
     std::vector<Segment> segments(const std::string &item_id);
+    /* Emby: an item's (JSON, with Chapters) intro and credits markers as segments. */
+    static std::vector<Segment> emby_markers_of(const std::string &item_json);
     /* Chapters and trickplay of what plays (media_source_id picks the version). */
     bool media_extras(const std::string &item_id, const std::string &media_source_id, std::vector<Chapter> *chapters,
                       Trickplay *trickplay);
@@ -360,6 +363,8 @@ private:
      * their items with its query begun: "&fields=..." follows (Jellyfin:
      * /Items/{id}?userId=, Emby: /Users/{id}/Items/{id}?UserId=). */
     std::string me_path() const;
+    void emby_thumbnails(const std::string &item_id, Trickplay *tp);
+    std::vector<Segment> emby_markers(const std::string &item_id);
     std::string user_item_path(const std::string &id) const;
 
     Kind kind_ = Kind::Jellyfin;

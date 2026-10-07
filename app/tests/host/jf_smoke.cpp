@@ -23,8 +23,34 @@ static void check(bool ok, const char *what, const std::string &detail = std::st
         s_failed++;
 }
 
+/* Emby's intro/credits markers (an Emby Premiere feature: no test server has them). */
+static void emby_markers()
+{
+    std::printf("Emby markers (no server)\n");
+    auto at = [](double s) { return std::to_string((long long)(s * jf::kTicksPerSecond)); };
+    const std::string item = "{\"RunTimeTicks\":" + at(1500) + ",\"Chapters\":["
+        "{\"StartPositionTicks\":0,\"MarkerType\":\"Chapter\"},"
+        "{\"StartPositionTicks\":" + at(30) + ",\"MarkerType\":\"IntroStart\"},"
+        "{\"StartPositionTicks\":" + at(95) + ",\"MarkerType\":\"IntroEnd\"},"
+        "{\"StartPositionTicks\":" + at(600) + ",\"MarkerType\":\"Chapter\"},"
+        "{\"StartPositionTicks\":" + at(1400) + ",\"MarkerType\":\"CreditsStart\"}]}";
+    const std::vector<jf::Segment> s = jf::Client::emby_markers_of(item);
+    check(s.size() == 2 && s[0].type == "Intro" && s[0].start == 30 && s[0].end == 95 && s[1].type == "Outro" &&
+              s[1].start == 1400 && s[1].end == 1500,
+          "intro 30-95, credits 1400-1500");
+    /* No IntroEnd: the intro ends where the next chapter starts. */
+    const std::string open_end = "{\"RunTimeTicks\":" + at(900) + ",\"Chapters\":["
+        "{\"StartPositionTicks\":" + at(10) + ",\"MarkerType\":\"IntroStart\"},"
+        "{\"StartPositionTicks\":" + at(70) + ",\"MarkerType\":\"Chapter\"}]}";
+    const std::vector<jf::Segment> o = jf::Client::emby_markers_of(open_end);
+    check(o.size() == 1 && o[0].start == 10 && o[0].end == 70, "intro without an end runs to the next chapter");
+    check(jf::Client::emby_markers_of("{\"Chapters\":[]}").empty(), "no markers, no segments");
+    std::printf("\n");
+}
+
 int main()
 {
+    emby_markers();
     const char *server = std::getenv("JF_URL"), *user = std::getenv("JF_USER"), *pass = std::getenv("JF_PASS");
     if (!server || !user || !pass) {
         std::fprintf(stderr, "JF_URL, JF_USER and JF_PASS must be set\n");
@@ -79,6 +105,15 @@ int main()
         jf::Trickplay tp;
         check(c.media_extras(movie_id, "", &chapters, &tp), "chapters",
               std::to_string(chapters.size()) + (tp.valid() ? ", trickplay" : ", no trickplay"));
+        if (tp.valid()) {   /* the second sheet (Emby: thumbnail), as the player asks for it, without headers */
+            const std::string url = tp.sheet_ticks > 0 ? tp.url_base + std::to_string(tp.sheet_ticks) + tp.url_query
+                                                       : tp.url_base + "1.jpg" + tp.url_query;
+            const jf::HttpResponse r = jf::http_request("GET", url, {}, "", 15);
+            check(r.ok() && r.body.size() > 1000, "trickplay sheet",
+                  std::to_string(tp.count) + " thumbnails of " + std::to_string(tp.width) + "x" +
+                      std::to_string(tp.height) + " every " + std::to_string((int)tp.interval) + " s, " +
+                      std::to_string(r.body.size()) + " bytes");
+        }
         std::printf("  similar %zu, extras %zu, trailers %zu\n", c.similar(movie_id, 6).size(),
                     c.special_features(movie_id).size(), c.local_trailers(movie_id).size());
     }

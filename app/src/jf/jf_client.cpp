@@ -252,7 +252,7 @@ Features Client::features() const
 {
     Features f;
     if (emby()) {
-        f.quick_connect = f.syncplay = f.lyrics = f.trickplay = f.media_segments = false;
+        f.quick_connect = f.syncplay = f.lyrics = false;
         f.home_sections = false;
     }
     return f;
@@ -1089,7 +1089,39 @@ bool Client::media_extras(const std::string &item_id, const std::string &media_s
                         "&ApiKey=" + token_;
     }
     cJSON_Delete(j);
+    if (emby())
+        emby_thumbnails(item_id, tp);
     return true;
+}
+
+/* Emby's scrub previews: single thumbnails, one every few seconds (the library's
+ * "thumbnail image extraction"), each an image of the item found by its time.
+ * Without a token, like every image (they are cached as images are). */
+void Client::emby_thumbnails(const std::string &item_id, Trickplay *tp)
+{
+    constexpr int kWidth = 320;
+    std::string body;
+    if (!get_json("/Items/" + item_id + "/ThumbnailSet?Width=" + std::to_string(kWidth), &body))
+        return;   /* 404: the library makes none */
+    cJSON *j = cJSON_Parse(body.c_str());
+    const cJSON *thumbs = cJSON_GetObjectItemCaseSensitive(j, "Thumbnails");
+    const int count = cJSON_GetArraySize(thumbs);
+    const double aspect = num_of(j, "AspectRatio", 16.0 / 9.0);
+    const cJSON *first = cJSON_GetArrayItem(thumbs, 0), *second = cJSON_GetArrayItem(thumbs, 1);
+    const int64_t step = (int64_t)(num_of(second, "PositionTicks") - num_of(first, "PositionTicks"));
+    const std::string tag = str_of(first, "ImageTag");
+    if (count >= 2 && step > 0 && aspect > 0 && !tag.empty()) {
+        tp->width = kWidth;
+        tp->height = (int)(kWidth / aspect + 0.5);
+        tp->tile_w = tp->tile_h = 1;
+        tp->count = count;
+        tp->interval = (double)step / kTicksPerSecond;
+        tp->sheet_ticks = step;
+        tp->url_base = server_ + "/Items/" + item_id + "/Images/Thumbnail?maxWidth=" + std::to_string(kWidth) +
+                       "&quality=90&tag=" + url_escape(tag) + "&PositionTicks=";
+        tp->url_query.clear();
+    }
+    cJSON_Delete(j);
 }
 
 std::vector<Segment> Client::segments(const std::string &item_id)
@@ -1097,6 +1129,8 @@ std::vector<Segment> Client::segments(const std::string &item_id)
     std::vector<Segment> out;
     if (!features().media_segments)
         return out;
+    if (emby())
+        return emby_markers(item_id);
     std::string body;
     if (!get_json("/MediaSegments/" + item_id, &body))
         return out;
@@ -1111,6 +1145,50 @@ std::vector<Segment> Client::segments(const std::string &item_id)
             out.push_back(s);
     }
     cJSON_Delete(j);
+    return out;
+}
+
+/* Emby marks intros and credits among the chapters (MarkerType IntroStart,
+ * IntroEnd, CreditsStart; its intro detection is an Emby Premiere feature):
+ * an intro runs from its start to its end (else the next chapter), credits to
+ * the end of the title. */
+std::vector<Segment> Client::emby_markers(const std::string &item_id)
+{
+    std::string body;
+    if (!get_json(user_item_path(item_id) + "&fields=Chapters", &body))
+        return {};
+    return emby_markers_of(body);
+}
+
+std::vector<Segment> Client::emby_markers_of(const std::string &item_json)
+{
+    std::vector<Segment> out;
+    cJSON *j = cJSON_Parse(item_json.c_str());
+    const double runtime = num_of(j, "RunTimeTicks") / kTicksPerSecond;
+    std::vector<std::pair<std::string, double>> marks;   /* marker type (or "" for a chapter), start */
+    const cJSON *c;
+    cJSON_ArrayForEach(c, cJSON_GetObjectItemCaseSensitive(j, "Chapters"))
+        marks.push_back({str_of(c, "MarkerType"), num_of(c, "StartPositionTicks") / kTicksPerSecond});
+    cJSON_Delete(j);
+    std::stable_sort(marks.begin(), marks.end(), [](const auto &a, const auto &b) { return a.second < b.second; });
+    for (size_t i = 0; i < marks.size(); i++) {
+        Segment s;
+        s.start = marks[i].second;
+        if (marks[i].first == "IntroStart") {
+            s.type = "Intro";
+            s.end = -1;
+            for (size_t k = i + 1; k < marks.size() && s.end < 0; k++)
+                if (marks[k].first == "IntroEnd" || marks[k].first.empty() || marks[k].first == "Chapter")
+                    s.end = marks[k].second;
+        } else if (marks[i].first == "CreditsStart") {
+            s.type = "Outro";
+            s.end = runtime;
+        } else {
+            continue;
+        }
+        if (s.end > s.start)
+            out.push_back(s);
+    }
     return out;
 }
 
