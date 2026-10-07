@@ -6,6 +6,12 @@
  * the home rows, items, playback negotiation with the PS5 device profile and
  * playback reporting. Plain blocking calls; callers keep them off the render
  * thread. Builds on the console and on a development machine.
+ *
+ * Emby speaks the same API with other routes for the user's own items
+ * (/Users/{id}/Items/...), its token as api_key, and without Quick Connect,
+ * SyncPlay, MediaSegments, trickplay sheets, lyrics and BlurHash: a client is
+ * made for one kind of server (Kind), and features() tells the screens what
+ * that server has.
  */
 #pragma once
 
@@ -67,7 +73,7 @@ struct MediaStream {
     int index = -1;
     std::string type;                         /* Video, Audio, Subtitle */
     std::string codec, language, title, display_title, profile;
-    std::string video_range, video_range_type;
+    std::string video_range, video_range_type;   /* Jellyfin's words (Emby's are translated): HDR; HDR10, DOVI ... */
     int width = 0, height = 0, channels = 0, bit_depth = 0;
     bool is_default = false, is_forced = false, is_external = false, is_text = false;
     std::string delivery_url;                 /* external subtitles */
@@ -84,13 +90,16 @@ struct Chapter {
     std::string image_tag;                    /* the server's chapter image, if it made one */
 };
 
-/* Scrubbing previews: sheets of tile_w x tile_h thumbnails, one every interval. */
+/* Scrubbing previews: sheets of tile_w x tile_h thumbnails, one every interval
+ * (Emby's are single thumbnails: sheets of 1 x 1, found by their time). */
 struct Trickplay {
     int width = 0, height = 0;                /* one thumbnail */
     int tile_w = 0, tile_h = 0, count = 0;
     double interval = 0;                      /* seconds between thumbnails */
-    std::string url_base;                     /* + "<sheet>.jpg?..." (see sheet_url) */
+    std::string url_base;                     /* + "<sheet>.jpg" + url_query; Emby: + its time in ticks */
     std::string url_query;
+    int64_t sheet_ticks = 0;                  /* Emby: the ticks between sheets (0: Jellyfin's numbered sheets) */
+    int64_t first_ticks = 0;                  /* Emby: the first sheet's time */
     bool valid() const { return width > 0 && height > 0 && tile_w > 0 && tile_h > 0 && count > 0 && interval > 0; }
 };
 
@@ -168,6 +177,23 @@ struct QuickConnect {
     std::string code, secret;
 };
 
+enum class Kind { Jellyfin, Emby };
+/* "emby" / "jellyfin" (an account's kind in accounts.json); anything else is Jellyfin. */
+const char *kind_key(Kind k);
+Kind kind_of_key(const std::string &key);
+/* What the server answers to /System/Info/Public: Jellyfin names itself in
+ * ProductName ("Jellyfin Server"); Emby has none and a version 4.x.y.z. */
+Kind kind_of_info(const std::string &product_name, const std::string &version);
+
+/* What a kind of server offers beyond the shared API (the screens ask these,
+ * never the kind). */
+struct Features {
+    bool quick_connect = true;
+    bool syncplay = true;                     /* "Se sammen" */
+    bool lyrics = true;
+    bool home_sections = true;                /* the web client's home order (DisplayPreferences) */
+};
+
 class Client {
 public:
     Client(std::string server, std::string device_id, std::string device_name);
@@ -176,6 +202,12 @@ public:
     const std::string &device_id() const { return device_id_; }
     const std::string &device_name() const { return device_name_; }
     void set_server(std::string server);
+    /* The kind of server; set with the server, before anyone uses the client. */
+    Kind kind() const { return kind_; }
+    void set_kind(Kind k) { kind_ = k; }
+    Features features() const;
+    /* The query parameter that carries the token in a URL: ApiKey (Jellyfin) or api_key (Emby). */
+    const char *token_param() const { return kind_ == Kind::Emby ? "api_key" : "ApiKey"; }
     const std::string &user_image_tag() const { return user_image_tag_; }
     const std::string &token() const { return token_; }
     const std::string &user_id() const { return user_id_; }
@@ -186,8 +218,8 @@ public:
     /* Safe from any thread: requests may run in parallel. */
     std::string last_error() const { std::lock_guard<std::mutex> g(error_lock_); return error_; }
 
-    /* Server name, version and Id from /System/Info/Public; false if unreachable. */
-    bool public_info(std::string *name, std::string *version, std::string *id = nullptr);
+    /* Server name, version, Id and kind from /System/Info/Public; false if unreachable. */
+    bool public_info(std::string *name, std::string *version, std::string *id = nullptr, Kind *kind = nullptr);
 
     bool authenticate(const std::string &user, const std::string &password);
     bool quick_connect_start(QuickConnect *out);
@@ -272,6 +304,8 @@ public:
     /* A folder's or collection's direct children, e.g. sort_by "PremiereDate,SortName". */
     std::vector<Item> children(const std::string &parent_id, const std::string &sort_by, int limit);
     std::vector<Segment> segments(const std::string &item_id);
+    /* Emby: an item's (JSON, with Chapters) intro and credits markers as segments. */
+    static std::vector<Segment> emby_markers_of(const std::string &item_json);
     /* Chapters and trickplay of what plays (media_source_id picks the version). */
     bool media_extras(const std::string &item_id, const std::string &media_source_id, std::vector<Chapter> *chapters,
                       Trickplay *trickplay);
@@ -293,8 +327,11 @@ public:
     /* The PS5 device profile (JSON) sent with PlaybackInfo. */
     static std::string device_profile_json(int64_t max_bitrate = 0);
 
-    /* "Authorization: MediaBrowser ..." with this session's token (also for /socket). */
+    /* "Authorization: MediaBrowser ..." with this session's token (also for the websocket). */
     std::string auth_header() const;
+    /* The remote-control websocket: Jellyfin's /socket, Emby's /embywebsocket (which
+     * takes the token in the URL too). Carries the token: never logged. */
+    std::string socket_url() const;
     /* Remote control: this device plays video and audio and takes playstate
      * commands and messages (POST /Sessions/Capabilities/Full). */
     bool post_capabilities();
@@ -317,7 +354,19 @@ public:
 
 private:
     std::vector<Item> items_of(const std::string &body);
+    /* One PlaybackInfo; transcode: no direct play, no video copy (Dolby Vision 5). */
+    bool playback_info_as(const std::string &item_id, int64_t start_ticks, int audio_index, int subtitle_index,
+                          Playback *out, int64_t max_bitrate, bool transcode);
+    bool emby() const { return kind_ == Kind::Emby; }
+    /* The signed-in user (Jellyfin's /Users/Me, Emby's /Users/{id}), and one of
+     * their items with its query begun: "&fields=..." follows (Jellyfin:
+     * /Items/{id}?userId=, Emby: /Users/{id}/Items/{id}?UserId=). */
+    std::string me_path() const;
+    void emby_thumbnails(const std::string &item_id, Trickplay *tp);
+    std::vector<Segment> emby_markers(const std::string &item_id);
+    std::string user_item_path(const std::string &id) const;
 
+    Kind kind_ = Kind::Jellyfin;
     std::string server_, device_id_, device_name_;
     std::string token_, user_id_, user_name_, user_image_tag_;
     bool is_admin_ = false, manages_subtitles_ = false, subtitle_search_ = false;

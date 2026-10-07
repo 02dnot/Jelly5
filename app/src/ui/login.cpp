@@ -11,6 +11,8 @@
 #include "nuvio_input.h"
 #include "platform/ime.h"
 #include "app/spawn.h"
+#include "jf/jf_http.h"
+#include "evo_boot_trace.h"
 
 #include <algorithm>
 #include <functional>
@@ -82,10 +84,23 @@ void Login::activate()
     ime::init();
     if (m_known_server && !m_server.empty() && !m_checking) {
         m_checking = true;
-        m_step = QuickConnectStep;   /* its code box waits with "…"; an error goes to the address */
         m_focus = 0;
-        check_server();
+        check_known_server();
     }
+}
+
+/* A saved server checked again: its Quick Connect code box waits with "…" (an
+ * error goes to the address); one saved as Emby, which has no Quick Connect,
+ * waits on name and password. */
+void Login::check_known_server()
+{
+    bool emby = false;
+    for (const accounts::Account &a : accounts::load())
+        emby = emby || (a.server == m_server && a.kind == jf::kind_key(jf::Kind::Emby));
+    check_server();   /* (it resets what is known of Quick Connect: set after it) */
+    m_has_quick_connect = !emby;
+    m_no_quick_connect = emby;
+    m_step = emby ? UserStep : QuickConnectStep;
 }
 
 /* "Annen server": the address step. Empty when the address here is a saved one
@@ -117,9 +132,8 @@ void Login::back_to_known()
     m_known_server = true;
     m_back_to_known = false;
     m_checking = true;
-    m_step = QuickConnectStep;
     m_focus = 1;
-    check_server();
+    check_known_server();
 }
 
 /* The keyboard's callbacks point at this screen: close it with the screen. */
@@ -135,7 +149,7 @@ bool Login::take_result(accounts::Account *out)
     return true;
 }
 
-/* Asks the network for Jellyfin servers (again every 8 s while the server step shows). */
+/* Asks the network for Jellyfin and Emby servers (again every 8 s while the server step shows). */
 void Login::scan(double now)
 {
     std::shared_ptr<Shared> sh = m_shared;
@@ -161,6 +175,43 @@ void Login::scan(double now)
                                    });
                                }),
                 f.end());
+        /* A server can name an address the PS5 cannot reach (one in Docker: its
+         * container's 172.17.x.x), and signing in there only times out: offered
+         * are the ones that answer where they said. One that answered is not
+         * asked again while this sign-in shows; one that did not is asked again
+         * at the next search (it may still be starting). */
+        std::vector<char> reachable(f.size(), 0), known(f.size(), 0), seen(f.size(), 0);
+        {
+            std::lock_guard<std::mutex> g(sh->lock);
+            for (size_t i = 0; i < f.size(); i++) {
+                const auto at = sh->answers.find(f[i].address);
+                seen[i] = at != sh->answers.end();
+                known[i] = reachable[i] = seen[i] && at->second;
+            }
+        }
+        std::vector<std::function<void()>> checks;
+        for (size_t i = 0; i < f.size(); i++)
+            if (!known[i])
+                checks.push_back([&f, &reachable, i] {
+                /* Not through a client: its failed requests count as the signed-in
+                 * server being gone (jf::unreachable_streak, the "no contact" note). */
+                jf::Client probe("", "", "");
+                probe.set_server(f[i].address);   /* (the address as typed ones are taken) */
+                reachable[i] = jf::http_request("GET", probe.server() + "/System/Info/Public",
+                                                {"Accept: application/json"}, "", 5).ok();
+            });
+        jelly5::run_all(checks);
+        {
+            std::lock_guard<std::mutex> g(sh->lock);
+            for (size_t i = 0; i < f.size(); i++)
+                sh->answers[f[i].address] = reachable[i];
+        }
+        for (size_t i = f.size(); i-- > 0;)
+            if (!reachable[i]) {
+                if (!seen[i])   /* (once) */
+                    evo_bt("login: %s answered the search but not at %s", f[i].name.c_str(), f[i].address.c_str());
+                f.erase(f.begin() + (long)i);
+            }
         std::lock_guard<std::mutex> g(sh->lock);
         if (!f.empty() || sh->found.empty())
             sh->found = std::move(f);
@@ -175,6 +226,7 @@ void Login::scan(double now)
 void Login::check_server()
 {
     m_no_quick_connect = false;
+    m_has_quick_connect = true;   /* until the check says what kind of server it is */
     m_own = std::make_shared<jf::Client>("", client().device_id(), client().device_name());
     m_own->set_server(m_server);
     m_server = client().server();
@@ -189,19 +241,36 @@ void Login::check_server()
     }
     const bool started = jelly5::spawn([sh, c, gen] {
         std::string name, version, id;
-        const bool ok = c->public_info(&name, &version, &id);
-        std::vector<jf::PublicUser> users = ok ? c->public_users() : std::vector<jf::PublicUser>();
+        jf::Kind kind = jf::Kind::Jellyfin;
+        bool ok = c->public_info(&name, &version, &id, &kind);
+        /* An Emby behind a reverse proxy may answer only under /emby: an address
+         * typed without a path is tried there too, and then used with it. */
+        std::shared_ptr<jf::Client> use = c;
+        const size_t scheme = c->server().find("://");
+        if (!ok && scheme != std::string::npos && c->server().find('/', scheme + 3) == std::string::npos) {
+            auto under = std::make_shared<jf::Client>(c->server() + "/emby", c->device_id(), c->device_name());
+            if (under->public_info(&name, &version, &id, &kind)) {
+                use = under;
+                ok = true;
+            }
+        }
+        if (ok)
+            use->set_kind(kind);   /* (before its users are asked for and anyone signs in) */
+        evo_bt("login: %s answered=%d %s %s", use->server().c_str(), ok, ok ? jf::kind_key(kind) : "-", version.c_str());
+        std::vector<jf::PublicUser> users = ok ? use->public_users() : std::vector<jf::PublicUser>();
         std::lock_guard<std::mutex> g(sh->lock);
         if (sh->gen != gen)
             return;   /* another server since */
         sh->busy = false;
         if (!ok) {
-            sh->error = T("Fant ingen Jellyfin-server på ") + c->server();
+            sh->error = T("Fant ingen Jellyfin- eller Emby-server på ") + c->server();
             return;
         }
         sh->server_name = name;
         sh->server_version = version;
         sh->server_id = id;
+        sh->kind = kind;
+        sh->moved = use != c ? use : nullptr;
         sh->users = std::move(users);
         sh->checked = true;
     });
@@ -237,7 +306,7 @@ void Login::sign_in()
             return;
         }
         sh->result = {c->server(), sh->server_name, c->user_id(), c->user_name(), c->user_image_tag(), c->token(),
-                      sh->server_id};
+                      sh->server_id, jf::kind_key(c->kind())};
         sh->signed_in = true;
     });
     if (!started) {
@@ -293,7 +362,7 @@ void Login::start_quick_connect()
                 if (!sh->qc_alive || sh->gen != gen)
                     return;   /* left meanwhile: not this sign-in any more */
                 sh->result = {c->server(), sh->server_name, c->user_id(), c->user_name(), c->user_image_tag(),
-                              c->token(), sh->server_id};
+                              c->token(), sh->server_id, jf::kind_key(c->kind())};
                 sh->signed_in = true;
                 return;
             }
@@ -402,10 +471,10 @@ Action Login::input(uint32_t p)
         m_focus = on_buttons ? m_focus : std::min(buttons, m_focus + 1);
     else if (p & NUVIO_BTN_UP)
         m_focus = on_buttons ? buttons - 1 : std::max(0, m_focus - 1);
-    else if (on_buttons && (p & NUVIO_BTN_RIGHT))
-        m_focus = std::min(last, m_focus + 1);
+    else if (on_buttons && (p & NUVIO_BTN_RIGHT))   /* (past Quick Connect where there is none) */
+        m_focus = std::min(last, m_focus + 1 + (!m_has_quick_connect && m_focus + 1 == base + 3));
     else if (on_buttons && (p & NUVIO_BTN_LEFT))
-        m_focus = std::max(buttons, m_focus - 1);
+        m_focus = std::max(buttons, m_focus - 1 - (!m_has_quick_connect && m_focus - 1 == base + 3));
     else if (nu > 0 && m_focus == 0 && (p & NUVIO_BTN_LEFT))
         m_user_col = std::max(0, m_user_col - 1);
     else if (nu > 0 && m_focus == 0 && (p & NUVIO_BTN_RIGHT))
@@ -434,7 +503,7 @@ Action Login::input(uint32_t p)
         } else if (f == 2) {
             if (!m_user.empty())
                 sign_in();
-        } else if (f == 3) {
+        } else if (f == 3 && m_has_quick_connect) {
             start_quick_connect();
         } else if (f == 4) {
             other_server();
@@ -449,6 +518,7 @@ void Login::draw(double now, float dt)
     bool anim = false;
     std::string error, server_name, version, code;
     bool busy, checked;
+    jf::Kind kind;
     std::vector<jf::PublicUser> users;
     {
         std::lock_guard<std::mutex> g(m_shared->lock);
@@ -458,12 +528,27 @@ void Login::draw(double now, float dt)
         code = m_shared->qc_code;
         busy = m_shared->busy;
         checked = m_shared->checked;
+        kind = m_shared->kind;
         users = m_shared->users;
-        if (checked)
+        if (checked) {
             m_shared->checked = false;
+            if (m_shared->moved) {   /* it answered under /emby: sign in there (before anyone starts to) */
+                m_own = std::move(m_shared->moved);
+                m_server = m_own->server();
+            }
+        }
     }
-    if (checked)   /* the server answered: Quick Connect first */
-        m_checking = false, start_quick_connect();
+    if (checked) {   /* the server answered: Quick Connect first, where the server has it */
+        m_checking = false;
+        m_has_quick_connect = client().features().quick_connect;   /* (its kind is set: checked) */
+        if (m_has_quick_connect) {
+            start_quick_connect();
+        } else {
+            m_no_quick_connect = true;
+            m_step = UserStep;
+            m_focus = 0;
+        }
+    }
     if (m_checking && !busy && !error.empty()) {   /* a known server did not answer: its address, and why */
         m_checking = false;
         m_known_server = false;   /* what is typed now is a new address: ○ goes back a step at a time */
@@ -489,8 +574,8 @@ void Login::draw(double now, float dt)
 
     auto lift = [&](const std::string &k, bool f) { return m_lifts.step(k, f, dt, &anim); };
     if (m_step == ServerStep) {
-        gfx::text(kX, 230, T("Koble til Jellyfin"), {gfx::Bold, 64}, kText);
-        gfx::text(kX, 290, T("Skriv inn adressen til Jellyfin-serveren din, for eksempel 192.168.0.10:8096."),
+        gfx::text(kX, 230, T("Koble til Jellyfin eller Emby"), {gfx::Bold, 64}, kText);
+        gfx::text(kX, 290, T("Skriv inn adressen til Jellyfin- eller Emby-serveren din, for eksempel 192.168.0.10:8096."),
                   {gfx::Medium, 28, 1200}, kText2);
         field({kX, 390, kW, 84}, "SERVER", m_server, "http://", m_focus == 0, lift("srv", m_focus == 0));
         button({kX, 530, 260, 76}, busy ? T("Kobler til \xE2\x80\xA6") : T("Fortsett"), m_focus == 1, lift("go", m_focus == 1));
@@ -517,7 +602,7 @@ void Login::draw(double now, float dt)
         std::vector<float> w(nf), at(nf);
         float row_w = 0;
         for (int i = 0; i < nf; i++) {
-            labels[i] = (found[i].name.empty() ? std::string("Jellyfin") : found[i].name) + "  \xC2\xB7  " +
+            labels[i] = (found[i].name.empty() ? std::string(T("Server")) : found[i].name) + "  \xC2\xB7  " +
                         host_of(found[i].address);
             w[i] = std::min(560.f, gfx::text_width(labels[i], {gfx::Bold, 26}) + 64);
             at[i] = row_w;
@@ -530,7 +615,8 @@ void Login::draw(double now, float dt)
             button({fx + at[i], 712, w[i], 76}, labels[i], m_focus == 2 && m_found_col == i, 0, 1000 + i, fx - kX);
     } else if (m_step == UserStep) {
         gfx::text(kX, 230, T("Logg inn"), {gfx::Bold, 64}, kText);
-        gfx::text(kX, 286, server_name + "  \xC2\xB7  Jellyfin " + version + "  \xC2\xB7  " + m_server,
+        gfx::text(kX, 286, server_name + "  \xC2\xB7  " + (kind == jf::Kind::Emby ? "Emby " : "Jellyfin ") + version +
+                               "  \xC2\xB7  " + m_server,
                   {gfx::Medium, 24, 1500}, kText3);
         float y = 340;
         const int base = users.empty() ? 0 : 1;
@@ -551,7 +637,7 @@ void Login::draw(double now, float dt)
                                             : client().server() + "/Users/" + users[i].id + "/Images/Primary?tag=" +
                                                   users[i].image_tag + "&fillWidth=240";
                 if (url.empty()) {
-                    gfx::fill(r, 0xff6e7fd6u, d / 2);
+                    glass_panel(r, d / 2, 1.f, false);
                     gfx::text(r.x + d / 2, r.y + d / 2 + 16, users[i].name.substr(0, 1), {gfx::Bold, 48}, kText, 1);
                 } else {
                     art::draw(r, url, "", 240, 240, d / 2);
@@ -568,8 +654,12 @@ void Login::draw(double now, float dt)
               lift("pass", f == 1));
         const float by = y + 270;
         button({kX, by, 240, 76}, busy ? T("Logger inn \xE2\x80\xA6") : T("Logg inn"), f == 2, lift("in", f == 2));
-        button({kX + 260, by, 330, 76}, T("Bruk Quick Connect"), f == 3, lift("qc", f == 3));
-        button({kX + 610, by, 250, 76}, T("Annen server"), f == 4, lift("other", f == 4));
+        if (m_has_quick_connect) {
+            button({kX + 260, by, 330, 76}, T("Bruk Quick Connect"), f == 3, lift("qc", f == 3));
+            button({kX + 610, by, 250, 76}, T("Annen server"), f == 4, lift("other", f == 4));
+        } else {   /* Emby: no Quick Connect */
+            button({kX + 260, by, 250, 76}, T("Annen server"), f == 4, lift("other", f == 4));
+        }
     } else {
         gfx::text(kX, 230, "Quick Connect", {gfx::Bold, 64}, kText);
         gfx::text(kX, 300,

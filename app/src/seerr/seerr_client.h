@@ -17,6 +17,7 @@
  */
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -283,6 +284,9 @@ private:
     bool user_from(const std::string &body, User *out);
     std::vector<Title> titles_from(const std::string &body, int *pages = nullptr);
     void set_error(std::string e);
+    /* This Seerr's media server is Emby (public_settings: mediaServerType 3): its
+     * item ids are Emby's digits, which jellyfin_id_of then takes too. */
+    std::atomic<bool> emby_{false};
 
     std::string url_, language_;
     int timeout_ = 6;
