@@ -915,10 +915,18 @@ void use_account(jf::Client &c, unsigned session, accounts::Account a)
 {
     set_phase(Phase::Connecting, T("Kobler til ") + (a.server_name.empty() ? a.server : a.server_name) + " \xE2\x80\xA6");
     while (session == s_session) {
+        /* What kind of server it is, asked before the token is: an account saved by
+         * an older Jelly5 (no "kind"), or rewritten by one, may say Jellyfin for an
+         * Emby, and the check would then ask Emby a Jellyfin route (2026-10-07).
+         * Nothing uses this session's client before this (it is Connecting). */
+        std::string name, version, id;
+        jf::Kind kind = c.kind();
+        const bool answered = c.public_info(&name, &version, &id, &kind);
+        if (answered && kind != c.kind()) {
+            evo_bt("jelly5: %s is %s, the account said %s", a.server_name.c_str(), jf::kind_key(kind), jf::kind_key(c.kind()));
+            c.set_kind(kind);
+        }
         if (c.validate()) {
-            std::string name, version, id;
-            jf::Kind kind = c.kind();
-            const bool answered = c.public_info(&name, &version, &id, &kind);   /* (before the check below: it waits on the server) */
             if (session != s_session)
                 return;   /* switched away meanwhile: leave "last account" and prefs alone */
             a.user_name = c.user_name();

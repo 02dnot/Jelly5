@@ -110,7 +110,8 @@ void write_store(const Store &s)
         cJSON_AddStringToObject(o, "imageTag", a.image_tag.c_str());
         cJSON_AddStringToObject(o, "token", a.token.c_str());
         cJSON_AddStringToObject(o, "serverId", a.server_id.c_str());
-        cJSON_AddStringToObject(o, "kind", a.kind.empty() ? "jellyfin" : a.kind.c_str());
+        if (!a.kind.empty())   /* only a kind that is known (one checked at sign-in) */
+            cJSON_AddStringToObject(o, "kind", a.kind.c_str());
         cJSON_AddItemToArray(arr, o);
     }
     cJSON_AddItemToObject(j, "accounts", arr);

@@ -19,7 +19,7 @@ struct Account {
     std::string user_id, user_name, image_tag;
     std::string token;
     std::string server_id;   /* Jellyfin's server Id: one server reached at two addresses is one */
-    std::string kind;        /* "jellyfin" or "emby" (jf::kind_key); empty: Jellyfin (accounts from before Emby) */
+    std::string kind;        /* "jellyfin" or "emby" (jf::kind_key); empty: not known yet (checked at every sign-in) */
 };
 
 /* Whether two accounts are on the same server. With both Ids known, the Ids
