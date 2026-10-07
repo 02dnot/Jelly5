@@ -559,7 +559,9 @@ std::vector<Item> Client::next_up(int limit, const std::string &series_id)
 std::vector<Item> Client::views()
 {
     std::string body;
-    if (!get_json(emby() ? "/Users/" + user_id_ + "/Views" : "/UserViews?userId=" + user_id_, &body))
+    /* Emby: without channels and Live TV, which are views there too (Jelly5 shows neither). */
+    if (!get_json(emby() ? "/Users/" + user_id_ + "/Views?IncludeExternalContent=false" : "/UserViews?userId=" + user_id_,
+                  &body))
         return {};
     return items_of(body);
 }
