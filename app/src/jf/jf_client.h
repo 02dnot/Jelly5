@@ -219,7 +219,9 @@ public:
     std::string last_error() const { std::lock_guard<std::mutex> g(error_lock_); return error_; }
 
     /* Server name, version, Id and kind from /System/Info/Public; false if unreachable. */
-    bool public_info(std::string *name, std::string *version, std::string *id = nullptr, Kind *kind = nullptr);
+    /* timeout_s: 0 is the usual request timeout. */
+    bool public_info(std::string *name, std::string *version, std::string *id = nullptr, Kind *kind = nullptr,
+                     int timeout_s = 0);
 
     bool authenticate(const std::string &user, const std::string &password);
     bool quick_connect_start(QuickConnect *out);
@@ -349,7 +351,7 @@ public:
     std::vector<Item> instant_mix(const std::string &id, int limit);
 
     /* A GET / POST of the API, for modules with their own endpoints (app/syncplay). */
-    bool get_json(const std::string &path, std::string *body);
+    bool get_json(const std::string &path, std::string *body, int timeout_s = 0);
     bool post_json(const std::string &path, const std::string &json, std::string *body);
 
 private:

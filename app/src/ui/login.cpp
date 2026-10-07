@@ -630,14 +630,16 @@ void Login::draw(double now, float dt)
                 const float l = lift("u" + users[i].id, f);
                 const float d = 120 * (1.f + 0.1f * l);
                 const gfx::Rect r{x + 60 - d / 2, y + 60 - d / 2, d, d};
-                if (f)   /* a ring of the focus glass round the picture */
-                    glass_panel({r.x - 8, r.y - 8, d + 16, d + 16}, d / 2 + 8, 1.f, false, 1.f);
                 const std::string url = users[i].image_tag.empty()
                                             ? std::string()
                                             : client().server() + "/Users/" + users[i].id + "/Images/Primary?tag=" +
                                                   users[i].image_tag + "&fillWidth=240";
+                if (f && !url.empty())   /* a ring of the focus glass round the picture */
+                    glass_panel({r.x - 8, r.y - 8, d + 16, d + 16}, d / 2 + 8, 1.f, false, 1.f);
                 if (url.empty()) {
-                    glass_panel(r, d / 2, 1.f, false);
+                    /* One pane of glass: focused, the circle is the focus glass itself. A
+                     * ring under a glass circle blurred twice and showed as noise. */
+                    glass_panel(r, d / 2, 1.f, false, f ? 1.f : 0.f);
                     gfx::text(r.x + d / 2, r.y + d / 2 + 16, users[i].name.substr(0, 1), {gfx::Bold, 48}, kText, 1);
                 } else {
                     art::draw(r, url, "", 240, 240, d / 2);

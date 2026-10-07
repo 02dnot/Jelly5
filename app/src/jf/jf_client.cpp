@@ -308,9 +308,10 @@ std::string Client::auth_header() const
     return h;
 }
 
-bool Client::get_json(const std::string &path, std::string *body)
+bool Client::get_json(const std::string &path, std::string *body, int timeout_s)
 {
-    HttpResponse r = tracked_request("GET", server_ + path, {auth_header(), "Accept: application/json"}, "", kTimeout);
+    HttpResponse r = tracked_request("GET", server_ + path, {auth_header(), "Accept: application/json"}, "",
+                                     timeout_s > 0 ? timeout_s : kTimeout);
     if (!r.ok()) {
         set_error("GET " + path + " -> " + std::to_string(r.status) + " " + r.error);
         return false;
@@ -332,10 +333,10 @@ bool Client::post_json(const std::string &path, const std::string &json, std::st
     return true;
 }
 
-bool Client::public_info(std::string *name, std::string *version, std::string *id, Kind *kind)
+bool Client::public_info(std::string *name, std::string *version, std::string *id, Kind *kind, int timeout_s)
 {
     std::string body;
-    if (!get_json("/System/Info/Public", &body))
+    if (!get_json("/System/Info/Public", &body, timeout_s))
         return false;
     cJSON *j = cJSON_Parse(body.c_str());
     if (!j)
