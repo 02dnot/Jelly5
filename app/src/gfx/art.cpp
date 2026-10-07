@@ -199,6 +199,10 @@ const gfx::Texture *blurhash(const std::string &hash)
     return t;
 }
 
+static Placeholder s_placeholder = nullptr;
+
+void set_placeholder(Placeholder p) { s_placeholder = p; }
+
 void draw(const gfx::Rect &r, const std::string &url, const std::string &hash, int max_w, int max_h,
           float radius, float opacity, uint32_t empty_color)
 {
@@ -207,6 +211,8 @@ void draw(const gfx::Rect &r, const std::string &url, const std::string &hash, i
     if (a < 1.f) {
         if (const gfx::Texture *ph = blurhash(hash))
             gfx::image(r, ph, opacity, radius, true);
+        else if (s_placeholder && empty_color == kEmpty && radius > 0)
+            s_placeholder(r, radius, opacity * (1.f - a));
         else
             gfx::fill(r, empty_color, radius);
     }

@@ -1920,6 +1920,7 @@ int main()
     }
     if (ui_text_init() != 0 || !gfx::init())
         evo_bt("jelly5: ui init failed");
+    art::set_placeholder(ui::draw_glass_placeholder);   /* posters without a BlurHash (Emby, Seerr): glass */
     nuvio_input_open(s_user);
 
     char device[48];
