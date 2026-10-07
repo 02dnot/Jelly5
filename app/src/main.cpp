@@ -133,6 +133,7 @@ struct State {
      * saved one): the main thread signs in there, on a client for that address. */
     accounts::Account follow;
     bool follow_set = false;
+    unsigned follow_session = 0;        /* the sign-in it came from: stale once the viewer moved on */
     /* Seerr's tab: its rows, and how their loading goes. */
     ui::HomeModel discover;
     bool discover_loading = false, discover_failed = false;
@@ -912,6 +913,20 @@ void remember_account(const accounts::Account &a)
         seerr_service::move_server(from, a.server);
 }
 
+/* A plain-http address with a private IPv4 host (a server on this network, found
+ * or typed by its LAN address): the only kind a moved server is followed from or to. */
+bool lan_http(const std::string &url)
+{
+    if (url.compare(0, 7, "http://") != 0)
+        return false;
+    const std::string host = url.substr(7, url.find_first_of(":/", 7) - 7);
+    int b[4];
+    char tail;
+    if (std::sscanf(host.c_str(), "%d.%d.%d.%d%c", &b[0], &b[1], &b[2], &b[3], &tail) != 4)
+        return false;
+    return b[0] == 10 || (b[0] == 192 && b[1] == 168) || (b[0] == 172 && b[1] >= 16 && b[1] < 32);
+}
+
 /* Signs in with a saved account (off the main thread): check the token, then
  * preferences, server info and the home rows. A rejected token opens the
  * sign-in on that server again (Quick Connect first); an unreachable server is
@@ -926,14 +941,16 @@ void use_account(jf::Client &c, unsigned session, accounts::Account a)
          * Nothing uses this session's client before this (it is Connecting). */
         std::string name, version, id;
         jf::Kind kind = c.kind();
-        /* A quick "is anything there" first (5 s), so a server that has gone (or
-         * moved) says so in seconds rather than after two full request timeouts. */
-        const bool answered = c.ping() && c.public_info(&name, &version, &id, &kind);
+        /* Within 5 s, so a server that has gone (or moved) says so in seconds rather
+         * than after two full request timeouts. A server that answers with an HTTP
+         * error (a proxy that hides this route) is there: its token is still checked. */
+        const bool answered = c.public_info(&name, &version, &id, &kind, 5);
+        const bool reached = answered || c.last_error().find(" -> 0 ") == std::string::npos;
         if (answered && kind != c.kind()) {
             evo_bt("jelly5: %s is %s, the account said %s", a.server_name.c_str(), jf::kind_key(kind), jf::kind_key(c.kind()));
             c.set_kind(kind);
         }
-        if (answered && c.validate()) {
+        if (reached && c.validate()) {
             if (session != s_session)
                 return;   /* switched away meanwhile: leave "last account" and prefs alone */
             a.user_name = c.user_name();
@@ -965,23 +982,30 @@ void use_account(jf::Client &c, unsigned session, accounts::Account a)
             check_for_update();
             return;
         }
-        const std::string err = answered ? c.last_error() : std::string("no answer");
+        const std::string err = c.last_error();
         evo_bt("jelly5: sign-in check failed: %s", err.c_str());
-        /* Not there: the same server (by its Id) may answer at a new address on
-         * this network - a DHCP lease that changed. Then its accounts move there
-         * and this account signs in on it. */
-        if (!answered && !a.server_id.empty()) {
+        if (session != s_session)
+            return;   /* the viewer has moved on (○, another account): nothing of this shows */
+        /* Not there: a server saved at a plain-http address on this network may
+         * answer at a new one (a DHCP lease that changed). Only that case is
+         * followed, and only after the new address itself confirms the server's
+         * Id: an https or named address is never swapped for one the network
+         * offers, so a token never goes to an address the viewer did not pick. */
+        if (!reached && !a.server_id.empty() && lan_http(a.server)) {
             for (const jf::FoundServer &f : jf::discover(1500)) {
-                if (f.id != a.server_id || f.address.empty() || f.address == a.server)
+                if (f.id != a.server_id || f.address == a.server || !lan_http(f.address))
                     continue;
-                if (session != s_session)
-                    return;
+                jf::Client probe(f.address, c.device_id(), c.device_name());
+                std::string fid;
+                if (!probe.public_info(nullptr, nullptr, &fid, nullptr, 5) || fid != a.server_id || session != s_session)
+                    continue;
                 evo_bt("jelly5: %s moved to a new address on this network", a.server_name.c_str());
                 a.server = f.address;
                 remember_account(a);   /* every account on it, and its Seerr settings, move along */
                 std::lock_guard<std::mutex> g(s_state.lock);
                 s_state.follow = a;
                 s_state.follow_set = true;
+                s_state.follow_session = session;
                 return;
             }
         }
@@ -1611,14 +1635,14 @@ bool draw_frame(double t, float dt)
         gfx::end_frame();
         return true;
     }
+    static double s_since = 0;   /* when the phase on screen began */
+    static Phase s_was = Phase::Gate;
+    if (phase != s_was)
+        s_was = phase, s_since = t;
     switch (phase) {
     case Phase::Connecting:
     case Phase::Loading: {
         /* Connecting longer than a moment: the way out is shown (○ works from the start). */
-        static double s_since = 0;
-        static Phase s_was = Phase::Gate;
-        if (phase != s_was)
-            s_was = phase, s_since = t;
         s_splash.snap(1.f);
         const bool slow = phase == Phase::Connecting && t - s_since > 2.0;
         draw_launch(t, 1.f, message, "", true, slow ? T("Bytt bruker eller server") : "");
@@ -2019,12 +2043,12 @@ int main()
             std::lock_guard<std::mutex> g(s_state.lock);
             if (s_state.follow_set) {
                 follow = s_state.follow;
-                follow_set = true;
+                follow_set = s_state.follow_session == s_session;
                 s_state.follow_set = false;
             }
         }
         if (follow_set)
-            switch_to(follow);   /* the server at its new address */
+            switch_to(follow);   /* the server at its new address (only for the sign-in still on screen) */
 
         /* The screensaver: on after a while without a button; any button wakes the
          * app and is only that. */
