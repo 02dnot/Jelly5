@@ -40,7 +40,7 @@ Jelly5 brings your Jellyfin or Emby library to the PS5 as a real app: a fast, sh
 - Title pages with logo art, cast, seasons and episodes, trailers, extras and theme music
 - Movie, TV and music libraries with sorting, filters and A–Z jumping, and search across everything
 - Several users and servers, a screensaver from your own backdrops, and a liquid-glass look throughout
-- In English, Norwegian, German, French, Spanish, Italian and Portuguese, following the PS5's language
+- In all 27 of the PS5's system languages, following the PS5's language (or a choice in Settings): English, Norwegian, German, French, Spanish, Italian, Portuguese, Dutch, Swedish, Danish, Finnish, Polish, Czech, Hungarian, Romanian, Greek, Russian, Ukrainian, Turkish, Arabic, Japanese, Korean, Chinese (Traditional and Simplified), Thai, Vietnamese and Indonesian
 
 **Playback**
 - Hardware-decoded H.264 and HEVC up to 4K with HDR10 and HLG; direct play where the PS5 can, server transcoding where it can't

@@ -17,9 +17,14 @@
 
 namespace i18n {
 
-enum class Lang { Norwegian, English, Spanish, French, German, Portuguese, Italian };
+enum class Lang {
+    Norwegian, English, Spanish, French, German, Portuguese, Italian,
+    /* every other PS5 system language */
+    Japanese, Dutch, Russian, Korean, ChineseTraditional, ChineseSimplified, Finnish, Swedish, Danish, Polish, Turkish, Arabic, Czech, Hungarian, Greek, Romanian, Thai, Vietnamese, Indonesian, Ukrainian,
+    Count
+};
 /* The setting: Auto, or a language (Lang + 1). */
-enum Choice { Auto = 0, Norwegian = 1, English = 2, ChoiceCount = 8 };
+enum Choice { Auto = 0, Norwegian = 1, English = 2, ChoiceCount = (int)Lang::Count + 1 };
 /* A choice's name in its own language ("Español"); Auto's is empty. */
 const char *choice_name(int choice);
 

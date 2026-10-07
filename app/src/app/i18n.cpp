@@ -33,6 +33,26 @@ Lang from_system(int sys)
     case 4: return Lang::German;
     case 7: case 17: return Lang::Portuguese;       /* Portugal, Brazil */
     case 5: return Lang::Italian;
+    case 0: return Lang::Japanese;
+    case 6: return Lang::Dutch;
+    case 8: return Lang::Russian;
+    case 9: return Lang::Korean;
+    case 10: return Lang::ChineseTraditional;
+    case 11: return Lang::ChineseSimplified;
+    case 12: return Lang::Finnish;
+    case 13: return Lang::Swedish;
+    case 14: return Lang::Danish;
+    case 16: return Lang::Polish;
+    case 19: return Lang::Turkish;
+    case 21: return Lang::Arabic;
+    case 23: return Lang::Czech;
+    case 24: return Lang::Hungarian;
+    case 25: return Lang::Greek;
+    case 26: return Lang::Romanian;
+    case 27: return Lang::Thai;
+    case 28: return Lang::Vietnamese;
+    case 29: return Lang::Indonesian;
+    case 30: return Lang::Ukrainian;
     default: return Lang::English;
     }
 }
@@ -226,8 +246,36 @@ const std::unordered_map<std::string, const char *> &english_table()
 
 const char *choice_name(int choice)
 {
-    static const char *const names[ChoiceCount] = {"",        "Norsk",   "English",   "Espa\xC3\xB1ol",
-                                                   "Fran\xC3\xA7" "ais", "Deutsch", "Portugu\xC3\xAAs", "Italiano"};
+    static const char *const names[ChoiceCount] = {
+        "",
+        "Norsk",
+        "English",
+        "Español",
+        "Français",
+        "Deutsch",
+        "Português",
+        "Italiano",
+        "日本語",
+        "Nederlands",
+        "Русский",
+        "한국어",
+        "繁體中文",
+        "简体中文",
+        "Suomi",
+        "Svenska",
+        "Dansk",
+        "Polski",
+        "Türkçe",
+        "العربية",
+        "Čeština",
+        "Magyar",
+        "Ελληνικά",
+        "Română",
+        "ไทย",
+        "Tiếng Việt",
+        "Bahasa Indonesia",
+        "Українська",
+    };
     return choice > 0 && choice < ChoiceCount ? names[choice] : "";
 }
 
@@ -257,13 +305,35 @@ const char *T(const char *nb)
     const i18n::Lang l = i18n::lang();
     if (!nb || l == i18n::Lang::Norwegian)
         return nb;
-    const std::unordered_map<std::string, const char *> *own =
-        l == i18n::Lang::Spanish      ? &i18n::spanish_table()
-        : l == i18n::Lang::French     ? &i18n::french_table()
-        : l == i18n::Lang::German     ? &i18n::german_table()
-        : l == i18n::Lang::Portuguese ? &i18n::portuguese_table()
-        : l == i18n::Lang::Italian    ? &i18n::italian_table()
-                                      : nullptr;
+    const std::unordered_map<std::string, const char *> *own = nullptr;
+    switch (l) {
+    case i18n::Lang::Spanish: own = &i18n::spanish_table(); break;
+    case i18n::Lang::French: own = &i18n::french_table(); break;
+    case i18n::Lang::German: own = &i18n::german_table(); break;
+    case i18n::Lang::Portuguese: own = &i18n::portuguese_table(); break;
+    case i18n::Lang::Italian: own = &i18n::italian_table(); break;
+    case i18n::Lang::Japanese: own = &i18n::japanese_table(); break;
+    case i18n::Lang::Dutch: own = &i18n::dutch_table(); break;
+    case i18n::Lang::Russian: own = &i18n::russian_table(); break;
+    case i18n::Lang::Korean: own = &i18n::korean_table(); break;
+    case i18n::Lang::ChineseTraditional: own = &i18n::chinese_traditional_table(); break;
+    case i18n::Lang::ChineseSimplified: own = &i18n::chinese_simplified_table(); break;
+    case i18n::Lang::Finnish: own = &i18n::finnish_table(); break;
+    case i18n::Lang::Swedish: own = &i18n::swedish_table(); break;
+    case i18n::Lang::Danish: own = &i18n::danish_table(); break;
+    case i18n::Lang::Polish: own = &i18n::polish_table(); break;
+    case i18n::Lang::Turkish: own = &i18n::turkish_table(); break;
+    case i18n::Lang::Arabic: own = &i18n::arabic_table(); break;
+    case i18n::Lang::Czech: own = &i18n::czech_table(); break;
+    case i18n::Lang::Hungarian: own = &i18n::hungarian_table(); break;
+    case i18n::Lang::Greek: own = &i18n::greek_table(); break;
+    case i18n::Lang::Romanian: own = &i18n::romanian_table(); break;
+    case i18n::Lang::Thai: own = &i18n::thai_table(); break;
+    case i18n::Lang::Vietnamese: own = &i18n::vietnamese_table(); break;
+    case i18n::Lang::Indonesian: own = &i18n::indonesian_table(); break;
+    case i18n::Lang::Ukrainian: own = &i18n::ukrainian_table(); break;
+    default: break;
+    }
     if (own) {
         const auto it = own->find(nb);
         if (it != own->end())
