@@ -95,4 +95,3 @@ ui_asset ui_asset_img_wordmark(void)
     ui_asset a = {nuvio_blob_img_wordmark, (size_t)(nuvio_blob_img_wordmark_end - nuvio_blob_img_wordmark) - 1};
     return a;
 }
-

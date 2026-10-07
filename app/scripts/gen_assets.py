@@ -23,8 +23,6 @@ FIXED = [
     ("font_noto_symbols", "assets/fonts/NotoSansSymbols-Subset.ttf"),
     # Jelly5: the "Jelly5" wordmark (assets/brand/wordmark.png, cropped from wordmark-source.png)
     ("img_wordmark", "assets/brand/wordmark.png"),
-    # Jelly5: the start-up splash's background - the PS5 home screen's launch picture (pic1.dds)
-    ("img_splash", "assets/brand/splash.jpg"),
 ]
 
 
