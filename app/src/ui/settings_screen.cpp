@@ -477,14 +477,14 @@ void SettingsScreen::draw(double, float dt)
         }
     }
     gfx::text(left, y + 40 - off,
-              T("Lyd, undertekster og autoavspilling lagres på Jellyfin-kontoen din og gjelder i alle Jellyfin-apper."),
+              T("Lyd, undertekster og autoavspilling lagres på kontoen din på serveren og gjelder i alle appene du bruker med den."),
               {gfx::Regular, 20, width}, kText3);
     gfx::text(left, y + 72 - off, T("Språk følger PS5-en, eller velg her."), {gfx::Regular, 20, width}, kText3);
     gfx::text(left, y + 104 - off, T("Jelly5 er fri programvare (GPL-3.0) og bygger på EVO Player og Nuvio PS5."),
               {gfx::Regular, 20, width}, kText3);
     if (seerr_service::config().enabled)   /* only where it means something */
         gfx::text(left, y + 136 - off,
-                  T("Seerr henter alt fra TMDB selv: PS5-en snakker bare med Jellyfin og Seerr."),
+                  T("Seerr henter alt fra TMDB selv: PS5-en snakker bare med serveren din og Seerr."),
                   {gfx::Regular, 20, width}, kText3);
 }
 

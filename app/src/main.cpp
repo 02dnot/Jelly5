@@ -1338,7 +1338,7 @@ void shell_input(uint32_t p, jf::Item *play, bool *chose, bool *from_start, bool
     case ui::Action::PlayMix: {   /* Jellyfin's Instant Mix from an album (or song, artist) */
         std::vector<jf::Item> mix = s_client->instant_mix(a.item.id, 60);
         if (mix.empty()) {
-            notify(T("Jelly5: Jellyfin fant ingen miks her"));
+            notify(T("Jelly5: serveren fant ingen miks her"));
             break;
         }
         *play = mix.front();
@@ -1599,7 +1599,7 @@ bool draw_frame(double t, float dt)
         break;
     case Phase::Home:
         if (s_tab == ui::Nav::Home && s_stack.empty() && s_home->empty()) {
-            draw_launch(t, 1.f, T("Ingenting å vise ennå"), T("Legg til filmer eller serier i Jellyfin."), false);
+            draw_launch(t, 1.f, T("Ingenting å vise ennå"), T("Legg til filmer eller serier på serveren din."), false);
         } else {
             ui::Screen *scr = screen_for(s_tab);
             const float enter = scr->enter();
@@ -1713,7 +1713,7 @@ bool draw_connection(double now)
     const bool back = now - s_back_at < 2.5;
     if (!s_down && !back)
         return false;
-    const std::string text = s_down ? T("Ingen kontakt med Jellyfin-serveren \xE2\x80\x93 pr\xC3\xB8ver igjen \xE2\x80\xA6")
+    const std::string text = s_down ? T("Ingen kontakt med serveren \xE2\x80\x93 pr\xC3\xB8ver igjen \xE2\x80\xA6")
                                     : T("Tilkoblet igjen");
     const gfx::TextStyle ts{gfx::SemiBold, 24};
     const float w = gfx::text_width(text, ts) + 72;

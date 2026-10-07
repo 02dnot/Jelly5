@@ -136,7 +136,7 @@ bool Login::take_result(accounts::Account *out)
     return true;
 }
 
-/* Asks the network for Jellyfin servers (again every 8 s while the server step shows). */
+/* Asks the network for Jellyfin and Emby servers (again every 8 s while the server step shows). */
 void Login::scan(double now)
 {
     std::shared_ptr<Shared> sh = m_shared;
@@ -162,6 +162,23 @@ void Login::scan(double now)
                                    });
                                }),
                 f.end());
+        /* A server can name an address the PS5 cannot reach (one in Docker: its
+         * container's 172.17.x.x), and signing in there only times out: offered
+         * are the ones that answer where they said. */
+        std::vector<char> reachable(f.size(), 0);
+        std::vector<std::function<void()>> checks;
+        for (size_t i = 0; i < f.size(); i++)
+            checks.push_back([&f, &reachable, i] {
+                jf::Client probe("", "", "");
+                probe.set_server(f[i].address);
+                reachable[i] = probe.ping();
+            });
+        jelly5::run_all(checks);
+        for (size_t i = f.size(); i-- > 0;)
+            if (!reachable[i]) {
+                evo_bt("login: %s answered the search but not at %s", f[i].name.c_str(), f[i].address.c_str());
+                f.erase(f.begin() + (long)i);
+            }
         std::lock_guard<std::mutex> g(sh->lock);
         if (!f.empty() || sh->found.empty())
             sh->found = std::move(f);
@@ -202,7 +219,7 @@ void Login::check_server()
             return;   /* another server since */
         sh->busy = false;
         if (!ok) {
-            sh->error = T("Fant ingen Jellyfin-server på ") + c->server();
+            sh->error = T("Fant ingen Jellyfin- eller Emby-server på ") + c->server();
             return;
         }
         sh->server_name = name;
@@ -507,8 +524,8 @@ void Login::draw(double now, float dt)
 
     auto lift = [&](const std::string &k, bool f) { return m_lifts.step(k, f, dt, &anim); };
     if (m_step == ServerStep) {
-        gfx::text(kX, 230, T("Koble til Jellyfin"), {gfx::Bold, 64}, kText);
-        gfx::text(kX, 290, T("Skriv inn adressen til Jellyfin-serveren din, for eksempel 192.168.0.10:8096."),
+        gfx::text(kX, 230, T("Koble til Jellyfin eller Emby"), {gfx::Bold, 64}, kText);
+        gfx::text(kX, 290, T("Skriv inn adressen til Jellyfin- eller Emby-serveren din, for eksempel 192.168.0.10:8096."),
                   {gfx::Medium, 28, 1200}, kText2);
         field({kX, 390, kW, 84}, "SERVER", m_server, "http://", m_focus == 0, lift("srv", m_focus == 0));
         button({kX, 530, 260, 76}, busy ? T("Kobler til \xE2\x80\xA6") : T("Fortsett"), m_focus == 1, lift("go", m_focus == 1));
@@ -535,7 +552,7 @@ void Login::draw(double now, float dt)
         std::vector<float> w(nf), at(nf);
         float row_w = 0;
         for (int i = 0; i < nf; i++) {
-            labels[i] = (found[i].name.empty() ? std::string("Jellyfin") : found[i].name) + "  \xC2\xB7  " +
+            labels[i] = (found[i].name.empty() ? std::string("Server") : found[i].name) + "  \xC2\xB7  " +
                         host_of(found[i].address);
             w[i] = std::min(560.f, gfx::text_width(labels[i], {gfx::Bold, 26}) + 64);
             at[i] = row_w;
