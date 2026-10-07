@@ -82,10 +82,12 @@ static const char *sweep_basename(const char *p)
  * carries the access token (ApiKey=), which is never logged. */
 static void sweep_name(char *out, size_t n, const char *path)
 {
+    char whole[1024];
     char *q;
-    snprintf(out, n, "%s", sweep_basename(path));
-    if ((q = strchr(out, '?')) != NULL)
+    snprintf(whole, sizeof(whole), "%s", path ? path : "");
+    if ((q = strchr(whole, '?')) != NULL)   /* the query first: a '/' in it must not hide the token */
         *q = '\0';
+    snprintf(out, n, "%s", sweep_basename(whole));
 }
 
 static uint64_t sweep_p95(const uint64_t *ring, uint32_t count)

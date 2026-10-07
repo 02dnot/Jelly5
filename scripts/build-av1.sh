@@ -41,9 +41,18 @@ die() { echo "ERROR: $*" >&2; exit 1; }
 
 [[ -x "${SDK}/bin/prospero-clang" && -f "${SDK}/target/user/homebrew/lib/libssl.a" ]] ||
     die "SDK sysroot missing: run scripts/setup-toolchain.sh first"
+if [[ "$(uname -s)" == Darwin ]]; then
+    TOOL_HINT="brew install nasm meson ninja pkgconf"
+else
+    TOOL_HINT="apt install nasm meson ninja-build pkg-config"
+fi
 for t in nasm meson ninja pkg-config make curl tar; do
-    command -v "$t" >/dev/null 2>&1 || die "missing host tool: $t (brew install nasm meson ninja pkgconf)"
+    command -v "$t" >/dev/null 2>&1 || die "missing host tool: $t (${TOOL_HINT})"
 done
+# The prefix is replaced wholesale: never let a stray JELLY5_AV1_PREFIX point that at
+# something else (the SDK, a home folder).
+case "$(basename "${AV1}")" in *av1*) ;; *) die "JELLY5_AV1_PREFIX must name an av1 folder: ${AV1}" ;; esac
+[[ "${AV1}" != "${SDK}"* ]] || die "JELLY5_AV1_PREFIX must not be inside the SDK: ${AV1}"
 
 # The toolchain environment (LLVM, lld, GNU coreutils, the SDK's bin).
 eval "$("${ROOT}/scripts/setup-toolchain.sh" --env)"
@@ -83,6 +92,10 @@ fetch "https://downloads.videolan.org/pub/videolan/dav1d/${DAV1D_V}/dav1d-${DAV1
       "${DAV1D_SHA}" "dav1d-${DAV1D_V}.tar.xz"
 fetch "https://ffmpeg.org/releases/ffmpeg-${FF_V}.tar.xz" "${FF_SHA}" "ffmpeg-${FF_V}.tar.xz"
 
+# Built into a fresh prefix beside the old one, which is swapped out only when
+# this one is complete: a failed (re)build leaves the working prefix in place.
+FINAL="${AV1}"
+AV1="${FINAL}.new"
 rm -rf -- "${WORK}" "${AV1}"
 mkdir -p "${WORK}" "${AV1}"
 JOBS="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 8)"
@@ -160,8 +173,18 @@ if has_sym "${AV1}/lib/libavcodec.a" ' D ff_av1_decoder$'; then
     die "FFmpeg still has its hardware-only av1 decoder"
 fi
 
+# pkg-config files carry the prefix they were built for: point them at the final one.
+grep -rl -- "${AV1}" "${AV1}" 2>/dev/null | while IFS= read -r f; do
+    sed -i.bak "s#${AV1}#${FINAL}#g" "$f" && rm -f "$f.bak"
+done
+rm -rf -- "${FINAL}.old"
+[[ -d "${FINAL}" ]] && mv -- "${FINAL}" "${FINAL}.old"
+mv -- "${AV1}" "${FINAL}"
+rm -rf -- "${FINAL}.old"
+AV1="${FINAL}"
+
 echo "==> AV1 prefix ready at ${AV1}"
 for a in libdav1d libavcodec libavformat libavutil libswresample libswscale; do
     printf '    %-16s %s bytes\n' "${a}.a" "$(wc -c < "${AV1}/lib/${a}.a" | tr -d ' ')"
 done
-echo "    build the app with: JELLY5_AV1=1 scripts/build.sh (from app/)"
+echo "    the app builds with it by default (app/scripts/build.sh)"

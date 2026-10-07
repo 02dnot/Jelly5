@@ -141,7 +141,7 @@ fi
 # AV1 (dav1d + FFmpeg 7.1) for the app, in toolchain/av1-prefix: once, ~5-10 min.
 # --no-av1 skips it (then build with JELLY5_AV1=0).
 if [[ " $* " != *" --no-av1 "* ]]; then
-    "${ROOT}/scripts/build-av1.sh"
+    "${ROOT}/scripts/build-av1.sh"   # (checks its own host tools: nasm, meson, ninja, pkg-config)
 fi
 
 echo "==> toolchain ready at ${SDK}"
