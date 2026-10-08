@@ -805,6 +805,10 @@ void open_source(Session &s, int index, double at)
     s.user_picked_subs = false;
     s.keep_subs_pending = false;   /* the remembered tracks were found in the first source's file */
     s_keep_audio = -1;
+    /* The new file's tracks are picked anew: only the viewer's subtitle file comes
+     * back (reset_subtitles), so only that stays their choice. */
+    s.res.audio_picked = false;
+    s.res.subtitle_picked = s.res.subtitle_picked && !s.resub_url.empty();
     s.job.kind = 0;
     s.job.src = evo::PlaybackSource();
     s.job.src.url = src.url;

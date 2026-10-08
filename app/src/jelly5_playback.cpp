@@ -665,7 +665,12 @@ void remembered_tracks(const jf::Client &c, const jf::Item &item, const jf::Play
     if (ch.audio_set && prefs.remember_audio)
         *audio = track_memory::match(pb.streams, "Audio", ch.audio);
     if (ch.subtitle_set && prefs.remember_subtitles) {
-        const int m = ch.subtitle_off ? -1 : track_memory::match(pb.streams, "Subtitle", ch.subtitle);
+        /* An encoded stream brings no picture subtitles to the player (ask_with_tracks):
+         * there the text one in the same language. */
+        track_memory::Track want = ch.subtitle;
+        if (pb.play_method != "DirectPlay")
+            want.image = false;
+        const int m = ch.subtitle_off ? -1 : track_memory::match(pb.streams, "Subtitle", want);
         *subtitle = ch.subtitle_off ? -1 : m >= 0 ? m : -2;
     }
 }
@@ -675,8 +680,10 @@ void remembered_tracks(const jf::Client &c, const jf::Item &item, const jf::Play
  * is asked for again with them (the server applies the indices only to a version
  * it is named). A text subtitle is still served as a file the player draws
  * itself; a picture one is not asked for, as the server would burn it into the
- * picture (the player shows those only from the file itself). The other versions
- * stay, under the new play session. */
+ * picture (the player shows those only from the file itself). One the request
+ * already carries as a file is not asked for either, unless the server's default
+ * is a picture one it would burn in. The other versions stay, under the new play
+ * session; the first answer's encoding is stopped. */
 void ask_with_tracks(jf::Client &c, const jf::Item &item, int64_t max_bitrate, int audio, int subtitle,
                      jf::Playback *pb)
 {
@@ -686,6 +693,13 @@ void ask_with_tracks(jf::Client &c, const jf::Item &item, int64_t max_bitrate, i
     for (const jf::MediaStream &m : pb->streams)
         if (subtitle >= 0 && m.index == subtitle && m.type == "Subtitle" && m.is_text)
             sub = subtitle;
+    bool default_picture = false;
+    for (const jf::MediaStream &m : pb->streams)
+        if (m.type == "Subtitle" && m.index == pb->default_subtitle && pb->default_subtitle >= 0 && !m.is_text)
+            default_picture = true;
+    const std::vector<int> files = request_subtitle_indices(*pb);
+    if (sub >= 0 && !default_picture && std::find(files.begin(), files.end(), sub) != files.end())
+        sub = -2;   /* the player gets it as a file anyway (keepSubtitle) */
     if ((audio < 0 || audio == pb->default_audio) && (sub == -2 || sub == pb->default_subtitle))
         return;
     jf::Playback again;
@@ -701,6 +715,7 @@ void ask_with_tracks(jf::Client &c, const jf::Item &item, int64_t max_bitrate, i
             v.url.replace(at, pb->play_session_id.size(), again.play_session_id);
         again.versions.push_back(std::move(v));
     }
+    c.stop_encoding(*pb);   /* (as the Dolby Vision answer in playback_info) */
     *pb = std::move(again);
 }
 
@@ -930,6 +945,10 @@ extern "C" void jelly5_playback_source(int index)
         s_session.pb.streams = v.streams;   /* its tracks, not the first version's */
         s_session.pb.default_audio = v.default_audio;
         s_session.pb.default_subtitle = v.default_subtitle;
+        /* The tracks known so far were the last file's (the reporter tells the new ones). */
+        s_session.server_audio = -1;
+        s_session.server_subtitle = -2;
+        s_session.subtitle_known_for = -1;
         if (v.play_method != "DirectPlay" || left.play_method == "DirectPlay")
             return;
     }

@@ -201,8 +201,8 @@ Track describe(const jf::MediaStream &m)
     const std::string title = lower(m.title);
     t.forced = m.is_forced || has(title, "forced");
     t.sdh = m.is_hearing_impaired || has(title, "sdh") || has(title, "hearing impaired");
+    t.commentary = has(title, "commentary") || has(title, "kommentar") || has(title, "commentaire");
     if (m.type == "Audio") {
-        t.commentary = has(title, "commentary") || has(title, "kommentar") || has(title, "commentaire");
         t.description = has(title, "description") || has(title, "descriptive") || has(title, "synstolk");
         t.channels = m.channels;
     } else {
@@ -220,6 +220,8 @@ int match(const std::vector<jf::MediaStream> &streams, const char *type, const T
     for (const jf::MediaStream &m : streams) {
         if (m.type != type || m.index < 0)
             continue;
+        if (m.is_external && m.type == "Audio")
+            continue;   /* the player opens the file itself only: a separate audio file is not in it */
         const Track t = describe(m);
         if (t.lang != want.lang || t.forced != want.forced || t.commentary != want.commentary ||
             t.description != want.description)

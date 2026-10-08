@@ -23,7 +23,7 @@ struct Track {
     std::string lang;          /* language key ("en", "no" for every Norwegian code); empty: none given */
     bool forced = false;       /* only the foreign parts */
     bool sdh = false;          /* for the hearing impaired */
-    bool commentary = false;   /* audio: a commentary track */
+    bool commentary = false;   /* a commentary track (audio, or its subtitles) */
     bool description = false;  /* audio: described for the visually impaired */
     bool image = false;        /* subtitles: a picture format (PGS, VobSub), else text */
     int channels = 0;          /* audio */
@@ -42,7 +42,8 @@ Track describe(const jf::MediaStream &m);
 /* The stream ("Audio" or "Subtitle") in streams that is the remembered track's
  * equivalent: the same language, forced and commentary/description alike;
  * then the same SDH, text or picture, the server's default, the most channels.
- * The stream's index, or -1 when no stream is an equivalent. */
+ * A separate audio file is never one (the player plays the file's own). The
+ * stream's index, or -1 when no stream is an equivalent. */
 int match(const std::vector<jf::MediaStream> &streams, const char *type, const Track &want);
 
 /* account: the user's id on its server (unique per server). */
