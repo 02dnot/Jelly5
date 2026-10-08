@@ -51,6 +51,8 @@ typedef struct {
     float    offset[3];         /* ycc_to_rgb_offset */
     float    lms2rgb[9];        /* fixed LMS->RGB times the RPU's rgb_to_lms */
     uint32_t hash;              /* changes whenever any of the above does */
+    int      p5;                /* the RPU's header says profile 5 (vdr_rpu_profile 0,
+                                 * full-range base layer), as dovi_tool reads it */
 } dv_params;
 
 typedef struct dv_parser dv_parser;
@@ -67,11 +69,33 @@ void       dv_parser_reset(dv_parser *p);
  */
 int dv_rpu_parse(dv_parser *p, const uint8_t *nal, int size, dv_params *out);
 
-/* Pack *dv into the coefficient texture the profile 5 shaders read: one float
- * per RG16 texel (layout in tools/shaders/gen_dv5_pipes.py). `dst` holds at
- * least DV_TEX_FLOATS floats. */
-#define DV_TEX_FLOATS 704
-void dv_pack_texture(const dv_params *dv, float *dst);
+/*
+ * The profile 5 pixel shaders' DoviParams uniform block (std140), uploaded
+ * as is. Layout from EVO Player c0c6a5e (media/include/evo_dovi.h,
+ * shaders/agc/video_yuv_p010_dovi*.pipe), GPL-3.0-or-later:
+ *
+ *   ycc[i]      row i of the RPU's YCC -> L'M'S' matrix (nonlinear)
+ *   off         the signal offset subtracted after reshaping
+ *   lms[i]      row i of linear LMS -> linear BT.2020 RGB (lms2rgb)
+ *   lohi[c]     { lowest pivot, highest pivot, has a curve, - }
+ *   piv[c*2..]  the inner pivots of component c, padded with 1e9
+ *   coef[c*8+i] piece i: polynomial {c0, c1, c2, 0} or MMR {constant, index
+ *               into mmr, -, order}
+ *   mmr[c*48+k] the MMR weights, two vec4 per order: {x, y, z, -}, {xy, xz, yz, xyz}
+ */
+#define DV_GPU_MMR_VEC4 48
+typedef struct {
+    float ycc[3][4];
+    float off[4];
+    float lms[3][4];
+    float lohi[3][4];
+    float piv[6][4];
+    float coef[3 * DV_MAX_PIECES][4];
+    float mmr[3 * DV_GPU_MMR_VEC4][4];
+} dv_gpu_params;
+
+/* *dv -> the shader's block. */
+void dv_pack_gpu(const dv_params *dv, dv_gpu_params *out);
 
 /*
  * The playing stream's parameters, by presentation time. The decoder stores
@@ -80,6 +104,13 @@ void dv_pack_texture(const dv_params *dv, float *dst);
  * only while a profile 5 stream plays.
  */
 void dv_session_begin(void);           /* a profile 5 stream opened */
+/* Jelly5: an HEVC 10-bit stream without a configuration record opened (a
+ * server's HLS remux drops it, the RPUs stay). Its first RPU decides: profile
+ * 5 RPUs are used as above, any other ends the session, and so does a run of
+ * pictures without one. */
+void dv_session_begin_probe(void);
+/* A picture without an RPU (counts down the probe). */
+void dv_session_no_rpu(void);
 void dv_session_end(void);
 int  dv_session_active(void);
 void dv_store(int64_t pts_us, const dv_params *dv);

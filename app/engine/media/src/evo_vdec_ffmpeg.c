@@ -433,6 +433,8 @@ static int vdec_receive_inner(evo_vdec *v, pp_frame *out)
         dv_params dvp;
         if (sd && dv_from_avdovi(sd->data, &dvp) == 0)
             dv_store(pts_us, &dvp);
+        else
+            dv_session_no_rpu();
     }
 #endif
     if (pp_map_avframe(frame, out, pts_us) == 0)
