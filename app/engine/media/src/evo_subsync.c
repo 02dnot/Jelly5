@@ -129,6 +129,11 @@ int evo_subsync_path_supported(const char *media_path)
  * read only by the worker (ignored while one runs). */
 static char s_req_headers[4096];
 static char s_req_ua[512];
+/* Jelly5: the server's audio-only source for the next run (evo_subsync_set_server_source). */
+static char   s_audio_url[4096];
+static char   s_cue_url[4096];
+static double s_url_duration_s;
+static int    s_static_fallback;
 
 /* ------------------------------------------------------------------------
  * Bit vectors. Bit i lives in word i >> 6, bit i & 63.
@@ -190,6 +195,7 @@ typedef struct {
     int              en, ecap;
 
     double           read_cap;         /* bytes/s */
+    int              url_windows;      /* Jelly5: each window its own input, from 0 */
     double           io_t0;
     double           io_bytes;
     int64_t          io_last;
@@ -297,7 +303,7 @@ static int ss_decode_window(ss_ctx *c, ss_window *w, int widx)
     double seek_s = w->start_s - margin;
     if (seek_s < 0.0) seek_s = 0.0;
     int64_t ts = (int64_t)((seek_s + c->start_offset_s) * AV_TIME_BASE);
-    if (seek_s > 0.0 &&
+    if (!c->url_windows && seek_s > 0.0 &&
         av_seek_frame(c->fmt, -1, ts, AVSEEK_FLAG_BACKWARD) < 0 &&
         avformat_seek_file(c->fmt, -1, INT64_MIN, ts, ts, 0) < 0) {
         evo_log("subsync: window %d seek to %.1fs failed", widx, w->start_s);
@@ -556,16 +562,143 @@ static ss_curve ss_curve_stats(const double *acc)
  * Entry point
  * ---------------------------------------------------------------------- */
 
-int evo_subsync_analyse(const char *media_path, int audio_stream,
-                        int sub_stream,
-                        const double *cs, const double *ce, int n,
-                        volatile int *cancel, volatile int *progress,
-                        evo_subsync_result_t *res)
+/* Opens `url` into c: its input, the audio stream (audio_stream, else the
+ * best one), the embedded subtitle stream when sub_stream >= 0, and a
+ * decoder. ss_close() undoes it. */
+static int ss_open(ss_ctx *c, const char *url, int audio_stream, int sub_stream)
+{
+    const int net = ss_is_http(url);
+    c->fmt = avformat_alloc_context();
+    if (!c->fmt) return -1;
+    c->fmt->interrupt_callback.callback = ss_interrupt;
+    c->fmt->interrupt_callback.opaque = (void *)c->cancel;
+    AVDictionary *opts = NULL;
+    if (net) {
+        evo_stream_io_apply_network_options(&opts, url);
+        /* This worker's own copy, not what the player holds right now. */
+        av_dict_set(&opts, "headers", s_req_headers[0] ? s_req_headers : NULL, 0);
+        av_dict_set(&opts, "user_agent", s_req_ua[0] ? s_req_ua : NULL, 0);
+        /* Jelly5: a server's audio window starts an encoder before its first byte. */
+        if (c->url_windows) av_dict_set(&opts, "rw_timeout", "20000000", 0);
+    }
+    const int open_rc = avformat_open_input(&c->fmt, url, NULL, &opts);
+    av_dict_free(&opts);
+    if (open_rc < 0) {
+        /* (Never the URL: a server's carries the account's token.) */
+        evo_log("subsync: open failed (%s)", net ? "network" : "file");
+        c->fmt = NULL;      /* freed by avformat_open_input on failure */
+        return -1;
+    }
+    if (avformat_find_stream_info(c->fmt, NULL) < 0) {
+        evo_log("subsync: no stream info");
+        return -1;
+    }
+
+    c->stream = audio_stream;
+    if (c->stream < 0 || c->stream >= (int)c->fmt->nb_streams ||
+        c->fmt->streams[c->stream]->codecpar->codec_type != AVMEDIA_TYPE_AUDIO)
+        c->stream = av_find_best_stream(c->fmt, AVMEDIA_TYPE_AUDIO, -1, -1, NULL, 0);
+    if (c->stream < 0) {
+        evo_log("subsync: no audio stream");
+        return -1;
+    }
+    if (sub_stream >= 0) {
+        if (sub_stream >= (int)c->fmt->nb_streams ||
+            c->fmt->streams[sub_stream]->codecpar->codec_type != AVMEDIA_TYPE_SUBTITLE) {
+            evo_log("subsync: stream %d is not a subtitle track", sub_stream);
+            return -1;
+        }
+        c->sub_stream = sub_stream;
+        c->sub_st = c->fmt->streams[sub_stream];
+    }
+    for (unsigned i = 0; i < c->fmt->nb_streams; i++)
+        c->fmt->streams[i]->discard = ((int)i == c->stream || (int)i == c->sub_stream)
+                                    ? AVDISCARD_DEFAULT : AVDISCARD_ALL;
+    c->st = c->fmt->streams[c->stream];
+
+    const AVCodec *codec = avcodec_find_decoder(c->st->codecpar->codec_id);
+    c->dec = codec ? avcodec_alloc_context3(codec) : NULL;
+    if (!c->dec || avcodec_parameters_to_context(c->dec, c->st->codecpar) < 0) {
+        evo_log("subsync: no decoder for codec %d", (int)c->st->codecpar->codec_id);
+        return -1;
+    }
+    c->dec->pkt_timebase = c->st->time_base;
+    c->dec->thread_count = 1;          /* stay off the playback cores */
+    if (avcodec_open2(c->dec, codec, NULL) < 0) {
+        evo_log("subsync: decoder open failed");
+        return -1;
+    }
+    return 0;
+}
+
+static void ss_close(ss_ctx *c)
+{
+    swr_free(&c->swr);
+    avcodec_free_context(&c->dec);
+    if (c->fmt) avformat_close_input(&c->fmt);
+    c->st = NULL;
+    c->stream = -1;
+}
+
+/* Jelly5: an embedded track's cues from the server's own copy of it (a
+ * subtitle file the server cuts from the container), into c->ecs/ece.
+ * Returns how many, -1 when it could not be read. */
+static int ss_load_cues(ss_ctx *c, const char *url)
+{
+    AVFormatContext *f = avformat_alloc_context();
+    if (!f) return -1;
+    f->interrupt_callback.callback = ss_interrupt;
+    f->interrupt_callback.opaque = (void *)c->cancel;
+    AVDictionary *opts = NULL;
+    evo_stream_io_apply_network_options(&opts, url);
+    av_dict_set(&opts, "headers", s_req_headers[0] ? s_req_headers : NULL, 0);
+    av_dict_set(&opts, "user_agent", s_req_ua[0] ? s_req_ua : NULL, 0);
+    av_dict_set(&opts, "rw_timeout", "20000000", 0);   /* the server extracts it first */
+    const int rc = avformat_open_input(&f, url, NULL, &opts);
+    av_dict_free(&opts);
+    if (rc < 0) {
+        evo_log("subsync: the server's subtitle file did not open");
+        return -1;
+    }
+    AVPacket *pkt = av_packet_alloc();
+    int n = pkt ? 0 : -1;
+    while (pkt && !ss_cancelled(c) && av_read_frame(f, pkt) >= 0) {
+        const AVStream *st = f->streams[pkt->stream_index];
+        if (st->codecpar->codec_type == AVMEDIA_TYPE_SUBTITLE && pkt->pts != AV_NOPTS_VALUE &&
+            pkt->duration > 0) {
+            const double tb = av_q2d(st->time_base);
+            const double t = (double)pkt->pts * tb;
+            if (ss_cue_push(c, t, t + (double)pkt->duration * tb) < 0) {
+                n = -1;
+                av_packet_unref(pkt);
+                break;
+            }
+            n++;
+        }
+        av_packet_unref(pkt);
+    }
+    av_packet_free(&pkt);
+    avformat_close_input(&f);
+    return n;
+}
+
+/* The analysis. media_path is a file (or URL) read window by window; with
+ * audio_url (Jelly5) each window is instead fetched from the server as audio
+ * only, audio_url + "&startTimeTicks=<window start>", which the server seeks
+ * to and returns from 0 - so a window costs a few MB, not a stretch of the
+ * whole file. Its cues come from cs/ce or, for an embedded track, cue_url. */
+static int ss_run(const char *media_path, const char *audio_url, const char *cue_url,
+                  double url_duration_s, int audio_stream, int sub_stream,
+                  const double *cs, const double *ce, int n,
+                  volatile int *cancel, volatile int *progress,
+                  evo_subsync_result_t *res)
 {
     ss_ctx c;
     ss_window win[SS_WINDOWS];
     double *acc = NULL;
     const double t0 = ss_now_s();
+    const int url_mode = audio_url && audio_url[0];
+    int net = 0;
 
     memset(&c, 0, sizeof(c));
     memset(win, 0, sizeof(win));
@@ -577,90 +710,52 @@ int evo_subsync_analyse(const char *media_path, int audio_stream,
     c.stream = -1;
     c.sub_stream = -1;
 
-    if (!media_path ||
-        (sub_stream < 0 && (!cs || !ce || n < SS_MIN_CUES))) {
-        res->status = EVO_SUBSYNC_LOW_CONF;
-        goto done;
-    }
-
-    c.fmt = avformat_alloc_context();
-    if (!c.fmt) goto done;
-    c.fmt->interrupt_callback.callback = ss_interrupt;
-    c.fmt->interrupt_callback.opaque = (void *)cancel;
-    const int net = ss_is_http(media_path);
-    c.read_cap = net ? SS_NET_READ_CAP_BPS : SS_READ_CAP_BPS;
-    AVDictionary *opts = NULL;
-    if (net) {
-        evo_stream_io_apply_network_options(&opts, media_path);
-        /* This worker's own copy, not what the player holds right now. */
-        av_dict_set(&opts, "headers", s_req_headers[0] ? s_req_headers : NULL, 0);
-        av_dict_set(&opts, "user_agent", s_req_ua[0] ? s_req_ua : NULL, 0);
-    }
-    const int open_rc = avformat_open_input(&c.fmt, media_path, NULL, &opts);
-    av_dict_free(&opts);
-    if (open_rc < 0) {
-        /* (Never the path: a server URL carries the account's token.) */
-        evo_log("subsync: open failed (%s)", net ? "network" : "file");
-        c.fmt = NULL;       /* freed by avformat_open_input on failure */
-        goto done;
-    }
-    if (avformat_find_stream_info(c.fmt, NULL) < 0) {
-        evo_log("subsync: no stream info");
-        goto done;
-    }
-
-    c.stream = audio_stream;
-    if (c.stream < 0 || c.stream >= (int)c.fmt->nb_streams ||
-        c.fmt->streams[c.stream]->codecpar->codec_type != AVMEDIA_TYPE_AUDIO)
-        c.stream = av_find_best_stream(c.fmt, AVMEDIA_TYPE_AUDIO, -1, -1, NULL, 0);
-    if (c.stream < 0) {
-        evo_log("subsync: no audio stream");
-        goto done;
-    }
-    if (sub_stream >= 0) {
-        if (sub_stream >= (int)c.fmt->nb_streams ||
-            c.fmt->streams[sub_stream]->codecpar->codec_type != AVMEDIA_TYPE_SUBTITLE) {
-            evo_log("subsync: stream %d is not a subtitle track", sub_stream);
+    if (url_mode) {
+        c.url_windows = 1;
+        c.read_cap = SS_NET_READ_CAP_BPS;
+        if (cue_url && cue_url[0]) {
+            const int got = ss_load_cues(&c, cue_url);
+            evo_log("subsync: %d cues from the server's subtitle file", got);
+            if (got < 0) goto done;
+            cs = c.ecs;
+            ce = c.ece;
+            n = c.en;
+        }
+        if (!cs || !ce || n < SS_MIN_CUES) {
+            res->status = EVO_SUBSYNC_LOW_CONF;
             goto done;
         }
-        c.sub_stream = sub_stream;
-        c.sub_st = c.fmt->streams[sub_stream];
+        c.duration_s = url_duration_s;
+        evo_log("subsync: start (audio from the server) dur=%.0fs cues=%d", c.duration_s, n);
+    } else {
+        if (!media_path ||
+            (sub_stream < 0 && (!cs || !ce || n < SS_MIN_CUES))) {
+            res->status = EVO_SUBSYNC_LOW_CONF;
+            goto done;
+        }
+        net = ss_is_http(media_path);
+        c.read_cap = net ? SS_NET_READ_CAP_BPS : SS_READ_CAP_BPS;
+        if (ss_open(&c, media_path, audio_stream, sub_stream) < 0) goto done;
+        c.start_offset_s = c.fmt->start_time != AV_NOPTS_VALUE
+                         ? (double)c.fmt->start_time / AV_TIME_BASE : 0.0;
+        c.duration_s = c.fmt->duration > 0 ? (double)c.fmt->duration / AV_TIME_BASE
+                     : (c.sub_stream < 0 ? ce[n - 1] * 1.05 : 0.0);
+        evo_log("subsync: start stream=%d codec=%s ch=%d dur=%.0fs cues=%s%d",
+                c.stream, c.dec->codec->name, c.st->codecpar->ch_layout.nb_channels,
+                c.duration_s, c.sub_stream >= 0 ? "embedded#" : "",
+                c.sub_stream >= 0 ? c.sub_stream : n);
     }
-    for (unsigned i = 0; i < c.fmt->nb_streams; i++)
-        c.fmt->streams[i]->discard = ((int)i == c.stream || (int)i == c.sub_stream)
-                                   ? AVDISCARD_DEFAULT : AVDISCARD_ALL;
-    c.st = c.fmt->streams[c.stream];
-
-    const AVCodec *codec = avcodec_find_decoder(c.st->codecpar->codec_id);
-    c.dec = codec ? avcodec_alloc_context3(codec) : NULL;
-    if (!c.dec || avcodec_parameters_to_context(c.dec, c.st->codecpar) < 0) {
-        evo_log("subsync: no decoder for codec %d", (int)c.st->codecpar->codec_id);
-        goto done;
-    }
-    c.dec->pkt_timebase = c.st->time_base;
-    c.dec->thread_count = 1;           /* stay off the playback cores */
-    if (avcodec_open2(c.dec, codec, NULL) < 0) {
-        evo_log("subsync: decoder open failed");
-        goto done;
-    }
-
-    c.start_offset_s = c.fmt->start_time != AV_NOPTS_VALUE
-                     ? (double)c.fmt->start_time / AV_TIME_BASE : 0.0;
-    c.duration_s = c.fmt->duration > 0 ? (double)c.fmt->duration / AV_TIME_BASE
-                 : (c.sub_stream < 0 ? ce[n - 1] * 1.05 : 0.0);
     if (c.duration_s < 60.0) {
         evo_log("subsync: %.0fs is too short to analyse", c.duration_s);
         res->status = EVO_SUBSYNC_LOW_CONF;
         goto done;
     }
-    evo_log("subsync: start stream=%d codec=%s ch=%d dur=%.0fs cues=%s%d",
-            c.stream, codec->name, c.st->codecpar->ch_layout.nb_channels,
-            c.duration_s, c.sub_stream >= 0 ? "embedded#" : "",
-            c.sub_stream >= 0 ? c.sub_stream : n);
 
     /* Windows at 20/50/80%: far apart for drift, clear of opening/closing
      * credits where there is music but no dialogue. */
-    double wlen = c.sub_stream >= 0 ? SS_WINDOW_EMB_S : net ? SS_NET_WINDOW_S : SS_WINDOW_S;
+    /* (A server's audio windows are cheap: the full length EVO calibrated.) */
+    double wlen = url_mode ? SS_WINDOW_S : c.sub_stream >= 0 ? SS_WINDOW_EMB_S
+                : net ? SS_NET_WINDOW_S : SS_WINDOW_S;
     if (wlen > c.duration_s / 4.0) wlen = c.duration_s / 4.0;
     static const double centres[SS_WINDOWS] = { 0.2, 0.5, 0.8 };
     for (int i = 0; i < SS_WINDOWS; i++) {
@@ -677,6 +772,18 @@ int evo_subsync_analyse(const char *media_path, int audio_stream,
     c.io_t0 = ss_now_s();
     for (int i = 0; i < SS_WINDOWS; i++) {
         double wt = ss_now_s();
+        if (url_mode) {
+            /* The window from the server: its audio starts at 0, which is
+             * win[i].start_s in the film. Each its own play session: Jellyfin
+             * (12.2) names an encoder's output by device and session only, and
+             * would serve the first window's again for the next. */
+            ss_close(&c);
+            char u[sizeof(s_audio_url) + 96];
+            snprintf(u, sizeof(u), "%s&startTimeTicks=%lld&playSessionId=jelly5sync%llx%d", audio_url,
+                     (long long)llround(win[i].start_s * 1e7), (unsigned long long)(t0 * 1000.0), i);
+            if (ss_open(&c, u, -1, -1) < 0) goto done;
+            c.start_offset_s = -win[i].start_s;
+        }
         if (ss_decode_window(&c, &win[i], i) < 0) goto done;
         if (ss_cancelled(&c)) break;
         win[i].valid = win[i].speech_frames >= (int)(win[i].frames * SS_MIN_SPEECH);
@@ -810,9 +917,7 @@ done:
     free(c.ece);
     for (int i = 0; i < SS_WINDOWS; i++) free(win[i].bits);
     free(c.out);
-    swr_free(&c.swr);
-    avcodec_free_context(&c.dec);
-    if (c.fmt) avformat_close_input(&c.fmt);
+    ss_close(&c);
     if (cancel && *cancel) res->status = EVO_SUBSYNC_CANCELLED;
     res->elapsed_s = ss_now_s() - t0;
     if (progress) *progress = 100;
@@ -820,6 +925,16 @@ done:
             res->status, res->delay_s, res->scale, res->confidence,
             res->windows_used, res->elapsed_s);
     return res->status;
+}
+
+int evo_subsync_analyse(const char *media_path, int audio_stream,
+                        int sub_stream,
+                        const double *cs, const double *ce, int n,
+                        volatile int *cancel, volatile int *progress,
+                        evo_subsync_result_t *res)
+{
+    return ss_run(media_path, NULL, NULL, 0.0, audio_stream, sub_stream, cs, ce, n,
+                  cancel, progress, res);
 }
 
 /* ------------------------------------------------------------------------
@@ -845,8 +960,20 @@ static void *ss_worker(void *arg)
 {
     (void)arg;
     evo_subsync_result_t r;
-    evo_subsync_analyse(s_path, s_stream, s_sub_stream, s_cs, s_ce, s_n,
-                        &s_cancel, &s_progress, &r);
+    if (s_audio_url[0]) {
+        ss_run(s_path, s_audio_url, s_cue_url, s_url_duration_s, s_stream, s_sub_stream,
+               s_cs, s_ce, s_n, &s_cancel, &s_progress, &r);
+        /* The server would not give the audio: the file itself, where the
+         * caller allowed it (a small one). */
+        if (r.status == EVO_SUBSYNC_ERROR && s_static_fallback && !s_cancel) {
+            evo_log("subsync: no audio from the server, reading the file");
+            evo_subsync_analyse(s_path, s_stream, s_sub_stream, s_cs, s_ce, s_n,
+                                &s_cancel, &s_progress, &r);
+        }
+    } else {
+        evo_subsync_analyse(s_path, s_stream, s_sub_stream, s_cs, s_ce, s_n,
+                            &s_cancel, &s_progress, &r);
+    }
     pthread_mutex_lock(&s_mx);
     if (!s_cancel) {
         s_result = r;
@@ -926,6 +1053,16 @@ void evo_subsync_cancel(void)
 }
 
 int evo_subsync_running(void) { return s_running; }
+
+void evo_subsync_set_server_source(const char *audio_url, const char *cue_url,
+                                   double duration_s, int static_fallback)
+{
+    if (s_running) return;
+    snprintf(s_audio_url, sizeof(s_audio_url), "%s", audio_url ? audio_url : "");
+    snprintf(s_cue_url, sizeof(s_cue_url), "%s", cue_url ? cue_url : "");
+    s_url_duration_s = duration_s;
+    s_static_fallback = static_fallback;
+}
 
 void evo_subsync_set_request_headers(const char *headers, const char *user_agent)
 {

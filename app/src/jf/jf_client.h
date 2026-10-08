@@ -373,6 +373,15 @@ public:
                        const std::string &media_source_id = std::string(), bool channel = false);
     std::string image_url(const std::string &owner, const char *type, const std::string &tag,
                           int width) const;
+    /* Subtitle auto-sync (evo_subsync): what it reads from the server instead of the
+     * film's file. sync_audio_url: one audio track of a version, as 16 kHz mono PCM
+     * (WAV), to which the caller appends "&startTimeTicks=N" per window; empty when
+     * the server cannot give that track alone. subtitle_file_url: an embedded text
+     * track as the server cuts it out (SRT); empty for any other. Both authorised
+     * (never log them). container_index: a stream's index in the file itself. */
+    std::string sync_audio_url(const std::string &item_id, const Version &v, const MediaStream &audio) const;
+    std::string subtitle_file_url(const std::string &item_id, const Version &v, const MediaStream &sub) const;
+    static int container_index(const Version &v, const MediaStream &s);
 
     void report_start(const Playback &pb, int64_t position_ticks);
     /* audio_index, subtitle_index: the server's stream indices (as playback_info's;

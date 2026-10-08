@@ -394,6 +394,24 @@ std::string request_json(jf::Client &c, const jf::Item &it, const jf::Playback &
                                   : v.play_method == "DirectStream" ? "Direktestr\xC3\xB8m" : "Transkodet av serveren"));
         cJSON_AddStringToObject(src, "addon", "Jellyfin");
         cJSON_AddStringToObject(src, "url", v.url.c_str());
+        if (v.play_method == "DirectPlay") {
+            /* Subtitle auto-sync: each audio track the server gives alone, and each embedded
+             * text track as a file, by its place in the file (the player's stream index). */
+            cJSON *sync_audio = cJSON_CreateArray(), *sync_subs = cJSON_CreateArray();
+            for (const jf::MediaStream &m : v.streams) {
+                const std::string u = m.type == "Audio" ? c.sync_audio_url(pb.item_id, v, m)
+                                                        : c.subtitle_file_url(pb.item_id, v, m);
+                const int at = jf::Client::container_index(v, m);
+                if (u.empty() || at < 0)
+                    continue;
+                cJSON *e = cJSON_CreateObject();
+                cJSON_AddNumberToObject(e, "stream", at);
+                cJSON_AddStringToObject(e, "url", u.c_str());
+                cJSON_AddItemToArray(m.type == "Audio" ? sync_audio : sync_subs, e);
+            }
+            cJSON_AddItemToObject(src, "syncAudio", sync_audio);
+            cJSON_AddItemToObject(src, "syncSubtitles", sync_subs);
+        }
         cJSON_AddItemToArray(sources, src);
     }
     cJSON_AddItemToObject(o, "sources", sources);

@@ -22,6 +22,9 @@ struct NuvioSource {
     std::string id, title, description, addon, url, quality;
     std::string headers;          /* "Name: value\r\n" lines */
     std::string user_agent;
+    /* Jelly5: subtitle auto-sync's server sources by the file's stream index: an audio
+     * track alone, an embedded text track as a file (jf::Client::sync_audio_url ...). */
+    std::map<int, std::string> sync_audio, sync_subtitles;
 };
 
 struct NuvioEpisode {

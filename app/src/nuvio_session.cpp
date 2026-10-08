@@ -209,6 +209,11 @@ bool nuvio_request_parse(const char *json, NuvioRequest &r)
         s.url = str_of(it, "url");
         s.quality = str_of(it, "quality");
         s.headers = nuvio_headers_from_json(cJSON_GetObjectItemCaseSensitive(it, "headers"), &s.user_agent);
+        const cJSON *e;
+        cJSON_ArrayForEach(e, cJSON_GetObjectItemCaseSensitive(it, "syncAudio"))
+            s.sync_audio[int_of<int>(e, "stream", -1)] = str_of(e, "url");
+        cJSON_ArrayForEach(e, cJSON_GetObjectItemCaseSensitive(it, "syncSubtitles"))
+            s.sync_subtitles[int_of<int>(e, "stream", -1)] = str_of(e, "url");
         if (!s.url.empty())
             r.sources.push_back(s);
     }

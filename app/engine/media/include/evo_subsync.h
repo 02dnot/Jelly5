@@ -79,6 +79,16 @@ int  evo_subsync_path_supported(const char *media_path);
  * http(s) media path; copied, and used by the next start. Ignored while a run
  * is going. */
 void evo_subsync_set_request_headers(const char *headers, const char *user_agent);
+/* Jelly5: for the next start, the media server's audio-only stream of the
+ * film (empty: read media_path itself). Each window is fetched as audio_url +
+ * "&startTimeTicks=<window start>&playSessionId=<its own>" and its audio
+ * taken to start there. An
+ * embedded track's cues then come from cue_url (the server's subtitle file of
+ * it) instead of the file's packets. duration_s is the film's length. With
+ * static_fallback, a run the server gives no audio for reads media_path
+ * instead. Ignored while a run is going. */
+void evo_subsync_set_server_source(const char *audio_url, const char *cue_url,
+                                   double duration_s, int static_fallback);
 
 /* "25->23.976 fps" for a standard ratio, NULL for 1.0 / anything else. */
 const char *evo_subsync_ratio_label(double scale);

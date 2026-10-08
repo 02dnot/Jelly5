@@ -1385,6 +1385,50 @@ std::string Client::image_url(const std::string &owner, const char *type, const 
            "&quality=90&tag=" + tag;
 }
 
+/* Jellyfin numbers a version's external files first and its embedded streams after
+ * them; Emby puts the external ones last. Either way an embedded stream's place in
+ * the file is its index less the external ones in front of it. */
+int Client::container_index(const Version &v, const MediaStream &s)
+{
+    if (s.is_external || s.index < 0)
+        return -1;
+    int before = 0;
+    for (const MediaStream &m : v.streams)
+        if (m.is_external && m.index < s.index)
+            before++;
+    return s.index - before;
+}
+
+std::string Client::sync_audio_url(const std::string &item_id, const Version &v, const MediaStream &audio) const
+{
+    if (audio.type != "Audio" || audio.is_external || audio.index < 0)
+        return std::string();
+    if (!emby()) {
+        /* Jellyfin's /Audio/{id}/stream maps no stream (2026-10-08, 12.2: audioStreamIndex
+         * is ignored), so its encoder takes FFmpeg's own pick: the default track, then
+         * the most channels, then the first. Any other track cannot be had alone. */
+        const MediaStream *pick = nullptr;
+        auto score = [](const MediaStream &m) { return m.channels + (m.is_default ? 5000000 : 0); };
+        for (const MediaStream &m : v.streams)
+            if (m.type == "Audio" && !m.is_external && (!pick || score(m) > score(*pick)))
+                pick = &m;
+        if (!pick || pick->index != audio.index)
+            return std::string();
+    }
+    return server_ + "/Audio/" + url_escape(item_id) + "/stream.wav?audioCodec=pcm_s16le&mediaSourceId=" +
+           url_escape(v.id) + "&audioStreamIndex=" + std::to_string(audio.index) +
+           "&audioChannels=1&audioSampleRate=16000&deviceId=" + url_escape(device_id_) + "&" + token_param() + "=" +
+           token_;
+}
+
+std::string Client::subtitle_file_url(const std::string &item_id, const Version &v, const MediaStream &sub) const
+{
+    if (sub.type != "Subtitle" || sub.is_external || !sub.is_text || sub.index < 0)
+        return std::string();
+    return server_ + "/Videos/" + url_escape(item_id) + "/" + url_escape(v.id) + "/Subtitles/" +
+           std::to_string(sub.index) + "/Stream.srt?" + token_param() + "=" + token_;
+}
+
 /*
  * What the PS5 plays itself (EVO/Nuvio engine): sceVideodec2 decodes H.264
  * up to High and HEVC Main/Main10 up to 3840x2176 and VP9; FFmpeg covers

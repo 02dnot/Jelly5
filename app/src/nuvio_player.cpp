@@ -849,10 +849,17 @@ void open_source(Session &s, int index, double at)
     evo_bt("nuvio: opening source %d at %.1f s", index, at);
 }
 
-/* Subtitle auto-sync listens to the film's own file, so it runs on direct play only
- * (a transcode's timeline is the server's, a live channel has no file), for a text
- * track: an external one by its cues, an embedded one by its stream. */
-bool sync_possible(const Session &s)
+/* Subtitle auto-sync listens to the film's dialogue: on direct play only (a transcode's
+ * timeline is the server's, a live channel has none), for a text track. The audio
+ * comes from the server alone (jf::Client::sync_audio_url, a few MB a window), an
+ * embedded track's cues as the server's file of it. The film's own file is read
+ * instead only when it is small (<= 10 Mbit/s): a 4K remux would be gigabytes. */
+struct SyncPlan {
+    std::string audio_url, cue_url;
+    bool file_ok = false;   /* the file itself may be read (also when the server's audio fails) */
+};
+
+bool sync_plan(const Session &s, SyncPlan *plan)
 {
     const std::string &u = s.job.src.url;
     if (!s.started || u.find("static=true") == std::string::npos || u.find("liveStreamId=") != std::string::npos ||
@@ -860,7 +867,28 @@ bool sync_possible(const Session &s)
         return false;
     nuvio_sub_track t;
     const int sel = nuvio_subs_selected();
-    return sel >= 0 && nuvio_subs_track(sel, &t) == 0 && !t.bitmap && t.state == 1 && (t.external || t.stream >= 0);
+    if (sel < 0 || nuvio_subs_track(sel, &t) != 0 || t.bitmap || t.state != 1 || (!t.external && t.stream < 0))
+        return false;
+    const NuvioSource *src = s.req.source_index >= 0 && s.req.source_index < (int)s.req.sources.size()
+                                 ? &s.req.sources[s.req.source_index]
+                                 : nullptr;
+    plan->file_ok = play_fmt && play_fmt->bit_rate > 0 && play_fmt->bit_rate <= 10000000;
+    if (src) {
+        const auto a = src->sync_audio.find(s_pb->getActiveAudioStream());
+        const auto c = t.external ? src->sync_subtitles.end() : src->sync_subtitles.find(t.stream);
+        if (a != src->sync_audio.end() && (t.external || c != src->sync_subtitles.end())) {
+            plan->audio_url = a->second;
+            if (!t.external)
+                plan->cue_url = c->second;
+        }
+    }
+    return !plan->audio_url.empty() || plan->file_ok;
+}
+
+bool sync_possible(const Session &s)
+{
+    SyncPlan plan;
+    return sync_plan(s, &plan);
 }
 
 void sync_cancel(Session &s)
@@ -877,13 +905,16 @@ void sync_start(Session &s)
         sync_cancel(s);
         return;
     }
-    if (!sync_possible(s))
+    SyncPlan plan;
+    if (!sync_plan(s, &plan))
         return;
     const int sel = nuvio_subs_selected();
     nuvio_sub_track t;
     if (nuvio_subs_track(sel, &t) != 0)
         return;
     evo_subsync_set_request_headers(s.req.headers.c_str(), s.req.user_agent.c_str());
+    evo_subsync_set_server_source(plan.audio_url.c_str(), plan.cue_url.c_str(), s_pb->getDurationSeconds(),
+                                  plan.file_ok ? 1 : 0);
     const int audio = s_pb->getActiveAudioStream();
     int ok = 0;
     if (t.external) {
@@ -897,8 +928,8 @@ void sync_start(Session &s)
     }
     s.sync_track = sel;
     s.sync_result = ok ? std::string() : std::string(T("Kunne ikke starte"));
-    evo_bt("subsync: %s for subtitle track %d (%s)", ok ? "started" : "not started", sel,
-           t.external ? "external" : "embedded");
+    evo_bt("subsync: %s for subtitle track %d (%s, audio %s)", ok ? "started" : "not started", sel,
+           t.external ? "external" : "embedded", plan.audio_url.empty() ? "from the file" : "from the server");
 }
 
 /* A finished run: its delay (and rate) for the track it ran on, if that is still on.
