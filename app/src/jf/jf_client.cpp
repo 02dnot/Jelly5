@@ -129,6 +129,7 @@ Item item_of(const cJSON *o)
     Item it;
     it.id = str_of(o, "Id");
     it.name = str_of(o, "Name");
+    it.sort_name = str_of(o, "SortName");
     it.type = str_of(o, "Type");
     it.overview = str_of(o, "Overview");
     it.official_rating = str_of(o, "OfficialRating");
@@ -306,6 +307,7 @@ Features Client::features() const
     if (emby()) {
         f.quick_connect = f.syncplay = f.lyrics = false;
         f.home_sections = false;
+        f.latin_sort_names = false;
     }
     return f;
 }
@@ -686,7 +688,8 @@ Page Client::library(const std::string &parent_id, const std::string &types, con
                       "&IncludeItemTypes=" + types +
                       "&Recursive=true&SortBy=" + sort_by + "&SortOrder=" + (descending ? "Descending" : "Ascending") +
                       "&StartIndex=" + std::to_string(start) + "&Limit=" + std::to_string(limit) +
-                      "&fields=" + kFields + kImages + "&EnableTotalRecordCount=true" + filter, &body))
+                      "&fields=" + kFields + ",SortName" + kImages + "&EnableTotalRecordCount=true" + filter,   /* SortName: the letter jump */
+                  &body))
         return page;
     page.ok = true;
     page.items = items_of(body);

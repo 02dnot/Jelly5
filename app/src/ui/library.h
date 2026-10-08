@@ -17,6 +17,7 @@
 #include "ui/item_menu.h"
 #include "ui/screen.h"
 
+#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -82,6 +83,9 @@ private:
         unsigned genres_gen = 0;    /* bumped on a source switch: stale genres are dropped */
         int jump_to = -1;           /* an A-Å jump that has landed: the index */
         std::string jump_letter;
+        unsigned list_changes = 0;  /* bumped when titles leave the list or it is swapped in place */
+        std::map<int, int> letter_counts;   /* the server's count before each letter, while these match: */
+        unsigned letters_gen = ~0u, letters_changes = ~0u;
     };
     /* What the viewer narrows the library to (Jellyfin's own filters). */
     struct Filters {

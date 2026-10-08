@@ -27,6 +27,7 @@ constexpr int64_t kTicksPerSecond = 10000000;
 
 struct Item {
     std::string id, name, type;               /* Movie, Series, Episode, ... */
+    std::string sort_name;                    /* the server's SortName (library pages only) */
     std::string overview, official_rating;
     std::string video3d;                      /* Video3DFormat: HalfSideBySide, MVC ... (empty: 2D) */
     std::string series_id, series_name, season_id, season_name;
@@ -201,6 +202,7 @@ struct Features {
     bool syncplay = true;                     /* "Se sammen" */
     bool lyrics = true;
     bool home_sections = true;                /* the web client's home order (DisplayPreferences) */
+    bool latin_sort_names = true;             /* SortName in Latin letters: Jellyfin's are, Emby's keep their script */
 };
 
 class Client {

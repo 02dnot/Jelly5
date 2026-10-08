@@ -14,6 +14,9 @@ mkdir -p "$OUT/base"
 git -C "$APP" show "$REF:app/src/jf/jf_client.cpp" > "$OUT/base/jf_client.cpp"
 git -C "$APP" show "$REF:app/src/jf/jf_client.h" > "$OUT/base/jf_client.h"
 cp "$APP/src/jf/jf_http.h" "$OUT/base/"
+# the client's own headers as they were at $REF (json_num.h came with #30)
+git -C "$APP" show "$REF:app/src/jf/json_num.h" > "$OUT/base/json_num.h" 2>/dev/null ||
+    cp "$APP/src/jf/json_num.h" "$OUT/base/"
 clang -O1 -c "$APP/engine/addons/src/cJSON.c" -I"$APP/engine/addons/include" -o "$OUT/cJSON.o"
 build() {   # $1: the client's source folder, $2: output, the rest: extra flags
     clang++ -std=c++17 -O1 -Wall -I"$1" -I"$APP/engine/addons/include" "${@:3}" \
