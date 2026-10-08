@@ -29,6 +29,11 @@ typedef enum ui_weight {
 /* Loads the embedded fonts (once). 0 on success. */
 int ui_text_init(void);
 
+/* Reads one of the console's fonts, given as /preinst/common/font/...: there,
+ * else under the app sandbox's own word. A malloc'd copy and its size, or
+ * NULL (logged). Subtitles use it too. */
+uint8_t *ui_text_read_system_font(const char *sys_path, size_t *size);
+
 /* Ascent (above the baseline) and descent (below, positive) for a size. */
 void ui_text_metrics(ui_weight w, float size, float *ascent, float *descent);
 

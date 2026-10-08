@@ -6,6 +6,7 @@
 #include "nuvio_subs.h"
 
 #include "ui_assets.h"
+#include "ui_text.h"
 
 #include "evo_boot_trace.h"
 
@@ -51,6 +52,7 @@ typedef struct strack {
     int nseen, capseen;
     bmp_event *ev;
     int nev, capev;
+    size_t bytes;             /* the bitmap events' pixels */
     int need_flush;
     char *url, *headers;      /* external */
     int loading;
@@ -72,6 +74,7 @@ static unsigned s_style_gen = 1;
 static int s_file_fonts;        /* fonts the open file carries for its styled subtitles */
 static int s_session;         /* bumped by close: stale loader results are dropped */
 static int s_loader_up;
+static int s_loader_busy;     /* the loader is parsing a track outside the lock */
 
 /* What was last drawn, to tell when a redraw is needed. */
 static struct {
@@ -86,40 +89,54 @@ static struct {
 
 /* ---- fonts -------------------------------------------------------------- */
 
+/* libass copies every font it is given into s_lib and keeps it until
+ * ass_clear_fonts. What was added since the last clear, so a font is added once. */
+static char s_sysfonts[8][64];
+static int s_nsysfonts;
+static struct {
+    char name[64];
+    int size;
+} s_attached[128];
+static int s_nattached;
+
 static void add_font_asset(const char *name, ui_asset a)
 {
     if (a.data && a.size)
         ass_add_font(s_lib, name, (const char *)a.data, (int)a.size);
 }
 
+/* A font the file carries, once (by file name and size): a file can carry
+ * the same font twice, and a reopen meets them again. */
+static void add_attached_font(const char *name, const uint8_t *data, int size)
+{
+    for (int i = 0; i < s_nattached; i++)
+        if (s_attached[i].size == size &&
+            !strncmp(s_attached[i].name, name, sizeof s_attached[i].name - 1))
+            return;
+    ass_add_font(s_lib, name, (const char *)data, size);
+    if (s_nattached < (int)(sizeof s_attached / sizeof s_attached[0])) {
+        snprintf(s_attached[s_nattached].name, sizeof s_attached[0].name, "%s", name);
+        s_attached[s_nattached].size = size;
+        s_nattached++;
+    }
+}
+
 /* The console's CJK / Thai fonts, added when a track needs them. */
 static void add_system_font(const char *path)
 {
-    static char added[8][64];
-    static int nadded;
-    struct stat st;
-    for (int i = 0; i < nadded; i++)
-        if (!strcmp(added[i], path))
+    for (int i = 0; i < s_nsysfonts; i++)
+        if (!strcmp(s_sysfonts[i], path))
             return;
-    if (nadded >= 8 || stat(path, &st) != 0 || st.st_size <= 0)
+    if (!s_rend || s_nsysfonts >= 8)
         return;
-    int fd = open(path, O_RDONLY);
-    if (fd < 0)
-        return;
-    char *buf = (char *)malloc((size_t)st.st_size);
+    snprintf(s_sysfonts[s_nsysfonts++], sizeof s_sysfonts[0], "%s", path);   /* tried once, found or not */
     size_t got = 0;
-    while (buf && got < (size_t)st.st_size) {
-        ssize_t n = read(fd, buf + got, (size_t)st.st_size - got);
-        if (n <= 0) break;
-        got += (size_t)n;
-    }
-    close(fd);
-    if (buf && got == (size_t)st.st_size) {
-        ass_add_font(s_lib, path, buf, (int)got);
-        ass_set_fonts(s_rend, NULL, "Roboto", ASS_FONTPROVIDER_NONE, NULL, 0);
-        snprintf(added[nadded++], sizeof added[0], "%s", path);
-        evo_bt("subs: added font %s", path);
-    }
+    char *buf = (char *)ui_text_read_system_font(path, &got);
+    if (!buf)
+        return;
+    ass_add_font(s_lib, path, buf, (int)got);
+    ass_set_fonts(s_rend, NULL, "Roboto", ASS_FONTPROVIDER_NONE, NULL, 0);
+    evo_bt("subs: added font %s", path);
     free(buf);
 }
 
@@ -130,7 +147,7 @@ static void fonts_for_language(const char *lang)
     if (!strncasecmp(lang, "ja", 2) || !strncasecmp(lang, "jpn", 3))
         add_system_font("/preinst/common/font/SSTJpPro-Regular.otf");
     else if (!strncasecmp(lang, "ko", 2) || !strncasecmp(lang, "kor", 3))
-        add_system_font("/preinst/common/font/YoonGothicProSIE760.otf");
+        add_system_font("/preinst/common/font/YoonGothicProSIE720.otf");
     else if (!strncasecmp(lang, "zh", 2) || !strncasecmp(lang, "chi", 3) ||
              !strncasecmp(lang, "zho", 3) || !strncasecmp(lang, "cmn", 3) ||
              !strncasecmp(lang, "yue", 3))
@@ -250,14 +267,9 @@ static void ass_log(int level, const char *fmt, va_list va, void *data)
     evo_bt("libass: %s", line);
 }
 
-int nuvio_subs_init(void)
+/* The app's own fonts and the renderer: at init, and after the fonts are cleared. */
+static int setup_renderer(void)
 {
-    if (s_lib)
-        return 0;
-    if (!(s_lib = ass_library_init()))
-        return -1;
-    ass_set_message_cb(s_lib, ass_log, NULL);
-    ass_set_extract_fonts(s_lib, 1);
     add_font_asset("Roboto-Regular.ttf", ui_asset_font_roboto_regular());
     add_font_asset("Roboto-Bold.ttf", ui_asset_font_roboto_bold());
     add_font_asset("NotoNaskhArabicUI-Regular.ttf", ui_asset_font_naskh_regular());
@@ -270,6 +282,36 @@ int nuvio_subs_init(void)
     ass_set_hinting(s_rend, ASS_HINTING_NONE);
     ass_set_shaper(s_rend, ASS_SHAPING_COMPLEX);
     ass_set_cache_limits(s_rend, 0, 64);
+    return 0;
+}
+
+/* Drops every font the last file brought (attachments, [Fonts] sections, the
+ * console's CJK fonts). libass allows it only with no track and no renderer
+ * alive, so the renderer is made again. Caller holds s_lock, with every track
+ * freed and the loader idle. */
+static void clear_fonts(void)
+{
+    if (!s_lib || !s_rend)
+        return;
+    ass_renderer_done(s_rend);
+    s_rend = NULL;
+    ass_clear_fonts(s_lib);
+    s_nsysfonts = 0;
+    s_nattached = 0;
+    if (setup_renderer() != 0)
+        evo_bt("subs: libass renderer failed");
+}
+
+int nuvio_subs_init(void)
+{
+    if (s_lib)
+        return 0;
+    if (!(s_lib = ass_library_init()))
+        return -1;
+    ass_set_message_cb(s_lib, ass_log, NULL);
+    ass_set_extract_fonts(s_lib, 1);
+    if (setup_renderer() != 0)
+        return -1;
     for (int i = 0; i < MAX_STREAMS; i++)
         s_stream_map[i] = -1;
     return 0;
@@ -381,6 +423,19 @@ static void free_events(strack *t)
     free(t->ev);
     t->ev = NULL;
     t->nev = t->capev = 0;
+    t->bytes = 0;
+}
+
+/* A bitmap track holds at most this many bytes of pixels: a hostile one (a full
+ * screen cue every 100 ms) fills memory faster than the 30 s window frees it. */
+#define BITMAP_CAP ((size_t)256 << 20)
+
+static size_t event_bytes(const bmp_event *e)
+{
+    size_t n = 0;
+    for (int k = 0; k < e->n; k++)
+        n += (size_t)e->r[k].img.w * (size_t)e->r[k].img.h * 4;
+    return n;
 }
 
 static void free_track(strack *t)
@@ -453,9 +508,9 @@ void nuvio_subs_open(AVFormatContext *fmt, int video_stream)
                                                    strcasestr(name->value, ".otf") ||
                                                    strcasestr(name->value, ".ttc")));
             if (is_font && par->extradata && par->extradata_size > 0) {
-                ass_add_font(s_lib, name && name->value ? name->value : "attachment",
-                             (const char *)par->extradata, par->extradata_size);
-                s_file_fonts++;
+                add_attached_font(name && name->value ? name->value : "attachment",
+                                  par->extradata, par->extradata_size);
+                s_file_fonts++;   /* (the file carries it, whether or not libass already had it) */
             }
             continue;
         }
@@ -464,6 +519,7 @@ void nuvio_subs_open(AVFormatContext *fmt, int video_stream)
         strack *t = &s_tracks[s_ntracks];
         memset(t, 0, sizeof *t);
         t->stream = (int)i;
+        t->info.stream = (int)i;
         t->tb = st->time_base;
         copy_meta(t->info.lang, sizeof t->info.lang, st->metadata, "language");
         copy_meta(t->info.title, sizeof t->info.title, st->metadata, "title");
@@ -512,6 +568,8 @@ void nuvio_subs_close(void)
     for (int i = 0; i < s_ntracks; i++)
         free_track(&s_tracks[i]);
     s_ntracks = 0;
+    if (!s_loader_busy)
+        clear_fonts();   /* else the next close does it */
     s_selected = -1;
     s_delay_ms = 0;
     s_session++;
@@ -533,6 +591,23 @@ int nuvio_subs_track(int i, nuvio_sub_track *out)
     pthread_mutex_lock(&s_lock);
     if (i >= 0 && i < s_ntracks) {
         *out = s_tracks[i].info;
+        rc = 0;
+    }
+    pthread_mutex_unlock(&s_lock);
+    return rc;
+}
+
+int nuvio_subs_track_source(int i, char **url, char **headers, int *stream)
+{
+    int rc = -1;
+    *url = *headers = NULL;
+    *stream = -1;
+    pthread_mutex_lock(&s_lock);
+    if (i >= 0 && i < s_ntracks) {
+        const strack *t = &s_tracks[i];
+        *url = t->url ? strdup(t->url) : NULL;
+        *headers = t->headers ? strdup(t->headers) : NULL;
+        *stream = t->stream;
         rc = 0;
     }
     pthread_mutex_unlock(&s_lock);
@@ -596,8 +671,13 @@ void nuvio_subs_get_style(nuvio_sub_style *out)
 static void add_bitmap_event(strack *t, const AVSubtitle *sub, int64_t start, int64_t end)
 {
     /* An event closes the one before it when that had no end of its own. */
-    if (t->nev > 0 && t->ev[t->nev - 1].end == INT64_MAX && t->ev[t->nev - 1].start <= start)
-        t->ev[t->nev - 1].end = start;
+    int prev = t->nev - 1;
+    while (prev >= 0 && t->ev[prev].start > start)
+        prev--;
+    if (prev >= 0 && t->ev[prev].start == start && sub->num_rects > 0)
+        return;               /* still held: a seek back read it again */
+    if (prev >= 0 && t->ev[prev].end == INT64_MAX)
+        t->ev[prev].end = start;
     if (sub->num_rects == 0)
         return;               /* a clear: only ends the previous one */
     if (t->nev == t->capev) {
@@ -620,8 +700,12 @@ static void add_bitmap_event(strack *t, const AVSubtitle *sub, int64_t start, in
         if (r->type != SUBTITLE_BITMAP || r->w <= 0 || r->h <= 0 || !r->data[0] || !r->data[1])
             continue;
         bmp_rect *br = &e->r[e->n];
+        const size_t need = (size_t)r->w * (size_t)r->h * 4;
+        if (t->bytes + need > BITMAP_CAP)
+            continue;         /* over the cap: this cue is not shown */
         if (ui_image_alloc(&br->img, r->w, r->h) != 0)
             continue;
+        t->bytes += need;
         const uint32_t *pal = (const uint32_t *)r->data[1];
         for (int y = 0; y < r->h; y++) {
             const uint8_t *src = r->data[0] + (size_t)y * r->linesize[0];
@@ -721,10 +805,14 @@ void nuvio_subs_on_packet(AVFormatContext *fmt, const AVPacket *pkt)
 void nuvio_subs_on_seek(void)
 {
     pthread_mutex_lock(&s_lock);
-    /* Only bitmap decoders keep state across packets (PGS display sets). */
+    /* Only bitmap decoders keep state across packets (PGS display sets).
+     * Their cues are taken again: the render drops those long past, and
+     * add_bitmap_event skips the ones it still holds. */
     for (int i = 0; i < s_ntracks; i++)
-        if (s_tracks[i].dec && s_tracks[i].info.bitmap)
+        if (s_tracks[i].dec && s_tracks[i].info.bitmap) {
             s_tracks[i].need_flush = 1;
+            s_tracks[i].nseen = 0;
+        }
     pthread_mutex_unlock(&s_lock);
 }
 
@@ -843,13 +931,18 @@ static uint8_t *gunzip(const uint8_t *in, size_t n, size_t *out_len)
     memset(&z, 0, sizeof z);
     if (inflateInit2(&z, 15 + 32) != Z_OK)
         return NULL;
-    size_t cap = n * 4 + 65536, got = 0;
+    size_t cap = n < ((size_t)16 << 20) ? n * 4 + 65536 : (size_t)64 << 20, got = 0;
     uint8_t *out = (uint8_t *)malloc(cap + 1);
     z.next_in = (Bytef *)in;
     z.avail_in = (uInt)n;
     int rc = Z_OK;
     while (out && rc == Z_OK) {
         if (got == cap) {
+            if (cap * 2 > (size_t)64 << 20) {   /* no subtitle is that big: a gzip bomb */
+                free(out);
+                out = NULL;
+                break;
+            }
             uint8_t *nb = (uint8_t *)realloc(out, cap * 2 + 1);
             if (!nb) { free(out); out = NULL; break; }
             out = nb;
@@ -896,7 +989,8 @@ static int load_external(strack *t, const char *url, const char *headers)
     AVFormatContext *fmt = avformat_alloc_context();
     int rc = -1;
     if (!pb || !fmt) {
-        av_free(iobuf);
+        if (!pb)
+            av_free(iobuf);                /* else pb owns it, freed at out */
         goto out;
     }
     fmt->pb = pb;
@@ -913,6 +1007,10 @@ static int load_external(strack *t, const char *url, const char *headers)
     t->tb = st->time_base;
     snprintf(t->info.codec, sizeof t->info.codec, "%s", avcodec_get_name(cid));
     t->info.bitmap = is_bitmap_codec(cid);
+    /* Under s_lock: a [Fonts] section adds its fonts to s_lib, which the
+     * player thread's ass_render_frame reads (and new_text_track reads s_style).
+     * The caller does not hold it here. */
+    pthread_mutex_lock(&s_lock);
     if (cid == AV_CODEC_ID_ASS || cid == AV_CODEC_ID_SSA) {
         t->ass_raw = 1;
         t->ass = ass_new_track(s_lib);
@@ -926,6 +1024,7 @@ static int load_external(strack *t, const char *url, const char *headers)
         t->src_w = st->codecpar->width;
         t->src_h = st->codecpar->height;
     }
+    pthread_mutex_unlock(&s_lock);
     if (!t->ass && !t->dec)
         goto out;
     AVPacket *pkt = av_packet_alloc();
@@ -977,6 +1076,7 @@ static void *ext_loader(void *arg)
         char *url = strdup(s_tracks[id].url ? s_tracks[id].url : "");
         char *headers = s_tracks[id].headers ? strdup(s_tracks[id].headers) : NULL;
         s_tracks[id].loading = 1;
+        s_loader_busy = 1;
         pthread_mutex_unlock(&s_lock);
 
         /* Parsed outside the lock into a private track, then swapped in. */
@@ -985,6 +1085,7 @@ static void *ext_loader(void *arg)
         free(headers);
 
         pthread_mutex_lock(&s_lock);
+        s_loader_busy = 0;
         strack *t = &s_tracks[id];
         if (session != s_session) {
             free_track(&work);             /* the playback it belonged to is over */
@@ -1033,6 +1134,7 @@ int nuvio_subs_add_external(const char *url, const char *lang, const char *label
         strack *t = &s_tracks[id];
         memset(t, 0, sizeof *t);
         t->stream = -1;
+        t->info.stream = -1;
         t->info.external = 1;
         t->info.state = 0;
         snprintf(t->info.lang, sizeof t->info.lang, "%s", lang ? lang : "");
@@ -1067,7 +1169,7 @@ int nuvio_subs_render(ui_canvas *c, int64_t pts_us, nuvio_rect v, float lift)
     pthread_mutex_lock(&s_lock);
     const int sel = s_selected;
     strack *t = (sel >= 0 && sel < s_ntracks) ? &s_tracks[sel] : NULL;
-    const int ready = t && t->info.state == 1 && !t->loading;
+    const int ready = t && t->info.state == 1 && !t->loading && (s_rend || !t->ass);   /* bitmaps need no libass */
     /* A track nothing tagged with a language: once its cues are there, the
      * first ones decide the font (see track_font). */
     if (ready && !t->font_done)
@@ -1109,6 +1211,32 @@ int nuvio_subs_render(ui_canvas *c, int64_t pts_us, nuvio_rect v, float lift)
             s_last.drew = img != NULL;
         }
     } else {
+        /* Cues over for 30 s are freed (a 4K PGS cue is megabytes, a film has
+         * thousands). An external track is read once, so it keeps them all. */
+        if (!t->info.external) {
+            const int64_t cutoff = now - 30000;
+            int gone = 0;
+            size_t freed = 0;
+            while (gone < t->nev) {
+                const int64_t over = gone + 1 < t->nev ? t->ev[gone + 1].start : t->ev[gone].end;
+                /* past the window, or (over half the cap) simply past */
+                const int crowded = t->bytes - freed > BITMAP_CAP / 2 && t->ev[gone].end < now;
+                if (over >= cutoff && !crowded)
+                    break;
+                freed += event_bytes(&t->ev[gone]);
+                gone++;
+            }
+            if (gone > 0) {
+                t->bytes -= freed;
+                for (int i = 0; i < gone; i++) {
+                    for (int k = 0; k < t->ev[i].n; k++)
+                        ui_image_free(&t->ev[i].r[k].img);
+                    free(t->ev[i].r);
+                }
+                t->nev -= gone;
+                memmove(t->ev, t->ev + gone, (size_t)t->nev * sizeof *t->ev);
+            }
+        }
         int idx = -1;
         for (int i = t->nev - 1; i >= 0; i--)
             if (t->ev[i].start <= now) {

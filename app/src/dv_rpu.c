@@ -81,6 +81,19 @@ static uint32_t ue(bits_t *b)
     return (uint32_t)((1ull << lz) - 1 + getn(b, lz));
 }
 
+/* An Exp-Golomb value that must be at most max: -1 (and the reader's error set)
+ * when it is larger. ue() goes up to 2^32-2, which a cast to int turns negative and
+ * past a "> max" check, into an index before the array. */
+static int ue_max(bits_t *b, uint32_t max)
+{
+    const uint32_t v = ue(b);
+    if (v > max) {
+        b->err = 1;
+        return -1;
+    }
+    return (int)v;
+}
+
 static int32_t se(bits_t *b)
 {
     uint32_t k = ue(b);
@@ -237,13 +250,13 @@ int dv_rpu_parse(dv_parser *p, const uint8_t *nal, int size, dv_params *out)
         return -1;
     int denom = 32;
     if (coef_type == 0) {
-        denom = (int)ue(&b);
-        if (denom < 13 || denom > 32)
+        denom = ue_max(&b, 32);
+        if (denom < 13)
             return -1;
     }
     getn(&b, 2);                           /* vdr_rpu_normalized_idc */
     get1(&b);                              /* bl_video_full_range */
-    const int bl_depth = (int)ue(&b) + 8;
+    const int bl_depth = ue_max(&b, 8) + 8;   /* -1 + 8 when out of range: refused below */
     const uint32_t el_minus8 = ue(&b);
     ue(&b);                                /* vdr_bit_depth_minus8 */
     get1(&b);                              /* spatial_resampling_filter */
@@ -263,16 +276,16 @@ int dv_rpu_parse(dv_parser *p, const uint8_t *nal, int size, dv_params *out)
 
     int mapping_id;
     if (use_prev) {
-        mapping_id = (int)ue(&b);
-        if (mapping_id > DV_MAX_ID)
+        mapping_id = ue_max(&b, DV_MAX_ID);
+        if (mapping_id < 0)
             return -1;
         if (!p->vdr[mapping_id].present)
             mapping_id = 0;
         if (!p->vdr[mapping_id].present)
             return -1;
     } else {
-        mapping_id = (int)ue(&b);
-        if (mapping_id > DV_MAX_ID)
+        mapping_id = ue_max(&b, DV_MAX_ID);
+        if (mapping_id < 0)
             return -1;
         dv_mapping m;
         memset(&m, 0, sizeof m);
@@ -280,8 +293,8 @@ int dv_rpu_parse(dv_parser *p, const uint8_t *nal, int size, dv_params *out)
         ue(&b);                            /* mapping_chroma_format_idc */
         const float pscale = 1.0f / (float)((1 << bl_depth) - 1);
         for (int c = 0; c < 3; c++) {
-            const int np = (int)ue(&b) + 2;
-            if (np > DV_MAX_PIECES + 1)
+            const int np = ue_max(&b, DV_MAX_PIECES - 1) + 2;
+            if (np < 2)
                 return -1;
             m.comp[c].num_pivots = np;
             int pivot = 0;
@@ -295,13 +308,13 @@ int dv_rpu_parse(dv_parser *p, const uint8_t *nal, int size, dv_params *out)
         for (int c = 0; c < 3; c++) {
             dv_curve *cv = &m.comp[c];
             for (int i = 0; i < cv->num_pivots - 1; i++) {
-                const int idc = (int)ue(&b);
-                if (idc > 1)
+                const int idc = ue_max(&b, 1);
+                if (idc < 0)
                     return -1;
                 cv->method[i] = idc;
                 if (idc == 0) {
-                    const int order = (int)ue(&b) + 1;
-                    if (order > 2)
+                    const int order = ue_max(&b, 1) + 1;
+                    if (order < 1)
                         return -1;
                     if (order == 1 && get1(&b))   /* linear_interp_flag */
                         return -1;
@@ -328,9 +341,9 @@ int dv_rpu_parse(dv_parser *p, const uint8_t *nal, int size, dv_params *out)
     }
 
     if (dm_present) {
-        const int affected = (int)ue(&b);
-        const int current = (int)ue(&b);
-        if (affected > DV_MAX_ID || affected != current)
+        const int affected = ue_max(&b, DV_MAX_ID);
+        const int current = ue_max(&b, DV_MAX_ID);
+        if (affected < 0 || affected != current)
             return -1;
         ue(&b);                            /* scene_refresh_flag */
         if (!dm_compression) {

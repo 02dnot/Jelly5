@@ -31,9 +31,18 @@ int ui_image_prefetch(const char *url, int max_w, int max_h);
  * never will. */
 const ui_image *ui_image_get(int handle, int *failed);
 
+/* Jelly5: frees the image and its slot once it is on the GPU (the decoded
+ * pixels are the bulk of the memory). The handle stops resolving; asking for
+ * the picture again fetches it again (from the disk cache). */
+void ui_image_release(int handle);
+
 /* Jelly5: whether a handle still names its image (slots are reused; a stale
  * handle must be requested again). */
 int ui_image_alive(int handle);
+
+/* Jelly5: a failed image is fetched again (a timeout during an outage is not
+ * forever). Returns its new handle; any other handle comes back as it is. */
+int ui_image_retry(int handle);
 
 /* Bumped whenever an image finishes, so the overlay knows to redraw. */
 unsigned ui_image_generation(void);

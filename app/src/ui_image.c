@@ -31,11 +31,21 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <time.h>
 #include <unistd.h>
 
 #define SLOTS 128   /* < 256: a handle keeps the slot in its low byte */
 #define MAX_FETCH (16 * 1024 * 1024)
+/* Jelly5: the largest image decoded, in pixels (160 MB as RGBA). A small file
+ * can declare a huge image, and the decoders allocate it whole before it is
+ * scaled down, on up to 4 workers at once. */
+#define MAX_PIXELS (40u * 1000 * 1000)
+
+static int too_big(uint32_t w, uint32_t h)
+{
+    return (uint64_t)w * h > MAX_PIXELS;
+}
 
 enum { EMPTY = 0, PENDING, LOADING, READY, FAILED };
 
@@ -80,12 +90,16 @@ static int decode_png(const uint8_t *d, size_t n, ui_image *out)
     pi.version = PNG_IMAGE_VERSION;
     if (!png_image_begin_read_from_memory(&pi, d, n))
         return -1;
+    if (too_big(pi.width, pi.height)) {
+        png_image_free(&pi);
+        return -1;
+    }
     pi.format = PNG_FORMAT_RGBA;
     if (ui_image_alloc(out, (int)pi.width, (int)pi.height) != 0) {
         png_image_free(&pi);
         return -1;
     }
-    if (!png_image_finish_read(&pi, NULL, out->px, (png_int_32)(pi.width * 4), NULL)) {
+    if (!png_image_finish_read(&pi, NULL, out->px, (png_int_32)((size_t)pi.width * 4), NULL)) {
         ui_image_free(out);
         return -1;
     }
@@ -120,11 +134,12 @@ static int jpeg_orientation(const uint8_t *d, size_t n)
             #define RD16(p) (le ? (uint32_t)(p)[0] | ((uint32_t)(p)[1] << 8) : ((uint32_t)(p)[0] << 8) | (p)[1])
             #define RD32(p) (le ? (uint32_t)(p)[0] | ((uint32_t)(p)[1] << 8) | ((uint32_t)(p)[2] << 16) | ((uint32_t)(p)[3] << 24) \
                             : ((uint32_t)(p)[0] << 24) | ((uint32_t)(p)[1] << 16) | ((uint32_t)(p)[2] << 8) | (p)[3])
-            const uint32_t ifd = RD32(t + 4);
-            if (ifd + 2 > tn)
+            /* In size_t: an offset near 4 GB wrapped in 32 bits and passed the check. */
+            const size_t ifd = RD32(t + 4);
+            if (ifd > tn || tn - ifd < 2)
                 return 1;
             const uint32_t count = RD16(t + ifd);
-            for (uint32_t k = 0; k < count && ifd + 2 + 12 * (k + 1) <= tn; k++) {
+            for (size_t k = 0; k < count && ifd + 2 + 12 * (k + 1) <= tn; k++) {
                 const uint8_t *e = t + ifd + 2 + 12 * k;
                 if (RD16(e) == 0x0112) {
                     const uint32_t v = RD16(e + 8);
@@ -184,6 +199,10 @@ static int decode_jpeg(const uint8_t *d, size_t n, int max_w, int max_h, ui_imag
     jpeg_create_decompress(&ci);
     jpeg_mem_src(&ci, d, (unsigned long)n);
     jpeg_read_header(&ci, TRUE);
+    if (too_big(ci.image_width, ci.image_height)) {   /* before scaling: 1/8 can still be huge */
+        jpeg_destroy_decompress(&ci);
+        return -1;
+    }
     /* Decode no larger than needed: libjpeg scales by 1/2, 1/4, 1/8 for free. */
     ci.scale_num = 1;
     ci.scale_denom = 1;
@@ -209,15 +228,15 @@ static int decode_jpeg(const uint8_t *d, size_t n, int max_w, int max_h, ui_imag
 static int decode_webp(const uint8_t *d, size_t n, ui_image *out)
 {
     int w = 0, h = 0;
-    uint8_t *rgba = WebPDecodeRGBA(d, n, &w, &h);
-    if (!rgba)
+    if (!WebPGetInfo(d, n, &w, &h) || w <= 0 || h <= 0 || too_big((uint32_t)w, (uint32_t)h))
         return -1;
-    if (ui_image_alloc(out, w, h) != 0) {
-        WebPFree(rgba);
+    /* Straight into the image: no second copy. */
+    if (ui_image_alloc(out, w, h) != 0)
+        return -1;
+    if (!WebPDecodeRGBAInto(d, n, (uint8_t *)out->px, (size_t)w * h * 4, w * 4)) {
+        ui_image_free(out);
         return -1;
     }
-    memcpy(out->px, rgba, (size_t)w * h * 4);
-    WebPFree(rgba);
     return 0;
 }
 
@@ -339,8 +358,10 @@ static int by_age(const void *a, const void *b)
     return x < y ? -1 : x > y;
 }
 
-/* Sums the cache; over the cap, drops the oldest until it is at 3/4 of it. */
-static void cache_trim(void)
+/* Sums the cache; over the cap, drops the least recently used until it is at 3/4
+ * of it. sweep: also delete the temp files a closed app left half-written (only at
+ * start, before any worker writes one). */
+static void cache_trim(int sweep)
 {
     evo_dir_t *d = evo_opendir(CACHE_DIR);   /* opendir() is refused in the app sandbox */
     if (!d)
@@ -350,10 +371,14 @@ static void cache_trim(void)
     unsigned long long total = 0;
     struct dirent *e;
     while ((e = evo_readdir(d))) {
-        if (!strstr(e->d_name, ".img") || strlen(e->d_name) >= sizeof files[0].name)
-            continue;
         char path[160];
         snprintf(path, sizeof path, CACHE_DIR "/%s", e->d_name);
+        if (sweep && (strstr(e->d_name, ".tmp") || strstr(e->d_name, ".img."))) {   /* .img.<thread>: older builds' temp name */
+            unlink(path);
+            continue;
+        }
+        if (!strstr(e->d_name, ".img") || strlen(e->d_name) >= sizeof files[0].name)
+            continue;
         struct stat st;
         if (stat(path, &st) != 0)
             continue;
@@ -403,9 +428,13 @@ static uint8_t *cache_read(const char *url, size_t *len)
             }
         }
     }
+    struct stat st;
+    const int stale = buf && fstat(fileno(f), &st) == 0 && time(NULL) - st.st_mtime > 24 * 3600;
     fclose(f);
     if (!buf)
         unlink(path);        /* unreadable: fetch it again */
+    else if (stale)
+        utimes(path, NULL);  /* used: the trim drops the least recently used (marked once a day) */
     return buf;
 }
 
@@ -413,7 +442,7 @@ static void cache_write(const char *url, const uint8_t *data, size_t len)
 {
     char path[160], tmp[176];
     cache_path(url, path, sizeof path);
-    snprintf(tmp, sizeof tmp, "%s.%p", path, (void *)pthread_self());
+    snprintf(tmp, sizeof tmp, "%s.%p.tmp", path, (void *)pthread_self());
     FILE *f = fopen(tmp, "wb");
     if (!f)
         return;
@@ -425,7 +454,7 @@ static void cache_write(const char *url, const uint8_t *data, size_t len)
     pthread_mutex_lock(&s_cache_lock);
     s_cache_bytes += len;
     if (s_cache_bytes > CACHE_CAP)
-        cache_trim();
+        cache_trim(0);
     pthread_mutex_unlock(&s_cache_lock);
 }
 
@@ -445,7 +474,7 @@ static void cache_init(void)
     if (!s_cache_ready) {
         mkdir("/download0/jelly5", 0777);
         mkdir(CACHE_DIR, 0777);
-        cache_trim();
+        cache_trim(1);
         s_cache_ready = 1;
     }
     pthread_mutex_unlock(&s_cache_lock);
@@ -596,7 +625,10 @@ static void *worker(void *arg)
         if (ok && strstr(url, "/Images/Logo"))
             trim_transparent(&img);
         if (!ok) {
-            evo_bt("image: FAILED %.100s", url);
+            /* The path only: a trickplay sheet's query carries the session's ApiKey. */
+            const char *q = strchr(url, '?');
+            const int n = q ? (int)(q - url) : (int)strlen(url);
+            evo_bt("image: FAILED %.*s", n < 100 ? n : 100, url);
             cache_forget(url);
         }
 
@@ -712,6 +744,23 @@ int ui_image_alive(int handle)
     return ok;
 }
 
+int ui_image_retry(int handle)
+{
+    pthread_mutex_lock(&s_lock);
+    const int i = slot_of(handle);
+    if (i >= 0 && s_slots[i].state == FAILED) {
+        slot *s = &s_slots[i];
+        ui_image_free(&s->img);
+        s->state = PENDING;
+        s->ahead = 0;
+        s->seq = ++s_seq;
+        handle = (int)(((s->seq & 0x7fffffu) << 8) | (unsigned)i);
+        pthread_cond_signal(&s_cond);
+    }
+    pthread_mutex_unlock(&s_lock);
+    return handle;
+}
+
 const ui_image *ui_image_get(int handle, int *failed)
 {
     const ui_image *out = NULL;
@@ -725,6 +774,23 @@ const ui_image *ui_image_get(int handle, int *failed)
         *failed = 1;
     pthread_mutex_unlock(&s_lock);
     return out;
+}
+
+void ui_image_release(int handle)
+{
+    pthread_mutex_lock(&s_lock);
+    const int i = slot_of(handle);
+    if (i >= 0) {
+        slot *s = &s_slots[i];
+        if (s->state == LOADING) {
+            s->discard = 1;
+        } else {
+            ui_image_free(&s->img);
+            s->state = EMPTY;
+        }
+        s->url[0] = 0;
+    }
+    pthread_mutex_unlock(&s_lock);
 }
 
 unsigned ui_image_generation(void)

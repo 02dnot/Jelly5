@@ -990,6 +990,8 @@ bool PlaybackController::startPlaybackSource(const PlaybackSource& source,
             evo_mem_budget_log("sw-refuse");
             avformat_close_input(&play_fmt);
             play_fmt = nullptr;
+            evo_stream_io_close(m_streamIo);
+            m_streamIo = nullptr;
             m_playbackFsm.postEvent(PlaybackEvent::Fail);
             toast("UNSUPPORTED", "4K software decode is switched off (evo_no_sw_4k)");
             return false;
@@ -1047,6 +1049,8 @@ bool PlaybackController::startPlaybackSource(const PlaybackSource& source,
             g_vdec = nullptr;
             avformat_close_input(&play_fmt);
             play_fmt = nullptr;
+            evo_stream_io_close(m_streamIo);
+            m_streamIo = nullptr;
             m_playbackFsm.postEvent(PlaybackEvent::Fail);
             toast("UNSUPPORTED", "4K software decode is switched off (evo_no_sw_4k)");
             return false;

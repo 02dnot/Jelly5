@@ -780,7 +780,9 @@ void *audio_decode_thread_func(void *arg) {
                     af->nb_samples = produced / (int)sizeof(int16_t) / ch;
                     if (af->nb_samples > 0 &&
                         av_frame_get_buffer(af, 0) == 0) {
-                        memcpy(af->data[0], g_adec_pcm, (size_t)produced);
+                        /* Jelly5: whole frames only (what nb_samples holds). */
+                        memcpy(af->data[0], g_adec_pcm,
+                               (size_t)af->nb_samples * (size_t)ch * sizeof(int16_t));
                         if (pkt->pts != AV_NOPTS_VALUE && play_fmt && audio_stream_index >= 0) {
                             audio_pts_seconds = pkt->pts *
                                 av_q2d(play_fmt->streams[audio_stream_index]->time_base);

@@ -216,7 +216,7 @@ static int present_pp_frame(const pp_frame *pf)
  */
 static int convert_frame_via_sws(AVFrame *frame)
 {
-    if (!frame) return 0;
+    if (!frame || frame->width <= 0 || frame->height <= 0) return 0;
 
     {
         static int s_sws_warned;
@@ -267,15 +267,16 @@ static int convert_frame_via_sws(AVFrame *frame)
         pthread_mutex_unlock(&video_frame_mutex);
     }
 
-    if (!play_sws) {
-        play_sws = sws_getContext(
-            frame->width, frame->height, frame->format,
-            frame->width, frame->height, AV_PIX_FMT_RGBA,
-            SWS_BILINEAR, NULL, NULL, NULL
-        );
-
-        if (!play_sws) return 0;
-    }
+    /* Jelly5: per frame (cached), not once: a stream that changes its size or
+     * pixel format mid-way (a new SPS) otherwise read past the new frame's
+     * planes with the first frame's geometry. */
+    play_sws = sws_getCachedContext(
+        play_sws,
+        frame->width, frame->height, frame->format,
+        frame->width, frame->height, AV_PIX_FMT_RGBA,
+        SWS_BILINEAR, NULL, NULL, NULL
+    );
+    if (!play_sws) return 0;
 
     int write_index = (video_rotate_index + 1) % VIDEO_ROTATE_BUFFERS;
 
