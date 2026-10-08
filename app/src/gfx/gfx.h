@@ -40,6 +40,9 @@ void begin_frame();          /* frame_begin + clear */
  * renderer's state without starting a frame. */
 void begin_overlay();
 void end_frame();            /* present */
+/* Presents the frame begin_overlay drew into and frees the textures released
+ * frames ago: the player's loop never reaches end_frame. */
+void end_overlay();
 
 /* Textures. Release is deferred until the GPU is done with the frames in flight. */
 Texture *texture_from_pixels(const uint32_t *rgba, int w, int h, int stride_px);
