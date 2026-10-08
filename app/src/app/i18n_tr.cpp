@@ -152,7 +152,7 @@ const std::unordered_map<std::string, const char *> &turkish_table()
         {"Henter …", "Yükleniyor …"},
         {"Ingenting her ennå", "Burada henüz bir şey yok"},
         {"Filmer, serier, personer, musikk", "Filmler, diziler, kişiler, müzik"},
-        {"mellomrom", "boşluk"},
+        {"mellomrom", "boşluk"}, {"Mellomrom", "Boşluk"},
         {"⌫ slett", "⌫ sil"},
         {"▢ sletter", "▢ siler"},
         {"Forslag", "Öneriler"},

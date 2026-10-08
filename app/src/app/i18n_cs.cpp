@@ -152,7 +152,7 @@ const std::unordered_map<std::string, const char *> &czech_table()
         {"Henter …", "Načítání …"},
         {"Ingenting her ennå", "Zatím tu nic není"},
         {"Filmer, serier, personer, musikk", "Filmy, seriály, lidé, hudba"},
-        {"mellomrom", "mezera"},
+        {"mellomrom", "mezera"}, {"Mellomrom", "Mezera"},
         {"⌫ slett", "⌫ smazat"},
         {"▢ sletter", "▢ maže"},
         {"Forslag", "Návrhy"},

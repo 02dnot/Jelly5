@@ -152,7 +152,7 @@ const std::unordered_map<std::string, const char *> &ukrainian_table()
         {"Henter …", "Завантаження …"},
         {"Ingenting her ennå", "Тут поки нічого немає"},
         {"Filmer, serier, personer, musikk", "Фільми, серіали, люди, музика"},
-        {"mellomrom", "пробіл"},
+        {"mellomrom", "пробіл"}, {"Mellomrom", "Пробіл"},
         {"⌫ slett", "⌫ видалити"},
         {"▢ sletter", "▢ видаляє"},
         {"Forslag", "Пропозиції"},

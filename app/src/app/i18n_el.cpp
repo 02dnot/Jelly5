@@ -152,7 +152,7 @@ const std::unordered_map<std::string, const char *> &greek_table()
         {"Henter …", "Φόρτωση …"},
         {"Ingenting her ennå", "Τίποτα εδώ ακόμα"},
         {"Filmer, serier, personer, musikk", "Ταινίες, σειρές, πρόσωπα, μουσική"},
-        {"mellomrom", "διάστημα"},
+        {"mellomrom", "διάστημα"}, {"Mellomrom", "Διάστημα"},
         {"⌫ slett", "⌫ διαγραφή"},
         {"▢ sletter", "▢ διαγράφει"},
         {"Forslag", "Προτάσεις"},

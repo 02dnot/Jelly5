@@ -152,7 +152,7 @@ const std::unordered_map<std::string, const char *> &dutch_table()
         {"Henter …", "Laden …"},
         {"Ingenting her ennå", "Nog niets hier"},
         {"Filmer, serier, personer, musikk", "Films, series, personen, muziek"},
-        {"mellomrom", "spatie"},
+        {"mellomrom", "spatie"}, {"Mellomrom", "Spatie"},
         {"⌫ slett", "⌫ wissen"},
         {"▢ sletter", "▢ wist"},
         {"Forslag", "Suggesties"},

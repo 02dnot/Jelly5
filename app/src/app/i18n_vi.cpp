@@ -152,7 +152,7 @@ const std::unordered_map<std::string, const char *> &vietnamese_table()
         {"Henter …", "Đang tải …"},
         {"Ingenting her ennå", "Chưa có gì ở đây"},
         {"Filmer, serier, personer, musikk", "Phim, phim bộ, người, âm nhạc"},
-        {"mellomrom", "dấu cách"},
+        {"mellomrom", "dấu cách"}, {"Mellomrom", "Dấu cách"},
         {"⌫ slett", "⌫ xóa"},
         {"▢ sletter", "▢ xóa"},
         {"Forslag", "Gợi ý"},

@@ -152,7 +152,7 @@ const std::unordered_map<std::string, const char *> &romanian_table()
         {"Henter …", "Se încarcă …"},
         {"Ingenting her ennå", "Nimic aici încă"},
         {"Filmer, serier, personer, musikk", "Filme, seriale, persoane, muzică"},
-        {"mellomrom", "spațiu"},
+        {"mellomrom", "spațiu"}, {"Mellomrom", "Spațiu"},
         {"⌫ slett", "⌫ șterge"},
         {"▢ sletter", "▢ șterge"},
         {"Forslag", "Sugestii"},

@@ -131,7 +131,7 @@ const std::unordered_map<std::string, const char *> &english_table()
         {"Nylig lagt til", "Recently Added"}, {"A–Å", "A–Z"}, {"Utgivelsesår", "Release Year"},
         {"Vurdering", "Rating"}, {"Henter …", "Loading …"},
         {"Ingenting her ennå", "Nothing here yet"}, {"Filmer, serier, personer, musikk", "Movies, shows, people, music"},
-        {"mellomrom", "space"}, {"⌫ slett", "⌫ delete"}, {"▢ sletter", "▢ deletes"}, {"Forslag", "Suggestions"},
+        {"mellomrom", "space"}, {"Mellomrom", "Space"}, {"⌫ slett", "⌫ delete"}, {"▢ sletter", "▢ deletes"}, {"Forslag", "Suggestions"},
         {"Treff for «%s»", "Results for “%s”"}, {"Ingen treff", "No results"}, {"Smart", "Smart"},
         /* sign-in, profiles */
         {"Fant ingen Jellyfin- eller Emby-server på ", "No Jellyfin or Emby server found at "},

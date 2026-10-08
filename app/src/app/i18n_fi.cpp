@@ -152,7 +152,7 @@ const std::unordered_map<std::string, const char *> &finnish_table()
         {"Henter …", "Haetaan …"},
         {"Ingenting her ennå", "Ei vielä mitään"},
         {"Filmer, serier, personer, musikk", "Elokuvat, sarjat, henkilöt, musiikki"},
-        {"mellomrom", "välilyönti"},
+        {"mellomrom", "välilyönti"}, {"Mellomrom", "Välilyönti"},
         {"⌫ slett", "⌫ poista"},
         {"▢ sletter", "▢ poistaa"},
         {"Forslag", "Ehdotukset"},

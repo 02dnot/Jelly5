@@ -152,7 +152,7 @@ const std::unordered_map<std::string, const char *> &chinese_simplified_table()
         {"Henter …", "正在加载 …"},
         {"Ingenting her ennå", "暂无内容"},
         {"Filmer, serier, personer, musikk", "电影、剧集、人物、音乐"},
-        {"mellomrom", "空格"},
+        {"mellomrom", "空格"}, {"Mellomrom", "空格"},
         {"⌫ slett", "⌫ 删除"},
         {"▢ sletter", "▢ 删除"},
         {"Forslag", "建议"},

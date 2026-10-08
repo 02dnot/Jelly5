@@ -152,7 +152,7 @@ const std::unordered_map<std::string, const char *> &thai_table()
         {"Henter …", "กำลังโหลด …"},
         {"Ingenting her ennå", "ยังไม่มีอะไรที่นี่"},
         {"Filmer, serier, personer, musikk", "ภาพยนตร์ รายการทีวี บุคคล เพลง"},
-        {"mellomrom", "เว้นวรรค"},
+        {"mellomrom", "เว้นวรรค"}, {"Mellomrom", "เว้นวรรค"},
         {"⌫ slett", "⌫ ลบ"},
         {"▢ sletter", "▢ ลบ"},
         {"Forslag", "คำแนะนำ"},

@@ -152,7 +152,7 @@ const std::unordered_map<std::string, const char *> &korean_table()
         {"Henter …", "불러오는 중 …"},
         {"Ingenting her ennå", "아직 아무것도 없습니다"},
         {"Filmer, serier, personer, musikk", "영화, 시리즈, 인물, 음악"},
-        {"mellomrom", "스페이스"},
+        {"mellomrom", "스페이스"}, {"Mellomrom", "스페이스"},
         {"⌫ slett", "⌫ 삭제"},
         {"▢ sletter", "▢ 삭제"},
         {"Forslag", "추천 검색어"},

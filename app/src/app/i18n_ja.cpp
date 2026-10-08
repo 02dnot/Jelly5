@@ -152,7 +152,7 @@ const std::unordered_map<std::string, const char *> &japanese_table()
         {"Henter …", "読み込み中 …"},
         {"Ingenting her ennå", "まだ何もありません"},
         {"Filmer, serier, personer, musikk", "映画、番組、人物、音楽"},
-        {"mellomrom", "スペース"},
+        {"mellomrom", "スペース"}, {"Mellomrom", "スペース"},
         {"⌫ slett", "⌫ 削除"},
         {"▢ sletter", "▢ 削除"},
         {"Forslag", "候補"},

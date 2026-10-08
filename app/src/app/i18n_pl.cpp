@@ -152,7 +152,7 @@ const std::unordered_map<std::string, const char *> &polish_table()
         {"Henter …", "Wczytywanie …"},
         {"Ingenting her ennå", "Na razie nic tu nie ma"},
         {"Filmer, serier, personer, musikk", "Filmy, seriale, osoby, muzyka"},
-        {"mellomrom", "spacja"},
+        {"mellomrom", "spacja"}, {"Mellomrom", "Spacja"},
         {"⌫ slett", "⌫ usuń"},
         {"▢ sletter", "▢ usuwa"},
         {"Forslag", "Propozycje"},

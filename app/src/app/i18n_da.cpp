@@ -152,7 +152,7 @@ const std::unordered_map<std::string, const char *> &danish_table()
         {"Henter …", "Henter …"},
         {"Ingenting her ennå", "Intet her endnu"},
         {"Filmer, serier, personer, musikk", "Film, serier, personer, musik"},
-        {"mellomrom", "mellemrum"},
+        {"mellomrom", "mellemrum"}, {"Mellomrom", "Mellemrum"},
         {"⌫ slett", "⌫ slet"},
         {"▢ sletter", "▢ sletter"},
         {"Forslag", "Forslag"},

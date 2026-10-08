@@ -167,7 +167,7 @@ const std::unordered_map<std::string, const char *> &spanish_table()
         {"Henter …", "Cargando …"},
         {"Ingenting her ennå", "Aún no hay nada aquí"},
         {"Filmer, serier, personer, musikk", "Películas, series, personas, música"},
-        {"mellomrom", "espacio"},
+        {"mellomrom", "espacio"}, {"Mellomrom", "Espacio"},
         {"⌫ slett", "⌫ borrar"},
         {"▢ sletter", "▢ borra"},
         {"Forslag", "Sugerencias"},

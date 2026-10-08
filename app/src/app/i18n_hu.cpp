@@ -152,7 +152,7 @@ const std::unordered_map<std::string, const char *> &hungarian_table()
         {"Henter …", "Betöltés …"},
         {"Ingenting her ennå", "Még nincs itt semmi"},
         {"Filmer, serier, personer, musikk", "Filmek, sorozatok, személyek, zene"},
-        {"mellomrom", "szóköz"},
+        {"mellomrom", "szóköz"}, {"Mellomrom", "Szóköz"},
         {"⌫ slett", "⌫ törlés"},
         {"▢ sletter", "▢ töröl"},
         {"Forslag", "Javaslatok"},

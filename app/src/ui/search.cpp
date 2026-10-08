@@ -312,12 +312,16 @@ Action Search::input(uint32_t p)
     Action a;
     const Grid gr = grid();
     const int count = gr.count();
-    if (p & NUVIO_BTN_SQUARE) {
+    if (p & NUVIO_BTN_SQUARE) {   /* □ deletes and △ types a space, as on the PS5's own keyboard */
         type("\b");
         return a;
     }
     if (m_in_results && count == 0)
         m_in_results = false;   /* the results went while the focus was on them */
+    if ((p & NUVIO_BTN_TRIANGLE) && !m_in_results) {
+        type(" ");
+        return a;
+    }
     if (m_in_results) {
         m_result = std::min(m_result, count - 1);
         const int row = gr.row_of(m_result), col = gr.col_of(m_result);
@@ -469,7 +473,8 @@ void Search::draw(double now, float dt)
             gfx::text(rr.x + rr.w / 2, rr.y + rr.h / 2 + 9, label,
                       {focus ? gfx::Bold : gfx::SemiBold, s > 1 ? 22.f : 26.f}, focus ? kText : kText2, 1);
         }
-    draw_pad_hints(kKbX, kKbY + 7 * (kKeyH + kKeyGap) + 22, {{PadButton::Square, T("Slett")}}, 0, 26);
+    draw_pad_hints(kKbX, kKbY + 7 * (kKeyH + kKeyGap) + 22,
+                   {{PadButton::Square, T("Slett")}, {PadButton::Triangle, T("Mellomrom")}}, 0, 26);
 
     /* Results: the library's, then Seerr's under its own heading (when it is on). */
     std::string heading = T("Forslag");

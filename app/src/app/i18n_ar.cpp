@@ -152,7 +152,7 @@ const std::unordered_map<std::string, const char *> &arabic_table()
         {"Henter …", "جارٍ التحميل …"},
         {"Ingenting her ennå", "لا يوجد شيء هنا بعد"},
         {"Filmer, serier, personer, musikk", "أفلام، مسلسلات، أشخاص، موسيقى"},
-        {"mellomrom", "مسافة"},
+        {"mellomrom", "مسافة"}, {"Mellomrom", "مسافة"},
         {"⌫ slett", "⌫ حذف"},
         {"▢ sletter", "▢ للحذف"},
         {"Forslag", "اقتراحات"},

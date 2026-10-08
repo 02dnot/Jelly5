@@ -152,7 +152,7 @@ const std::unordered_map<std::string, const char *> &russian_table()
         {"Henter …", "Загрузка …"},
         {"Ingenting her ennå", "Здесь пока ничего нет"},
         {"Filmer, serier, personer, musikk", "Фильмы, сериалы, люди, музыка"},
-        {"mellomrom", "пробел"},
+        {"mellomrom", "пробел"}, {"Mellomrom", "Пробел"},
         {"⌫ slett", "⌫ удалить"},
         {"▢ sletter", "▢ удаляет"},
         {"Forslag", "Предложения"},

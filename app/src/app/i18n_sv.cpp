@@ -152,7 +152,7 @@ const std::unordered_map<std::string, const char *> &swedish_table()
         {"Henter …", "Hämtar …"},
         {"Ingenting her ennå", "Inget här än"},
         {"Filmer, serier, personer, musikk", "Filmer, serier, personer, musik"},
-        {"mellomrom", "mellanslag"},
+        {"mellomrom", "mellanslag"}, {"Mellomrom", "Mellanslag"},
         {"⌫ slett", "⌫ radera"},
         {"▢ sletter", "▢ raderar"},
         {"Forslag", "Förslag"},

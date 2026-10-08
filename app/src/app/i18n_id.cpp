@@ -152,7 +152,7 @@ const std::unordered_map<std::string, const char *> &indonesian_table()
         {"Henter …", "Memuat …"},
         {"Ingenting her ennå", "Belum ada apa-apa di sini"},
         {"Filmer, serier, personer, musikk", "Film, serial, orang, musik"},
-        {"mellomrom", "spasi"},
+        {"mellomrom", "spasi"}, {"Mellomrom", "Spasi"},
         {"⌫ slett", "⌫ hapus"},
         {"▢ sletter", "▢ menghapus"},
         {"Forslag", "Saran"},
