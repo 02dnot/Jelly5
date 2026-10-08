@@ -40,16 +40,26 @@ std::vector<Group> list();
 bool create(const std::string &name);
 bool join(const std::string &group_id);
 void leave();
+/* The session ends (another account, signed out): the group is left here at
+ * once and the server told in the background, with the client of the time. */
+void leave_async();
+/* Out of the group here only (as leave_async), the server not told: whether there
+ * was one. A sign-out sends the Leave itself, before its logout. */
+bool forget_here();
 
 /* In a group, Play asks the group to play this (everyone starts it). */
 bool play(const jf::Item &item);
 
 /* The player, while a group item plays. */
 void player_started(double position_s, bool playing);       /* opened: Ready (paused) */
+void player_stopped();                                      /* closed: the group stops waiting for it */
+bool ready_asked();          /* the group set its queue anew around what plays: Ready again */
 void request_pause(bool pause, double position_s);
 void request_seek(double position_s);
 void request_next();
+bool queue_has_next();       /* the group's queue goes on after what plays now */
 void seeked(double position_s);                             /* a group seek done: Ready */
+void buffering(bool stalled, double position_s, bool playing);   /* stalled: Buffering; again: Ready */
 
 /* From app/remote: a SyncPlayGroupUpdate or SyncPlayCommand message's Data. */
 void on_group_update(const cJSON *data);

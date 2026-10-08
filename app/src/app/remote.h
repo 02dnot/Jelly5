@@ -42,6 +42,11 @@ struct Command {
  * stops). alive: false once the session has changed. */
 void start(jf::Client *client, std::function<bool()> alive);
 
+/* Whether an item id from the server's socket looks like one: 32 hex digits
+ * (dashes allowed), or Emby's digits. It goes into request paths that carry the
+ * viewer's token, so nothing else may ride along ("../System/Restart"). */
+bool is_item_id(const std::string &id);
+
 /* Queues a command as if a phone had sent it (the app's own music controls). */
 void send(const Command &c);
 /* The next command, if any (any thread). */
