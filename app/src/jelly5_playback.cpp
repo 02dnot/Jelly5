@@ -718,7 +718,7 @@ void ask_with_tracks(jf::Client &c, const jf::Item &item, int64_t max_bitrate, i
             v.url.replace(at, pb->play_session_id.size(), again.play_session_id);
         again.versions.push_back(std::move(v));
     }
-    c.stop_encoding(*pb);   /* (as the Dolby Vision answer in playback_info) */
+    c.stop_encoding(*pb);   /* the first answer's transcode, if it started one */
     *pb = std::move(again);
 }
 

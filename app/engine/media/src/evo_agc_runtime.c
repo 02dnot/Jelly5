@@ -1274,11 +1274,11 @@ int evo_agc_runtime_init(int width, int height, int hdr)
         {EVO_AGC_PIPE_VIDEO_HDR,    &video_yuv_p010_hdr_metadata, "video_yuv_p010_hdr"},
         {EVO_AGC_PIPE_VIDEO_HLG,    &video_yuv_p010_hlg_metadata, "video_yuv_p010_hlg"},
         {EVO_AGC_PIPE_VIDEO_P010_SDR, &video_yuv_p010_sdr_metadata, "video_yuv_p010_sdr"},
-#if defined(NUVIO_APP) && __has_include("video_yuv_p010_dv5_pipe.h")
-        /* Compiled by tools/build_agc_pipes.py (amdllpc). Without the headers the
-         * DV5 pipelines stay invalid and profile 5 plays tone-mapped as before. */
-        {EVO_AGC_PIPE_VIDEO_DV5,    &video_yuv_p010_dv5_metadata,        "video_yuv_p010_dv5"},
-        {EVO_AGC_PIPE_VIDEO_DV5_PQ, &video_yuv_p010_dv5_pq_out_metadata, "video_yuv_p010_dv5_pq_out"},
+#ifdef NUVIO_APP
+        /* Dolby Vision profile 5: from EVO Player c0c6a5e (video_yuv_p010_dovi*.pipe).
+         * The RPU's constants are an std140 block at set 1 binding 2 (dv_gpu_params). */
+        {EVO_AGC_PIPE_VIDEO_DV5,    &video_yuv_p010_dovi_metadata,        "video_yuv_p010_dovi"},
+        {EVO_AGC_PIPE_VIDEO_DV5_PQ, &video_yuv_p010_dovi_pq_out_metadata, "video_yuv_p010_dovi_pq_out"},
 #endif
         /* real HDR10 output; missing ones just keep playback tone-mapped SDR */
         {EVO_AGC_PIPE_VIDEO_HDR_PQ, &video_yuv_p010_pq_out_metadata,     "video_yuv_p010_pq_out"},
@@ -3879,7 +3879,9 @@ int evo_agc_blit_yuv(const uint8_t *y,  int y_pitch,
     /* Dolby Vision profile 5: rebuilt to BT.2020 PQ in the shader, from this
      * frame's RPU parameters (src/dv_rpu.c). Shown as HDR10 from here on. */
     dv_params dv;
-    const int dv5 = ten_bit && !planar && dv_session_active() &&
+    /* P010, or 10-bit planar interleaved to RG16: both take the two-plane
+     * table below, with the RPU block after the textures (EVO c0c6a5e). */
+    const int dv5 = ten_bit && dv_session_active() &&
                     g_agc_dev.pipelines[EVO_AGC_PIPE_VIDEO_DV5].valid &&
                     dv_lookup(pts_us, &dv);
     if (dv5)
@@ -4051,8 +4053,8 @@ int evo_agc_blit_yuv(const uint8_t *y,  int y_pitch,
     } else {
         /* NV12 / P010 2-plane: 96 bytes descriptor table (2 * 48B).
          * Used for NV12 (SDR 8-bit), NV12_10 (HDR 10-bit), and planar 10-bit (interleaved to RG16).
-         * Dolby Vision profile 5 adds a third entry: the RPU coefficients. */
-        const uint32_t table_bytes = dv5 ? 144u : 96u;
+         * Dolby Vision profile 5 appends the RPU block's V# at dword 24 (112 bytes). */
+        const uint32_t table_bytes = dv5 ? 112u : 96u;
         if (evo_agc_transient_ring_alloc(ring, slot, table_bytes, 16, &desc_slice) != EVO_AGC_TRANSIENT_OK) {
             evo_boot_log("agc_blit_yuv: 2-plane desc_slice alloc failed");
             evo_boot_log_flush();
@@ -4094,20 +4096,16 @@ int evo_agc_blit_yuv(const uint8_t *y,  int y_pitch,
 
 #ifdef NUVIO_APP
         if (dv5) {
-            /* Binding 2: one float per RG16 texel (gen_dv5_pipes.py). */
+            /* Binding 2: the DoviParams uniform block, as EVO Player c0c6a5e
+             * binds it (a constant V# after the two textures). */
             evo_agc_transient_slice_t dv_slice;
-            if (evo_agc_transient_ring_alloc(ring, slot, DV_TEX_FLOATS * 4u, 256,
+            if (evo_agc_transient_ring_alloc(ring, slot, sizeof(dv_gpu_params), 256,
                                              &dv_slice) != EVO_AGC_TRANSIENT_OK) {
-                evo_boot_log("agc_blit_yuv: dv coefficient alloc failed");
+                evo_boot_log("agc_blit_yuv: dv params alloc failed");
                 return -1;
             }
-            dv_pack_texture(&dv, (float *)dv_slice.cpu);
-            if (evo_agc_build_tsharp_rg16(desc + 24, dv_slice.gpu_addr, DV_TEX_FLOATS, 1,
-                                          DV_TEX_FLOATS * 4u) != 0) {
-                evo_boot_log("agc_blit_yuv: dv coefficient tsharp failed");
-                return -1;
-            }
-            evo_agc_build_ssharp(desc + 32, 1, 0);
+            dv_pack_gpu(&dv, (dv_gpu_params *)dv_slice.cpu);
+            evo_agc_build_constant_vsharp(desc + 24, dv_slice.gpu_addr, sizeof(dv_gpu_params));
         }
 #endif
         if (r0 != 0 || r1 != 0) {

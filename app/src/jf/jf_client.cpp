@@ -1312,7 +1312,9 @@ std::string Client::image_url(const std::string &owner, const char *type, const 
  * What the PS5 plays itself (EVO/Nuvio engine): sceVideodec2 decodes H.264
  * and HEVC Main/Main10 up to 3840x2176 and VP9; FFmpeg covers the rest in
  * software and every audio codec (multichannel PCM out). Dolby Vision plays
- * its HDR10 base layer, so only profiles with a compatible base are allowed.
+ * its HDR10 base layer, so only profiles with a compatible base are allowed,
+ * and HEVC profile 5 (bare DOVI), which the GPU rebuilds from its RPU into
+ * HDR10 (src/dv_rpu.c, the shader from EVO Player c0c6a5e).
  * AV1 needs dav1d: a build with JELLY5_AV1 (FFmpeg + libdav1d, see
  * scripts/build-av1.sh) decodes AV1 Main (4:2:0, 8/10-bit) on the CPU, 4K
  * capped at 30 fps until 4K60 is measured on the console. Without it the
@@ -1368,7 +1370,7 @@ std::string Client::device_profile_json(int64_t max_bitrate)
       {"Condition": "LessThanEqual", "Property": "VideoBitDepth", "Value": "10", "IsRequired": false},
       {"Condition": "EqualsAny", "Property": "VideoProfile", "Value": "main|main 10", "IsRequired": false},
       {"Condition": "EqualsAny", "Property": "VideoRangeType",
-       "Value": "SDR|HDR10|HLG|DOVIWithHDR10|DOVIWithHLG|DOVIWithSDR|DOVIWithEL|DOVIWithHDR10Plus|DOVIWithELHDR10Plus|HDR10Plus", "IsRequired": false}]},
+       "Value": "SDR|HDR10|HLG|DOVI|DOVIWithHDR10|DOVIWithHLG|DOVIWithSDR|DOVIWithEL|DOVIWithHDR10Plus|DOVIWithELHDR10Plus|HDR10Plus", "IsRequired": false}]},
     {"Type": "Video", "Codec": "mpeg2video,vc1", "Conditions": [
       {"Condition": "NotEquals", "Property": "IsInterlaced", "Value": "true", "IsRequired": false}]},
     {"Type": "Video", "Codec": "vp9", "Conditions": [
@@ -1399,42 +1401,15 @@ bool Client::playback_info(const std::string &item_id, int64_t start_ticks, int 
                            int subtitle_index, Playback *out, int64_t max_bitrate,
                            const std::string &media_source_id)
 {
-    if (!playback_info_as(item_id, start_ticks, audio_index, subtitle_index, out, max_bitrate, false,
-                          media_source_id))
-        return false;
-    /* Dolby Vision profile 5 has no base layer the PS5 shows right (green and
-     * purple). Jellyfin's profile keeps it from playing directly or being copied
-     * (VideoRangeType); Emby's cannot say so. There a DV5 version comes last
-     * (playback_info_as), and when it is still the one chosen it is asked for
-     * again with the video encoded - also when the answer was HLS, which may
-     * copy the video. If that is refused (no transcoding for this user), the
-     * first answer stands. */
-    if (!emby())
-        return true;
-    for (const MediaStream &s : out->streams)
-        if (s.type == "Video" && s.video_range_type == "DOVI") {
-            Playback encoded;
-            if (!playback_info_as(item_id, start_ticks, audio_index, subtitle_index, &encoded, max_bitrate, true,
-                                  media_source_id))
-                return true;
-            stop_encoding(*out);
-            *out = std::move(encoded);
-            return true;
-        }
-    return true;
-}
-
-bool Client::playback_info_as(const std::string &item_id, int64_t start_ticks, int audio_index,
-                              int subtitle_index, Playback *out, int64_t max_bitrate, bool transcode,
-                              const std::string &media_source_id)
-{
+    /* Dolby Vision profile 5 plays directly on both kinds: the GPU rebuilds it
+     * from its RPU (src/dv_rpu.c). Emby used to be asked again for an encoded
+     * video here. */
     const int64_t cap = max_bitrate > 0 ? max_bitrate : 200000000;
-    const char *direct = transcode ? "false" : "true";
     std::string req = "{\"DeviceProfile\":" + device_profile_json(max_bitrate) +
                       ",\"MaxStreamingBitrate\":" + std::to_string(cap) +
                       ",\"StartTimeTicks\":" + std::to_string(start_ticks) +
-                      ",\"EnableDirectPlay\":" + direct + ",\"EnableDirectStream\":" + direct +
-                      ",\"EnableTranscoding\":true,\"AllowVideoStreamCopy\":" + direct +
+                      ",\"EnableDirectPlay\":true,\"EnableDirectStream\":true"
+                      ",\"EnableTranscoding\":true,\"AllowVideoStreamCopy\":true"
                       ",\"AllowAudioStreamCopy\":true,\"AutoOpenLiveStream\":true";
     if (audio_index >= 0)
         req += ",\"AudioStreamIndex\":" + std::to_string(audio_index);
@@ -1465,19 +1440,17 @@ bool Client::playback_info_as(const std::string &item_id, int64_t start_ticks, i
         const cJSON *ms;
         Version v;
         int rank;
-        bool dv5_direct;   /* Emby: Dolby Vision 5, played as it is (see playback_info) */
     };
     std::vector<Candidate> found;
     const cJSON *ms;
     cJSON_ArrayForEach(ms, cJSON_GetObjectItemCaseSensitive(j, "MediaSources")) {
-        Candidate c{ms, Version(), 0, false};
+        Candidate c{ms, Version(), 0};
         c.v.id = str_of(ms, "Id");
         c.v.name = str_of(ms, "Name");
         c.v.bitrate = i64_of(ms, "Bitrate", 0);
         c.v.default_audio = int_of(ms, "DefaultAudioStreamIndex", -1);
         c.v.default_subtitle = int_of(ms, "DefaultSubtitleStreamIndex", -1);
         std::string codec, range;
-        bool dv5 = false;
         const cJSON *s;
         cJSON_ArrayForEach(s, cJSON_GetObjectItemCaseSensitive(ms, "MediaStreams")) {
             c.v.streams.push_back(stream_of(s, server_));
@@ -1485,7 +1458,6 @@ bool Client::playback_info_as(const std::string &item_id, int64_t start_ticks, i
                 c.v.height = int_of(s, "Height", 0);
                 codec = str_of(s, "Codec");
                 range = str_of(s, "VideoRange");
-                dv5 = c.v.streams.back().video_range_type == "DOVI";
             } else if (str_of(s, "Type") == "Subtitle" && str_of(s, "DeliveryMethod") == "External" &&
                        !bool_of(s, "IsExternal")) {
                 if (!c.v.streams.back().delivery_url.empty())
@@ -1493,7 +1465,7 @@ bool Client::playback_info_as(const std::string &item_id, int64_t start_ticks, i
             }
         }
         const std::string transcoding = str_of(ms, "TranscodingUrl");
-        if (bool_of(ms, "SupportsDirectPlay") && !transcode) {
+        if (bool_of(ms, "SupportsDirectPlay")) {
             c.v.play_method = "DirectPlay";
             /* Jellyfin: ApiKey (10.8 on; the legacy api_key counts only with the server's
              * legacy authorization on, which newer servers have off). Emby: api_key only. */
@@ -1501,15 +1473,11 @@ bool Client::playback_info_as(const std::string &item_id, int64_t start_ticks, i
                       "&playSessionId=" + session + "&" + token_param() + "=" + token_;
             c.rank = 3;
         } else if (!transcoding.empty()) {
-            c.v.play_method = transcode ? "Transcode" : method_of(transcoding, !codec.empty());
+            c.v.play_method = method_of(transcoding, !codec.empty());
             c.v.url = server_ + transcoding;
             c.rank = c.v.play_method == "DirectStream" ? 2 : 1;
         } else {
             continue;
-        }
-        if (dv5 && emby() && !transcode) {
-            c.rank = 0;   /* Emby: any other version first (see playback_info) */
-            c.dv5_direct = true;
         }
         for (char &ch : codec)
             ch = (char)std::toupper((unsigned char)ch);
@@ -1528,10 +1496,6 @@ bool Client::playback_info_as(const std::string &item_id, int64_t start_ticks, i
         if (a.v.height != b.v.height) return a.v.height > b.v.height;
         return a.v.bitrate > b.v.bitrate;
     });
-    /* Nor is such a version offered in the player's version list when another plays. */
-    if (!found.front().dv5_direct)
-        found.erase(std::remove_if(found.begin(), found.end(), [](const Candidate &c) { return c.dv5_direct; }),
-                    found.end());
     ms = found.front().ms;
     Playback pb;
     pb.item_id = item_id;

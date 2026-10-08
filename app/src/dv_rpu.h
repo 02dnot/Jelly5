@@ -67,11 +67,33 @@ void       dv_parser_reset(dv_parser *p);
  */
 int dv_rpu_parse(dv_parser *p, const uint8_t *nal, int size, dv_params *out);
 
-/* Pack *dv into the coefficient texture the profile 5 shaders read: one float
- * per RG16 texel (layout in tools/shaders/gen_dv5_pipes.py). `dst` holds at
- * least DV_TEX_FLOATS floats. */
-#define DV_TEX_FLOATS 704
-void dv_pack_texture(const dv_params *dv, float *dst);
+/*
+ * The profile 5 pixel shaders' DoviParams uniform block (std140), uploaded
+ * as is. Layout from EVO Player c0c6a5e (media/include/evo_dovi.h,
+ * shaders/agc/video_yuv_p010_dovi*.pipe), GPL-3.0-or-later:
+ *
+ *   ycc[i]      row i of the RPU's YCC -> L'M'S' matrix (nonlinear)
+ *   off         the signal offset subtracted after reshaping
+ *   lms[i]      row i of linear LMS -> linear BT.2020 RGB (lms2rgb)
+ *   lohi[c]     { lowest pivot, highest pivot, has a curve, - }
+ *   piv[c*2..]  the inner pivots of component c, padded with 1e9
+ *   coef[c*8+i] piece i: polynomial {c0, c1, c2, 0} or MMR {constant, index
+ *               into mmr, -, order}
+ *   mmr[c*48+k] the MMR weights, two vec4 per order: {x, y, z, -}, {xy, xz, yz, xyz}
+ */
+#define DV_GPU_MMR_VEC4 48
+typedef struct {
+    float ycc[3][4];
+    float off[4];
+    float lms[3][4];
+    float lohi[3][4];
+    float piv[6][4];
+    float coef[3 * DV_MAX_PIECES][4];
+    float mmr[3 * DV_GPU_MMR_VEC4][4];
+} dv_gpu_params;
+
+/* *dv -> the shader's block. */
+void dv_pack_gpu(const dv_params *dv, dv_gpu_params *out);
 
 /*
  * The playing stream's parameters, by presentation time. The decoder stores

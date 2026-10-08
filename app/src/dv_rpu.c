@@ -157,9 +157,12 @@ static void default_color(dv_color *c)
         c->nonlinear[i] = ycc[i] / 8192.0f;
         c->rgb_to_lms[i] = lms[i] / 16384.0f;
     }
-    c->offset[0] = 0.25f;
-    c->offset[1] = 2.0f;
-    c->offset[2] = 2.0f;
+    /* FFmpeg's default offsets ({1/4, 2, 2}) are not in the 0..1 signal
+     * domain the shader works in; profile 5 RPUs carry {0, 0.5, 0.5}
+     * (EVO Player c0c6a5e, evo_dovi_params_default). */
+    c->offset[0] = 0.0f;
+    c->offset[1] = 0.5f;
+    c->offset[2] = 0.5f;
 }
 
 static uint32_t fnv(uint32_t h, const void *data, size_t n)
@@ -422,9 +425,9 @@ void dv_reconstruct(const dv_params *dv, const float ycc[3], float rgb[3])
         sig[i] = ycc[i] < 0.0f ? 0.0f : ycc[i] > 1.0f ? 1.0f : ycc[i];
     for (int i = 0; i < 3; i++)
         c[i] = reshape(&dv->comp[i], sig, sig[i]);
-    /* libplacebo scales the offsets like the samples: 2^10 / (2^10 - 1). */
+    /* As the shader does (EVO Player c0c6a5e, verified against libplacebo). */
     for (int i = 0; i < 3; i++)
-        c[i] -= dv->offset[i] * (1024.0f / 1023.0f);
+        c[i] -= dv->offset[i];
     for (int i = 0; i < 3; i++)
         lms[i] = pq_eotf(dv->nonlinear[i * 3 + 0] * c[0] + dv->nonlinear[i * 3 + 1] * c[1] +
                          dv->nonlinear[i * 3 + 2] * c[2]);
@@ -433,36 +436,64 @@ void dv_reconstruct(const dv_params *dv, const float ycc[3], float rgb[3])
                          dv->lms2rgb[i * 3 + 2] * lms[2]);
 }
 
-/* ---- texture packing ------------------------------------------------------ */
+/* ---- shader constants ------------------------------------------------------ */
 
-void dv_pack_texture(const dv_params *dv, float *t)
+/* dv_params -> EVO Player's DoviParams block (c0c6a5e, evo_dovi_params_from_av):
+ * the same values, laid out for the shader. Every index is bounded by the
+ * struct, whatever the parser left in *dv. */
+void dv_pack_gpu(const dv_params *dv, dv_gpu_params *p)
 {
-    memset(t, 0, sizeof(float) * DV_TEX_FLOATS);
-    for (int i = 0; i < 3; i++)
-        t[i] = dv->offset[i];
-    for (int i = 0; i < 9; i++) {
-        t[3 + i] = dv->nonlinear[i];
-        t[12 + i] = dv->lms2rgb[i];
+    memset(p, 0, sizeof *p);
+    for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < 3; j++) {
+            p->ycc[i][j] = dv->nonlinear[i * 3 + j];
+            p->lms[i][j] = dv->lms2rgb[i * 3 + j];
+        }
+        p->off[i] = dv->offset[i];
     }
+    for (int i = 0; i < 6; i++)
+        for (int k = 0; k < 4; k++)
+            p->piv[i][k] = 1e9f;
     for (int c = 0; c < 3; c++) {
         const dv_curve *cv = &dv->comp[c];
-        float *b = t + 24 + c * 218;
-        b[0] = (float)cv->num_pivots;
-        for (int i = 0; i < cv->num_pivots && i < DV_MAX_PIECES + 1; i++)
-            b[1 + i] = cv->pivots[i];
-        for (int k = 0; k < cv->num_pivots - 1 && k < DV_MAX_PIECES; k++) {
-            float *pc = b + 10 + k * 26;
-            if (cv->method[k] == 0) {
-                pc[0] = 0.0f;
-                pc[1] = cv->poly[k][0];
-                pc[2] = cv->poly[k][1];
-                pc[3] = cv->poly[k][2];
-            } else {
-                pc[0] = (float)cv->mmr_order[k];
-                pc[4] = cv->mmr_const[k];
-                for (int j = 0; j < cv->mmr_order[k]; j++)
-                    for (int q = 0; q < 7; q++)
-                        pc[5 + j * 7 + q] = cv->mmr[k][j][q];
+        const int np = cv->num_pivots;
+        p->lohi[c][0] = 0.0f;
+        p->lohi[c][1] = 1.0f;
+        if (np < 2 || np > DV_MAX_PIECES + 1)
+            continue;                       /* no curve: the shader passes the signal through */
+        p->lohi[c][0] = cv->pivots[0];
+        p->lohi[c][1] = cv->pivots[np - 1];
+        p->lohi[c][2] = 1.0f;
+        /* the inner pivots pick the piece; the ends only clamp */
+        for (int i = 1; i < np - 1; i++)
+            p->piv[c * 2 + (i - 1) / 4][(i - 1) % 4] = cv->pivots[i];
+        int mmr_idx = 0;
+        for (int i = 0; i < np - 1; i++) {
+            float *co = p->coef[c * DV_MAX_PIECES + i];
+            if (cv->method[i] == 0) {
+                co[0] = cv->poly[i][0];
+                co[1] = cv->poly[i][1];
+                co[2] = cv->poly[i][2];
+                continue;                   /* co[3] == 0: polynomial */
+            }
+            int order = cv->mmr_order[i];
+            if (order < 1)
+                order = 1;
+            if (order > 3)
+                order = 3;
+            if (mmr_idx + 2 * order > DV_GPU_MMR_VEC4)
+                break;                      /* cannot happen: 8 pieces x 3 orders x 2 = 48 */
+            co[0] = cv->mmr_const[i];
+            co[1] = (float)mmr_idx;
+            co[3] = (float)order;
+            for (int j = 0; j < order; j++) {
+                float *a = p->mmr[c * DV_GPU_MMR_VEC4 + mmr_idx];
+                float *b = p->mmr[c * DV_GPU_MMR_VEC4 + mmr_idx + 1];
+                for (int k = 0; k < 3; k++)
+                    a[k] = cv->mmr[i][j][k];
+                for (int k = 0; k < 4; k++)
+                    b[k] = cv->mmr[i][j][3 + k];
+                mmr_idx += 2;
             }
         }
     }

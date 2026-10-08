@@ -68,6 +68,8 @@
 #include "video_yuv_nv12_hlg_pipe.h"
 #include "video_yuv_nv12_hlg_pq_out_pipe.h"
 #include "video_yuv_nv12_pq_out_pipe.h"
+#include "video_yuv_p010_dovi_pipe.h"
+#include "video_yuv_p010_dovi_pq_out_pipe.h"
 #include "video_yuv_p010_hdr_pipe.h"
 #include "video_yuv_p010_hlg_pipe.h"
 #include "video_yuv_p010_hlg_pq_out_pipe.h"

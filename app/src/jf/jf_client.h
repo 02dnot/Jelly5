@@ -388,9 +388,6 @@ public:
     std::vector<Item> items_of(const std::string &body);
 
 private:
-    /* One PlaybackInfo; transcode: no direct play, no video copy (Dolby Vision 5). */
-    bool playback_info_as(const std::string &item_id, int64_t start_ticks, int audio_index, int subtitle_index,
-                          Playback *out, int64_t max_bitrate, bool transcode, const std::string &media_source_id);
     bool emby() const { return kind_ == Kind::Emby; }
     /* The signed-in user (Jellyfin's /Users/Me, Emby's /Users/{id}), and one of
      * their items with its query begun: "&fields=..." follows (Jellyfin:
