@@ -69,11 +69,14 @@ std::string base64(const unsigned char *d, size_t n)
  * fails, and the caller reconnects. */
 bool connect_with_timeout(int fd, const sockaddr *addr, socklen_t len, int timeout_ms)
 {
+    /* Non-blocking connect, then poll and SO_ERROR for the outcome. errno is not
+     * consulted: the app's libc doesn't see the kernel's EINPROGRESS (a connect in
+     * progress read as a failure, on every attempt, on the console). Without
+     * fcntl, a plain blocking connect; the timeouts below still bound the reads. */
     const int flags = fcntl(fd, F_GETFL, 0);
-    if (flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0)
-        return false;
+    const bool nonblock = flags >= 0 && fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0;
     if (connect(fd, addr, len) != 0) {
-        if (errno != EINPROGRESS)
+        if (!nonblock)
             return false;
         pollfd p{fd, POLLOUT, 0};
         int err = 0;
@@ -81,7 +84,7 @@ bool connect_with_timeout(int fd, const sockaddr *addr, socklen_t len, int timeo
         if (poll(&p, 1, timeout_ms) <= 0 || getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &elen) != 0 || err != 0)
             return false;
     }
-    if (fcntl(fd, F_SETFL, flags) < 0)
+    if (nonblock && fcntl(fd, F_SETFL, flags) < 0)
         return false;
     timeval tv{10, 0};
     setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
