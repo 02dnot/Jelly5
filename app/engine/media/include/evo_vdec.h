@@ -33,6 +33,7 @@
 #ifndef EVO_VDEC_H
 #define EVO_VDEC_H
 
+#include <pthread.h>
 #include <stdint.h>
 
 #include "pp_frame.h"
@@ -99,6 +100,13 @@ typedef enum {
  * it just silently opens FFmpeg one call later. Never probes twice; reuses
  * the cached evo_vdec_probe() result. */
 evo_vdec_backend evo_vdec_pref_resolve(evo_vdec_pref pref, int codec_id);
+
+/* 1 once a sceVideodec2 call stopped returning (the hang watchdog in
+ * evo_vdec_native.c). Native decode is then off for the rest of the process.
+ * evo_vdec_native_hung_in(t): the call that hung was made on thread t, which
+ * must be abandoned, not joined. Always 0 on host / payload builds. */
+int evo_vdec_native_hung(void);
+int evo_vdec_native_hung_in(pthread_t t);
 
 /* Would evo_vdec_open() honour a NATIVE request for this stream? Answers the
  * same profile / bit-depth / dimension gate evo_vdec_open() applies, without
