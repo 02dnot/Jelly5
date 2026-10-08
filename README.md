@@ -149,7 +149,7 @@ Once signed in, Seerr's results appear in Search, a *Discover* tab shows what's 
 
 | | Plays | Notes |
 | --- | --- | --- |
-| Video | H.264, HEVC (Main, Main 10), VP9 and older formats | AV1 is transcoded by the server |
+| Video | H.264, HEVC (Main, Main 10), VP9 and older formats | H.264 4:2:2 and 4:4:4, and AV1, are transcoded by the server |
 | HDR | HDR10, HLG, HDR10+ (as HDR10), Dolby Vision (its HDR10 base layer; profile 5 rebuilt as HDR10) | |
 | Audio | AAC, AC3, E-AC3, TrueHD, DTS (incl. DTS-HD MA), FLAC, Opus, MP3 and more | Played as multichannel PCM; with *HDMI bitstream* on, Dolby Digital, Dolby Digital Plus and DTS go to the TV/receiver as they are (TrueHD and DTS-HD MA stay lossless PCM) |
 | Subtitles | SRT, ASS/SSA, PGS, DVD and DVB, WebVTT | Embedded or external |

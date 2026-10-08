@@ -1310,8 +1310,10 @@ std::string Client::image_url(const std::string &owner, const char *type, const 
 
 /*
  * What the PS5 plays itself (EVO/Nuvio engine): sceVideodec2 decodes H.264
- * and HEVC Main/Main10 up to 3840x2176 and VP9; FFmpeg covers the rest in
- * software and every audio codec (multichannel PCM out). Dolby Vision plays
+ * up to High and HEVC Main/Main10 up to 3840x2176 and VP9; FFmpeg covers
+ * High 10 H.264 and the rest in software, and every audio codec (multichannel
+ * PCM out). H.264 4:2:2 and 4:4:4 are left to the server: the PS5 would decode
+ * them in software and swscale each frame down to 4:2:0. Dolby Vision plays
  * its HDR10 base layer, so only profiles with a compatible base are allowed,
  * and HEVC profile 5 (bare DOVI), which the GPU rebuilds from its RPU into
  * HDR10 (src/dv_rpu.c, the shader from EVO Player c0c6a5e).
@@ -1363,6 +1365,8 @@ std::string Client::device_profile_json(int64_t max_bitrate)
     {"Type": "Video", "Codec": "h264", "Conditions": [
       {"Condition": "LessThanEqual", "Property": "Width", "Value": "3840", "IsRequired": false},
       {"Condition": "LessThanEqual", "Property": "VideoLevel", "Value": "52", "IsRequired": false},
+      {"Condition": "EqualsAny", "Property": "VideoProfile",
+       "Value": "high|main|baseline|constrained baseline|high 10", "IsRequired": false},
       {"Condition": "NotEquals", "Property": "IsInterlaced", "Value": "true", "IsRequired": false}]},
     {"Type": "Video", "Codec": "hevc", "Conditions": [
       {"Condition": "LessThanEqual", "Property": "Width", "Value": "3840", "IsRequired": false},

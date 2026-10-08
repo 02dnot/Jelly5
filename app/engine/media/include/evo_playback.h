@@ -89,6 +89,10 @@ extern int       video_frame_h;
 extern int       video_frame_loaded;
 extern uint32_t *video_frame_pixels;
 
+/* Drop the exotic-pixel-format scaler on file close - it is sized to the
+ * closed file's geometry, like play_sws. */
+void evo_playback_release_sw_scaler(void);
+
 #ifdef __cplusplus
 }
 #endif

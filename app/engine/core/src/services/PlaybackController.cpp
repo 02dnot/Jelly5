@@ -407,6 +407,7 @@ void PlaybackController::stopPlayback() {
         sws_freeContext(play_sws);
         play_sws = nullptr;
     }
+    evo_playback_release_sw_scaler();   /* from EVO Player 9354813 */
 
     if (audio_handle >= 1) {
         if (jelly5_bs_active())
