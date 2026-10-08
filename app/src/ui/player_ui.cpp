@@ -135,6 +135,8 @@ int PlayerUi::current_skip(const NuvioStatus &st) const
         const NuvioSkip &k = m_req->skips[i];
         if (k.type == "outro" || k.type == "credits")
             continue;   /* the next-episode card covers the end */
+        if (next_card(st) && k.start >= card_start(st))
+            continue;   /* a preview after the credits: the card has the spot and ✕ */
         if (st.position >= k.start && st.position < k.end - 1.0 && !m_skip_done[i])
             return (int)i;
     }
@@ -148,19 +150,34 @@ bool PlayerUi::has_next() const
     return m_music ? jelly5_music_has_next(m_req->has_next) : m_req->has_next;
 }
 
+/* Where the credits start (Jellyfin's Outro segment, Emby's CreditsStart
+ * marker); with none, the old rule: the user's threshold or the last 45 s. */
+double PlayerUi::card_start(const NuvioStatus &st) const
+{
+    double start = -1;
+    for (const NuvioSkip &k : m_req->skips)
+        /* Credits that end near the end of this file: not a marker past its end
+         * (another cut), nor one in the middle (a detection gone wrong). */
+        if ((k.type == "outro" || k.type == "credits") && k.start < st.duration - 1.0 &&
+            k.end >= st.duration - 180.0 && (start < 0 || k.start < start))
+            start = k.start;
+    if (start >= 0)
+        return start;
+    const NuvioPrefs &p = m_req->prefs;
+    const double rule = p.next_by_minutes
+                            ? st.duration - p.next_minutes * 60.0
+                            : std::min(st.duration * std::min(99.0, p.next_percent) / 100.0, st.duration - 45.0);
+    return std::max(rule, st.duration * 0.5);   /* a short file is watched first */
+}
+
+/* The next-episode card: from the credits to the end, only when the next
+ * episode plays by itself, never for the last one. */
 bool PlayerUi::next_card(const NuvioStatus &st) const
 {
-    if (!m_req || m_music || !m_req->has_next || m_card_dismissed || !st.started || st.duration <= 0 ||
-        in_group())   /* in a group, the group's queue goes on (playback_ended) */
+    if (!m_req || m_music || !m_req->has_next || !m_req->prefs.autoplay_next || m_card_dismissed || !st.started ||
+        st.duration <= 0 || in_group())   /* in a group, the group's queue goes on (playback_ended) */
         return false;
-    for (const NuvioSkip &k : m_req->skips)
-        if ((k.type == "outro" || k.type == "credits") && st.position >= k.start && st.position < k.end)
-            return true;
-    const NuvioPrefs &p = m_req->prefs;
-    const double left = st.duration - st.position;
-    return p.next_by_minutes ? left <= p.next_minutes * 60.0
-                             : st.position / st.duration * 100.0 >= std::min(99.0, p.next_percent) ||
-                                   left <= 45.0;
+    return st.position >= card_start(st);
 }
 
 /* The speed button's label: "1×", "1.25×", ... (the current playback speed). */
@@ -297,18 +314,19 @@ void PlayerUi::tick(const NuvioStatus &st, std::vector<OsdCommand> &out, bool po
         show_controls(st.now, Zone::Buttons);   /* a moment as the picture appears */
         m_hide_at = st.now + 3.0;
     }
-    /* A skip button that appears takes the focus: controls that came up by
-     * themselves (as the picture starts) step aside, unless the viewer has been
+    /* A skip button or the next-episode card that appears takes the focus:
+     * controls that came up by themselves step aside, unless the viewer has been
      * pressing something in the last 2 s. */
     {
         const int k = current_skip(st);
-        if (k != m_skip_seen) {
-            m_skip_seen = k;
-            if (k >= 0 && m_controls && m_zone == Zone::Buttons && m_overlay == Overlay::None && !st.paused &&
-                st.now - m_input_at > 2.0) {
-                m_controls = false;
-                m_dirty = true;
-            }
+        const bool card = next_card(st);
+        const bool arrived = (k != m_skip_seen && k >= 0) || (card && !m_card_seen);
+        m_skip_seen = k;
+        m_card_seen = card;
+        if (arrived && m_controls && m_zone == Zone::Buttons && m_overlay == Overlay::None && !st.paused &&
+            st.now - m_input_at > 2.0) {
+            m_controls = false;
+            m_dirty = true;
         }
     }
     /* Automatic intro skipping (Innstillinger). */
@@ -331,12 +349,15 @@ void PlayerUi::tick(const NuvioStatus &st, std::vector<OsdCommand> &out, bool po
         m_controls = false;
         m_dirty = true;
     }
-    /* The next-episode countdown (10 s) when autoplay is on. */
+    /* A card put away comes back when the credits are reached again (a seek back). */
+    if (m_card_dismissed && m_req && st.started && st.duration > 0 && st.position < card_start(st))
+        m_card_dismissed = false;
+    /* The next-episode countdown (10 s). */
     if (next_card(st)) {
         if (m_card_since < 0)
             m_card_since = st.now;
-        else if (st.paused || m_overlay != Overlay::None || m_seeking)
-            m_card_since += step;   /* held while paused, scrubbing, or the card is hidden */
+        else if (st.paused || m_overlay != Overlay::None || m_seeking || (m_controls && m_zone == Zone::Buttons))
+            m_card_since += step;   /* held while paused, scrubbing, in the buttons, or the card is hidden */
         if (m_req->prefs.autoplay_next && st.now - m_card_since >= 10.0 && !st.paused) {
             m_card_dismissed = true;
             out.push_back({OsdCmd::PlayNext});
@@ -1169,8 +1190,23 @@ void PlayerUi::draw_skip_next(const NuvioStatus &st)
         const float cw_card = std::min(std::max(560.f, 270 + line_w + 8), W - 2 * kPad);
         const gfx::Rect r{W - kPad - cw_card, H - 440 - (1.f - a_next.value) * 20 + (m_controls ? 0 : 290), cw_card,
                           156};
+        /* As the skip button: the glass drop when ✕ plays it (the controls
+         * hidden, or on the bar); while the viewer moves through the buttons, ✕
+         * is theirs, and the card's ✕ hints step back. It keeps the last state
+         * while it fades out. */
+        if (card)
+            m_card_focus = !m_seeking && (!m_controls || m_zone == Zone::Bar);
+        const bool focus = m_card_focus;
         gfx::push_opacity(a_next.value);
         glass(r, 1.f);
+        if (focus)
+            m_card_drop.to(r, 0, 0, r.y);
+        else
+            m_card_drop.hide();
+        bool moving = false;
+        m_card_drop.draw(m_dt, 1.f, &moving, std::min(28.f, r.h / 2));
+        if (moving)
+            m_dirty = true;
         art::draw({r.x + 18, r.y + 18, 213, 120}, n.thumbnail, n.blurhash, 480, 270, 10);
         const float tx = r.x + 250;
         gfx::text(tx, r.y + 44, T("NESTE EPISODE"), {gfx::Bold, 17}, kText3);
@@ -1180,12 +1216,16 @@ void PlayerUi::draw_skip_next(const NuvioStatus &st)
         if (counting) {
             const double left = std::max(0.0, 10.0 - (st.now - m_card_since));
             const float cw = gfx::text(tx, r.y + 116, c, {gfx::Medium, 20}, kText2);
+            gfx::push_opacity(focus ? 1.f : 0.4f);
             draw_pad_hint(tx + cw + 18, r.y + 109, PadButton::Cross, T("Nå"), 24);
+            gfx::pop_opacity();
             gfx::fill({tx, r.y + 132, r.w - 270, 4}, 0x33ffffffu, 2);
             gfx::fill({tx, r.y + 132, (r.w - 270) * (float)(1.0 - left / 10.0), 4}, kAccent, 2);
         } else {
+            gfx::push_opacity(focus ? 1.f : 0.4f);
             draw_pad_hints(tx, r.y + 109, {{PadButton::Cross, T("Spill av")}, {PadButton::Circle, T("Se rulletekst")}}, 0,
                            24);
+            gfx::pop_opacity();
         }
         gfx::pop_opacity();
     }

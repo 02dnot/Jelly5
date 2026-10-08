@@ -73,6 +73,7 @@ private:
     void analog_scrub(const nuvio_input_state &in, const NuvioStatus &st);
     double m_trig_at = 0, m_trig_down_at = 0;
     int current_skip(const NuvioStatus &st) const;
+    double card_start(const NuvioStatus &st) const;   /* when the next-episode card comes up */
     bool next_card(const NuvioStatus &st) const;
     bool has_next() const;   /* music: the queue's play order, not the request's next track */
     std::vector<Button> buttons() const;
@@ -133,7 +134,10 @@ private:
 
     bool m_skip_done[16] = {};
     bool m_card_dismissed = false;
+    bool m_card_seen = false;           /* the card was up last tick (its focus on arrival) */
     double m_card_since = -1;           /* the next-episode countdown */
+    Drop m_card_drop;                   /* the card's focus */
+    bool m_card_focus = false;          /* ✕ plays it (kept while it fades out) */
 
     Overlay m_overlay = Overlay::None;
     Overlay m_overlay_drawn = Overlay::None;   /* kept while it fades out */
