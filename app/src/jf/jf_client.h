@@ -93,6 +93,7 @@ struct MediaStream {
     std::string video_range, video_range_type;   /* Jellyfin's words (Emby's are translated): HDR; HDR10, DOVI ... */
     int width = 0, height = 0, channels = 0, bit_depth = 0;
     bool is_default = false, is_forced = false, is_external = false, is_text = false;
+    bool is_hearing_impaired = false;         /* SDH (Jellyfin 10.9+, Emby) */
     std::string delivery_url;                 /* external subtitles */
     std::string delivery_method;              /* subtitles: Embed, External (also an embedded one in a transcode) ... */
 };
@@ -176,6 +177,10 @@ struct UserPrefs {
     std::string subtitle_language;
     std::string subtitle_mode;                /* Default, Always, OnlyForced, None, Smart */
     bool autoplay_next = true;
+    /* Read only (set_prefs leaves them as the server has them): "Remember audio/subtitle
+     * selections", the next episodes start on the track chosen in the last (app/track_memory). */
+    bool remember_audio = true;
+    bool remember_subtitles = true;
 };
 
 struct PublicUser {
@@ -232,6 +237,7 @@ struct Features {
     bool lyrics = true;
     bool home_sections = true;                /* the web client's home order (DisplayPreferences) */
     bool latin_sort_names = true;             /* SortName in Latin letters: Jellyfin's are, Emby's keep their script */
+    bool media_segments = true;               /* recaps, previews, commercials too (Emby marks only intros and credits) */
 };
 
 class Client {
@@ -359,9 +365,12 @@ public:
     /* audio_index < 0: the server's default track; subtitle_index -2: the
      * server's default, -1: none. */
     /* max_bitrate (bits/s, 0 = no cap): above it the server transcodes down. */
-    /* channel: a Live TV channel (its server transcode is asked for short segments). */
+    /* media_source_id: that version only (the server applies the indices to the version
+     * it names, and to none without one); empty: every version, the indices not sent.
+     * channel: a Live TV channel (its server transcode is asked for short segments). */
     bool playback_info(const std::string &item_id, int64_t start_ticks, int audio_index,
-                       int subtitle_index, Playback *out, int64_t max_bitrate = 0, bool channel = false);
+                       int subtitle_index, Playback *out, int64_t max_bitrate = 0,
+                       const std::string &media_source_id = std::string(), bool channel = false);
     std::string image_url(const std::string &owner, const char *type, const std::string &tag,
                           int width) const;
 
@@ -437,9 +446,6 @@ public:
     std::vector<Item> items_of(const std::string &body);
 
 private:
-    /* One PlaybackInfo; transcode: no direct play, no video copy (Dolby Vision 5). */
-    bool playback_info_as(const std::string &item_id, int64_t start_ticks, int audio_index, int subtitle_index,
-                          Playback *out, int64_t max_bitrate, bool transcode, bool channel = false);
     bool emby() const { return kind_ == Kind::Emby; }
     /* The signed-in user (Jellyfin's /Users/Me, Emby's /Users/{id}), and one of
      * their items with its query begun: "&fields=..." follows (Jellyfin:

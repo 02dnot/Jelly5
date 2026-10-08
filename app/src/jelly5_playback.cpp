@@ -12,6 +12,7 @@
 #include "app/i18n.h"
 #include "app/livetv.h"
 #include "ui/livetv.h"
+#include "app/track_memory.h"
 #include "app/spawn.h"
 #include "jf/json_num.h"
 
@@ -50,6 +51,10 @@ struct Session {
     bool paused = false;
     int audio_stream = -1;             /* the player's audio: the container's stream index */
     int subtitle_track = -1;           /* the player's subtitle: nuvio_subs' id, -1 off */
+    /* The tracks as the server's indices, as last reported (server_tracks; -1 and -2
+     * unknown): what the viewer had at the end (app/track_memory). The subtitle's
+     * is for the player's track subtitle_known_for. */
+    int server_audio = -1, server_subtitle = -2, subtitle_known_for = -1;
     double reported = -1;              /* position of the last progress report */
     std::string result;                /* the player's final result JSON */
     std::atomic<bool> active{false};
@@ -79,24 +84,35 @@ std::vector<int> request_subtitle_indices(const jf::Playback &pb)
     return out;
 }
 
+/* A stream of the file as the file numbers it (the container's index): Jellyfin
+ * numbers the external files first and the file's own streams after them, Emby
+ * puts the external files last. */
+int container_index(const jf::Playback &pb, int server_index)
+{
+    int before = 0;
+    for (const jf::MediaStream &m : pb.streams)
+        if (m.is_external && m.index >= 0 && m.index < server_index)
+            before++;
+    return server_index - before;
+}
+
 /* The player's tracks as the server's stream indices (PlaybackProgressInfo's
  * AudioStreamIndex and SubtitleStreamIndex): *audio -1 and *subtitle -2 where
  * they cannot be told. Playing the file itself, its streams are the server's
- * (MediaStream.Index is the container's); an encoded stream carries the audio
- * the server picked. External subtitles were added first, in pb's order. */
+ * (container_index); an encoded stream carries the audio the server picked.
+ * External subtitles were added first, in pb's order. */
 void server_tracks(const jf::Playback &pb, int audio_stream, int subtitle_track, int *audio, int *subtitle)
 {
     const bool direct = pb.play_method == "DirectPlay";
     auto embedded = [&pb](const char *type, int stream) {
         for (const jf::MediaStream &m : pb.streams)
-            if (m.type == type && !m.is_external && m.index == stream)
-                return stream >= 0;
-        return false;
+            if (stream >= 0 && m.type == type && !m.is_external && container_index(pb, m.index) == stream)
+                return m.index;
+        return -1;
     };
     *audio = -1;
     if (direct) {
-        if (embedded("Audio", audio_stream))
-            *audio = audio_stream;
+        *audio = embedded("Audio", audio_stream);
     } else {
         const size_t at = pb.url.find("AudioStreamIndex=");
         *audio = at != std::string::npos ? std::atoi(pb.url.c_str() + at + 17) : pb.default_audio;
@@ -115,8 +131,8 @@ void server_tracks(const jf::Playback &pb, int audio_stream, int subtitle_track,
         const std::vector<int> files = request_subtitle_indices(pb);
         if (k < (int)files.size())   /* (one downloaded during playback comes after them: not told) */
             *subtitle = files[k];
-    } else if (direct && nuvio_subs_track(subtitle_track, &t) == 0 && embedded("Subtitle", t.stream)) {
-        *subtitle = t.stream;
+    } else if (direct && nuvio_subs_track(subtitle_track, &t) == 0 && embedded("Subtitle", t.stream) >= 0) {
+        *subtitle = embedded("Subtitle", t.stream);
     }
 }
 
@@ -148,8 +164,17 @@ void *reporter_thread(void *)
             subtitle_track = s_session.subtitle_track;
         }
         int audio = -1, subtitle = -2;   /* (not known before the player has started) */
-        if (heard)
+        if (heard) {
             server_tracks(pb, audio_stream, subtitle_track, &audio, &subtitle);
+            /* Kept for the series' memory. Once the player has closed its subtitles a
+             * track cannot be told any more: the same track keeps what it was. */
+            std::lock_guard<std::mutex> g(s_session.lock);
+            s_session.server_audio = audio;
+            if (subtitle != -2 || subtitle_track != s_session.subtitle_known_for) {
+                s_session.server_subtitle = subtitle;
+                s_session.subtitle_known_for = subtitle_track;
+            }
+        }
         if (paused != reported_paused || audio != reported_audio || subtitle != reported_subtitle ||
             t - last_report >= 10.0) {
             reported_paused = paused;
@@ -266,6 +291,9 @@ struct Extras {
      * played since the viewer's last press, carried from the episode before. */
     int autoplay_count = 0;
     double autoplay_idle = 0;
+    /* The series' remembered tracks in this title (remembered_tracks): server indices. */
+    int keep_audio = -1;
+    int keep_subtitle = -2;   /* -1 off */
 };
 
 std::string request_json(jf::Client &c, const jf::Item &it, const jf::Playback &pb,
@@ -518,7 +546,10 @@ std::string request_json(jf::Client &c, const jf::Item &it, const jf::Playback &
     cJSON_AddItemToObject(prefs, "forcedOnlyWhenOff", cJSON_CreateBool(mode != "None"));
     cJSON_AddItemToObject(prefs, "autoplayNext", cJSON_CreateBool(set.server.autoplay_next));
     cJSON_AddItemToObject(prefs, "skipIntro", cJSON_CreateBool(1));
-    cJSON_AddItemToObject(prefs, "autoSkipIntro", cJSON_CreateBool(set.local.auto_skip_intro));
+    cJSON *seg = cJSON_CreateObject();   /* Innstillinger: what to do at each segment type */
+    for (int t = 0; t < segments::TypeCount; t++)
+        cJSON_AddStringToObject(seg, segments::key_of(t), segments::action_key(set.local.segment[t]));
+    cJSON_AddItemToObject(prefs, "segments", seg);
     /* Innstillinger: Spør om du fortsatt ser på (Av, after 3 episodes, after 2 hours). */
     cJSON_AddNumberToObject(prefs, "stillWatchingEpisodes", set.local.still_watching == 1 ? 3 : 0);
     cJSON_AddNumberToObject(prefs, "stillWatchingSeconds", set.local.still_watching == 2 ? 2 * 3600 : 0);
@@ -529,6 +560,29 @@ std::string request_json(jf::Client &c, const jf::Item &it, const jf::Playback &
     cJSON_AddNumberToObject(style, "background", set.local.sub_background);
     cJSON_AddItemToObject(style, "outline", cJSON_CreateBool(set.local.sub_outline));
     cJSON_AddItemToObject(prefs, "subtitleStyle", style);
+    /* The series' remembered tracks, as the player finds them: the file's own stream
+     * (played directly), or the request's subtitle file by its place. */
+    const bool direct = pb.play_method == "DirectPlay";
+    if (ex.keep_audio >= 0 && direct)
+        cJSON_AddNumberToObject(prefs, "keepAudioStream", container_index(pb, ex.keep_audio));
+    if (ex.keep_subtitle >= -1) {
+        cJSON *k = cJSON_CreateObject();
+        const std::vector<int> files = request_subtitle_indices(pb);
+        const auto file = std::find(files.begin(), files.end(), ex.keep_subtitle);
+        if (ex.keep_subtitle == -1) {
+            cJSON_AddTrueToObject(k, "off");
+        } else if (file != files.end()) {
+            cJSON_AddNumberToObject(k, "external", (double)(file - files.begin()));
+        } else if (direct) {
+            for (const jf::MediaStream &m : pb.streams)
+                if (m.type == "Subtitle" && !m.is_external && m.index == ex.keep_subtitle)
+                    cJSON_AddNumberToObject(k, "stream", container_index(pb, m.index));
+        }
+        if (k->child)
+            cJSON_AddItemToObject(prefs, "keepSubtitle", k);
+        else
+            cJSON_Delete(k);
+    }
     cJSON_AddItemToObject(o, "prefs", prefs);
 
     /* The player's interface text, in the interface's language (built per playback). */
@@ -621,6 +675,120 @@ double position_from_result(const std::string &result, double fallback)
     const double pos = cJSON_IsNumber(p) ? p->valuedouble : fallback;
     cJSON_Delete(j);
     return pos;
+}
+
+/* ---- the series' tracks (app/track_memory) ---------------------------------------- */
+
+/* The tracks the viewer chose earlier in this episode's series, as this file's own
+ * (server indices): *audio -1 and *subtitle -2 where none is remembered or the file
+ * has no equivalent; *subtitle -1: off. Only what the account lets be remembered. */
+void remembered_tracks(const jf::Client &c, const jf::Item &item, const jf::Playback &pb, int *audio,
+                       int *subtitle)
+{
+    *audio = -1;
+    *subtitle = -2;
+    track_memory::Choice ch;
+    if (item.type != "Episode" || !track_memory::get(c.user_id(), item.series_id, &ch))
+        return;
+    const jf::UserPrefs prefs = settings::get().server;
+    if (ch.audio_set && prefs.remember_audio)
+        *audio = track_memory::match(pb.streams, "Audio", ch.audio);
+    if (ch.subtitle_set && prefs.remember_subtitles) {
+        /* An encoded stream brings no picture subtitles to the player (ask_with_tracks):
+         * there the text one in the same language. */
+        track_memory::Track want = ch.subtitle;
+        if (pb.play_method != "DirectPlay")
+            want.image = false;
+        const int m = ch.subtitle_off ? -1 : track_memory::match(pb.streams, "Subtitle", want);
+        *subtitle = ch.subtitle_off ? -1 : m >= 0 ? m : -2;
+    }
+}
+
+/* A stream the server encodes carries the audio it picks and leaves out a subtitle
+ * turned off: when the remembered tracks are not its defaults, the version chosen
+ * is asked for again with them (the server applies the indices only to a version
+ * it is named). A text subtitle is still served as a file the player draws
+ * itself; a picture one is not asked for, as the server would burn it into the
+ * picture (the player shows those only from the file itself). One the request
+ * already carries as a file is not asked for either, unless the server's default
+ * is a picture one it would burn in. The other versions stay, under the new play
+ * session; the first answer's encoding is stopped. */
+void ask_with_tracks(jf::Client &c, const jf::Item &item, int64_t max_bitrate, int audio, int subtitle,
+                     jf::Playback *pb)
+{
+    if (pb->play_method == "DirectPlay" || pb->versions.empty())
+        return;   /* the player reads the file and picks the tracks itself */
+    int sub = subtitle == -1 ? -1 : -2;
+    for (const jf::MediaStream &m : pb->streams)
+        if (subtitle >= 0 && m.index == subtitle && m.type == "Subtitle" && m.is_text)
+            sub = subtitle;
+    bool default_picture = false;
+    for (const jf::MediaStream &m : pb->streams)
+        if (m.type == "Subtitle" && m.index == pb->default_subtitle && pb->default_subtitle >= 0 && !m.is_text)
+            default_picture = true;
+    const std::vector<int> files = request_subtitle_indices(*pb);
+    if (sub >= 0 && !default_picture && std::find(files.begin(), files.end(), sub) != files.end())
+        sub = -2;   /* the player gets it as a file anyway (keepSubtitle) */
+    if ((audio < 0 || audio == pb->default_audio) && (sub == -2 || sub == pb->default_subtitle))
+        return;
+    jf::Playback again;
+    if (!c.playback_info(item.id, item.position_ticks, audio, sub, &again, max_bitrate, pb->media_source_id) ||
+        again.media_source_id != pb->media_source_id || again.versions.empty()) {
+        evo_bt("jelly5: playback info with the series' tracks failed (%s): the server's tracks",
+               c.last_error().c_str());
+        return;
+    }
+    for (size_t i = 1; i < pb->versions.size(); i++) {
+        jf::Version v = pb->versions[i];
+        for (size_t at; !pb->play_session_id.empty() && (at = v.url.find(pb->play_session_id)) != std::string::npos;)
+            v.url.replace(at, pb->play_session_id.size(), again.play_session_id);
+        again.versions.push_back(std::move(v));
+    }
+    c.stop_encoding(*pb);   /* the first answer's transcode, if it started one */
+    *pb = std::move(again);
+}
+
+/* After a title: the tracks the viewer chose in it are the series' from now on. */
+void remember_tracks(const jf::Client &c, const jf::Item &item, const std::string &result)
+{
+    if (item.type != "Episode" || item.series_id.empty())
+        return;
+    cJSON *j = cJSON_Parse(result.c_str());
+    const cJSON *t = cJSON_GetObjectItemCaseSensitive(j, "tracks");
+    const bool audio_picked = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(t, "audioPicked"));
+    const bool subtitle_picked = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(t, "subtitlePicked"));
+    cJSON_Delete(j);
+    if (!audio_picked && !subtitle_picked)
+        return;
+    jf::Playback pb;
+    int audio, subtitle;
+    {
+        std::lock_guard<std::mutex> g(s_session.lock);
+        pb = s_session.pb;   /* the version playing last */
+        audio = s_session.server_audio;
+        subtitle = s_session.subtitle_known_for == s_session.subtitle_track ? s_session.server_subtitle : -2;
+    }
+    const jf::UserPrefs prefs = settings::get().server;
+    auto stream = [&pb](const char *type, int index) -> const jf::MediaStream * {
+        for (const jf::MediaStream &m : pb.streams)
+            if (m.type == type && m.index == index)
+                return &m;
+        return nullptr;
+    };
+    /* Audio only from the file itself: an encoded stream's is the one the server picked. */
+    const jf::MediaStream *a = pb.play_method == "DirectPlay" ? stream("Audio", audio) : nullptr;
+    if (audio_picked && prefs.remember_audio && a) {
+        track_memory::set_audio(c.user_id(), item.series_id, track_memory::describe(*a));
+        evo_bt("jelly5: the series' audio from now on: stream %d", audio);
+    }
+    if (subtitle_picked && prefs.remember_subtitles && subtitle == -1) {
+        track_memory::set_subtitle(c.user_id(), item.series_id, true, track_memory::Track());
+        evo_bt("jelly5: the series' subtitles from now on: off");
+    } else if (const jf::MediaStream *s = subtitle_picked && prefs.remember_subtitles ? stream("Subtitle", subtitle)
+                                                                                         : nullptr) {
+        track_memory::set_subtitle(c.user_id(), item.series_id, false, track_memory::describe(*s));
+        evo_bt("jelly5: the series' subtitles from now on: stream %d", subtitle);
+    }
 }
 
 } // namespace
@@ -806,6 +974,10 @@ extern "C" void jelly5_playback_source(int index)
         s_session.pb.streams = v.streams;   /* its tracks, not the first version's */
         s_session.pb.default_audio = v.default_audio;
         s_session.pb.default_subtitle = v.default_subtitle;
+        /* The tracks known so far were the last file's (the reporter tells the new ones). */
+        s_session.server_audio = -1;
+        s_session.server_subtitle = -2;
+        s_session.subtitle_known_for = -1;
         if (v.play_method != "DirectPlay" || left.play_method == "DirectPlay")
             return;
     }
@@ -1105,10 +1277,16 @@ static bool play_chain_tracks(jf::Client &client, jf::Item item, std::vector<jf:
             jelly5_wait_reports(3000);   /* the last channel's stream closed before this one opens */
         }
         if (!client.playback_info(item.id, item.position_ticks, -1, -2, &pb, (int64_t)mbps * 1000000,
-                                  item.type == "TvChannel")) {
+                                  std::string(), item.type == "TvChannel")) {
             *error = client.last_error();
             evo_bt("jelly5: playback info failed: %s", error->c_str());
             return chain > 0 && item.type != "TvChannel";   /* a channel zapped to says it could not open */
+        }
+        int keep_audio, keep_subtitle;   /* an episode: the tracks chosen earlier in its series */
+        remembered_tracks(client, item, pb, &keep_audio, &keep_subtitle);
+        if (keep_audio >= 0 || keep_subtitle >= -1) {
+            evo_bt("jelly5: the series' tracks here: audio %d, subtitle %d", keep_audio, keep_subtitle);
+            ask_with_tracks(client, item, (int64_t)mbps * 1000000, keep_audio, keep_subtitle, &pb);
         }
         evo_bt("jelly5: play %s (%s) %s %s", item.name.c_str(), item.id.c_str(), pb.play_method.c_str(),
                pb.transcode_reasons.c_str());
@@ -1143,6 +1321,8 @@ static bool play_chain_tracks(jf::Client &client, jf::Item item, std::vector<jf:
             evo_bt("jelly5: trickplay %dx%d, %d thumbnails", ex.trickplay.width, ex.trickplay.height, ex.trickplay.count);
         ex.autoplay_count = still_count;
         ex.autoplay_idle = still_idle;
+        ex.keep_audio = keep_audio;
+        ex.keep_subtitle = keep_subtitle;
         const std::string req = request_json(client, item, pb, episodes, ex);
 
         jelly5_subs::new_title();
@@ -1154,6 +1334,9 @@ static bool play_chain_tracks(jf::Client &client, jf::Item item, std::vector<jf:
         s_session.paused = false;
         s_session.audio_stream = -1;
         s_session.subtitle_track = -1;
+        s_session.server_audio = -1;
+        s_session.server_subtitle = -2;
+        s_session.subtitle_known_for = -1;
         s_session.result.clear();
         s_session.active = true;
         client.report_start(pb, item.position_ticks);
@@ -1201,6 +1384,7 @@ static bool play_chain_tracks(jf::Client &client, jf::Item item, std::vector<jf:
                 report();   /* no thread: tell the server here, the menus wait a moment */
         }
         evo_bt("jelly5: playback done at %.1f s: %s", pos, result.c_str());
+        remember_tracks(client, item, result);
 
         int season = 0, number = 0;
         std::string pick;

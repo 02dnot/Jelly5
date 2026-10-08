@@ -130,6 +130,9 @@ int pp_playback_push_frame(pp_playback *pb, const pp_frame *src);
 
 /** 1 once a frame has been published for the current file. */
 int pp_playback_has_display(const pp_playback *pb);
+/* Jelly5: the luma plane of the frame published for display (borrowed from
+ * the decode side), or NULL. */
+const uint8_t *pp_playback_shown_plane(pp_playback *pb);
 
 /**
  * The ready frame's planes — normally borrowed from the decoder (no pixel

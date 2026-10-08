@@ -190,7 +190,7 @@ int main(int argc, char **argv)
     std::printf("Playback (PS5 profile)\n");
     for (const jf::Item &ch : page.items) {
         jf::Playback pb;
-        if (!c.playback_info(ch.id, 0, -1, -2, &pb, 0, true)) {
+        if (!c.playback_info(ch.id, 0, -1, -2, &pb, 0, std::string(), true)) {
             std::printf("    %3s %-16s no way to play: %s\n", ch.channel_number.c_str(), ch.name.c_str(),
                         c.last_error().c_str());
             continue;

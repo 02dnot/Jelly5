@@ -159,8 +159,77 @@ static uint32_t *video_rotate_pixels[VIDEO_ROTATE_BUFFERS] = {0};
 static size_t    video_rotate_slot_bytes = 0;
 static int video_rotate_index = 0;
 
+/*
+ * The same ring, for the exotic-pixel-format fallback that still reaches the
+ * screen. swscale brings anything the pipeline does not take natively - 4:2:2,
+ * 4:4:4, 10-bit 4:4:4, GBRP, paletted - down to planar 4:2:0 at the source's
+ * bit depth, which pp_frame does take.
+ *
+ * Three slots because pp_playback_push_frame BORROWS the planes rather than
+ * copying them: one being displayed, one just written, one in flight.
+ *
+ * Plain malloc, NOT evo_direct_mem_alloc: evo_agc_blit_yuv stages a software
+ * frame into the transient ring anyway, so these never need to be GPU-visible,
+ * and direct memory is write-combined - the CPU reads it back at about
+ * 50 MB/s. Allocated there first, the 10-bit planar UV-to-RG16 interleave took
+ * 111 ms a frame and the clip ran at 8 fps.
+ */
+static uint8_t *video_sw420_buf[VIDEO_ROTATE_BUFFERS] = {0};
+static size_t   video_sw420_slot_bytes = 0;
+static int      video_sw420_index = 0;
+static int      video_sw420_w = 0, video_sw420_h = 0, video_sw420_fmt = -1;
+static struct SwsContext *video_sw420_sws = NULL;
+
+/*
+ * Jelly5: sets the ring outgrew (a stream that changes resolution mid-way, as
+ * MPEG-2 4:2:2 broadcast recordings do SD <-> HD). pp_playback borrows the
+ * planes and the render thread copies them after it lets go of the lock, so a
+ * set is freed only once a newer one has taken over and the published frame
+ * is not in it; the rest go when the file closes (evo_playback_release_sw_scaler).
+ */
+typedef struct sw420_retired {
+    struct sw420_retired *next;
+    uint8_t *buf[VIDEO_ROTATE_BUFFERS];
+    size_t   slot_bytes;
+} sw420_retired;
+static sw420_retired *video_sw420_retired = NULL;
+
+static void sw420_free_set(uint8_t **set)
+{
+    for (int i = 0; i < VIDEO_ROTATE_BUFFERS; i++) {
+        free(set[i]);
+        set[i] = NULL;
+    }
+}
+
+static int sw420_set_holds(const sw420_retired *r, const uint8_t *p)
+{
+    for (int i = 0; p && i < VIDEO_ROTATE_BUFFERS; i++)
+        if (r->buf[i] && p >= r->buf[i] && p < r->buf[i] + r->slot_bytes)
+            return 1;
+    return 0;
+}
+
+/* Frees the retired sets older than `keep` that the published frame is not in
+ * (all of them with keep == NULL and the file closed). */
+static void sw420_reap(const sw420_retired *keep, const uint8_t *shown)
+{
+    sw420_retired **pp = &video_sw420_retired;
+    while (*pp) {
+        sw420_retired *r = *pp;
+        if (r != keep && !sw420_set_holds(r, shown)) {
+            *pp = r->next;
+            sw420_free_set(r->buf);
+            free(r);
+        } else {
+            pp = &r->next;
+        }
+    }
+}
+
 static int present_pp_frame(const pp_frame *pf);
 static int convert_frame_via_sws(AVFrame *frame);
+static int convert_frame_to_pp420(AVFrame *frame, pp_frame *out);
 static void prospero_video_queue_drain_nonkey(int max_packets);
 
 double prospero_media_clock_seconds(void)
@@ -297,6 +366,130 @@ static int convert_frame_via_sws(AVFrame *frame)
     return 1;
 }
 
+
+/*
+ * Exotic pixel format -> planar 4:2:0 the renderer can actually show.
+ * From EVO Player 9354813.
+ *
+ * evo_vdec_receive() returns 2 for anything pp_map_avframe does not recognise:
+ * the frame decoded fine, it just is not one of YUV420P / NV12 / YUV420P10LE.
+ * That used to fall through to convert_frame_via_sws(), which writes RGBA into
+ * video_frame_pixels - a buffer nothing has read since the CPU presentation
+ * path was removed in GL-4/GL-6. So those files decoded at full speed, the
+ * clock ran, the position advanced, and the screen stayed black. A 10-bit
+ * 4:4:4 H.264 file (profile 244, yuv444p10le) is the case that found it.
+ *
+ * 10-bit sources stay 10-bit (PP_FRAME_YUV420P10); only chroma resolution is
+ * lost, which beats showing nothing.
+ */
+static int convert_frame_to_pp420(AVFrame *frame, pp_frame *out)
+{
+    if (!frame || !out || frame->width <= 0 || frame->height <= 0)
+        return 0;
+
+    const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get((enum AVPixelFormat)frame->format);
+    const int depth = desc ? desc->comp[0].depth : 8;
+    const int ten = depth > 8;
+    const int bpp = ten ? 2 : 1;
+    const enum AVPixelFormat dst_fmt = ten ? AV_PIX_FMT_YUV420P10LE : AV_PIX_FMT_YUV420P;
+
+    const int w = frame->width, h = frame->height;
+    const int cw = (w + 1) / 2, ch = (h + 1) / 2;
+    /* 64-byte rows: swscale's SIMD paths want the alignment, and the texture
+     * descriptors take any pitch. */
+    const int yp = ((w * bpp) + 63) & ~63;
+    const int cp = ((cw * bpp) + 63) & ~63;
+    const size_t need = (size_t)yp * (size_t)h + 2u * (size_t)cp * (size_t)ch;
+
+    if (need > video_sw420_slot_bytes || !video_sw420_buf[0]) {
+        /* Jelly5: the new set first, and the old one retired, never freed
+         * here: the frame on screen may be in it (see sw420_retired). */
+        uint8_t *fresh[VIDEO_ROTATE_BUFFERS] = {0};
+        for (int i = 0; i < VIDEO_ROTATE_BUFFERS; i++) {
+            fresh[i] = (uint8_t *)malloc(need);
+            if (!fresh[i]) {
+                sw420_free_set(fresh);
+                return 0;
+            }
+        }
+        sw420_retired *old = NULL;
+        if (video_sw420_buf[0]) {
+            old = (sw420_retired *)calloc(1, sizeof *old);
+            if (!old) {
+                sw420_free_set(fresh);
+                return 0;
+            }
+            memcpy(old->buf, video_sw420_buf, sizeof old->buf);
+            old->slot_bytes = video_sw420_slot_bytes;
+            old->next = video_sw420_retired;
+            video_sw420_retired = old;
+        }
+        sw420_reap(old, pp_playback_shown_plane(&g_pp_pb));
+        memcpy(video_sw420_buf, fresh, sizeof video_sw420_buf);
+        video_sw420_slot_bytes = need;
+        video_sw420_index = 0;
+    }
+
+    if (!video_sw420_sws || video_sw420_w != w || video_sw420_h != h ||
+        video_sw420_fmt != frame->format) {
+        if (video_sw420_sws)
+            sws_freeContext(video_sw420_sws);
+        video_sw420_sws = sws_getContext(w, h, (enum AVPixelFormat)frame->format,
+                                         w, h, dst_fmt,
+                                         SWS_BILINEAR, NULL, NULL, NULL);
+        if (!video_sw420_sws)
+            return 0;
+        video_sw420_w = w;
+        video_sw420_h = h;
+        video_sw420_fmt = frame->format;
+        {
+            const char *sn = av_get_pix_fmt_name((enum AVPixelFormat)frame->format);
+            const char *dn = av_get_pix_fmt_name(dst_fmt);
+            char d[96];
+            snprintf(d, sizeof d, "%s -> %s (not a native format)",
+                     sn ? sn : "?", dn ? dn : "?");
+            pp_stage_bc("SWSCALE_420", d);
+        }
+    }
+
+    video_sw420_index = (video_sw420_index + 1) % VIDEO_ROTATE_BUFFERS;
+    uint8_t *base = video_sw420_buf[video_sw420_index];
+    uint8_t *dst_data[4] = { base,
+                             base + (size_t)yp * (size_t)h,
+                             base + (size_t)yp * (size_t)h + (size_t)cp * (size_t)ch,
+                             NULL };
+    int dst_linesize[4] = { yp, cp, cp, 0 };
+
+    if (sws_scale(video_sw420_sws, (const uint8_t * const *)frame->data,
+                  frame->linesize, 0, h, dst_data, dst_linesize) <= 0)
+        return 0;
+
+    /* pp_map_avframe already filled width/height/pts_us/color_trc before it
+     * gave up on the format. */
+    out->format = ten ? PP_FRAME_YUV420P10 : PP_FRAME_YUV420P;
+    out->planes[0] = dst_data[0];
+    out->planes[1] = dst_data[1];
+    out->planes[2] = dst_data[2];
+    out->strides[0] = yp;
+    out->strides[1] = cp;
+    out->strides[2] = cp;
+    return 1;
+}
+
+/* Sized to the closed file's geometry, like play_sws. The plane ring stays:
+ * it is grow-only, so a same-size re-open reuses it. */
+void evo_playback_release_sw_scaler(void)
+{
+    if (video_sw420_sws) {
+        sws_freeContext(video_sw420_sws);
+        video_sw420_sws = NULL;
+    }
+    video_sw420_w = video_sw420_h = 0;
+    video_sw420_fmt = -1;
+    /* Jelly5: called once the file is closed (pp_playback_on_file_close), so
+     * nothing shows a retired set any more. */
+    sw420_reap(NULL, NULL);
+}
 
 static void prospero_video_queue_drain_nonkey(int max_packets)
 {
@@ -480,10 +673,19 @@ int decode_next_video_frame(void)
 
 
             /* jobs 3+4 — present. Always show something (skip = frozen). */
-            if (recv_ret == 1 && g_pp_pb.active)
+            if (recv_ret == 1 && g_pp_pb.active) {
                 present_pp_frame(&pf);
-            else
-                convert_frame_via_sws((AVFrame *)evo_vdec_ffmpeg_avframe(g_vdec));
+            } else {
+                AVFrame *af = (AVFrame *)evo_vdec_ffmpeg_avframe(g_vdec);
+                /* An exotic pixel format still has to reach the screen: bring
+                 * it down to planar 4:2:0 and present it like any other frame.
+                 * convert_frame_via_sws() only fills the legacy RGBA buffer,
+                 * which nothing has drawn since GL-4. */
+                if (recv_ret == 2 && g_pp_pb.active && convert_frame_to_pp420(af, &pf))
+                    present_pp_frame(&pf);
+                else
+                    convert_frame_via_sws(af);
+            }
 
             /*
              * One line per seek, the moment the discard window closes: what

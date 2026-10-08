@@ -1,6 +1,9 @@
 /*
  * Nuvio PS5
  * Copyright (C) 2026 Husam Osman
+ * Portions from EVO Player (sainsaji), c0c6a5e: the shader constants' layout
+ * (dv_pack_gpu) and the default offsets.
+ * Modified for Jelly5.
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 /* Dolby Vision RPU parsing and profile 5 reconstruction - see dv_rpu.h. */
@@ -157,9 +160,12 @@ static void default_color(dv_color *c)
         c->nonlinear[i] = ycc[i] / 8192.0f;
         c->rgb_to_lms[i] = lms[i] / 16384.0f;
     }
-    c->offset[0] = 0.25f;
-    c->offset[1] = 2.0f;
-    c->offset[2] = 2.0f;
+    /* FFmpeg's default offsets ({1/4, 2, 2}) are not in the 0..1 signal
+     * domain the shader works in; profile 5 RPUs carry {0, 0.5, 0.5}
+     * (EVO Player c0c6a5e, evo_dovi_params_default). */
+    c->offset[0] = 0.0f;
+    c->offset[1] = 0.5f;
+    c->offset[2] = 0.5f;
 }
 
 static uint32_t fnv(uint32_t h, const void *data, size_t n)
@@ -240,7 +246,7 @@ int dv_rpu_parse(dv_parser *p, const uint8_t *nal, int size, dv_params *out)
     if (getn(&b, 6) != 2)                  /* rpu_type */
         return -1;
     const int rpu_format = (int)getn(&b, 11);
-    getn(&b, 4);                           /* vdr_rpu_profile */
+    const int rpu_profile = (int)getn(&b, 4);   /* vdr_rpu_profile */
     getn(&b, 4);                           /* vdr_rpu_level */
     if (!get1(&b) || (rpu_format & 0x700)) /* vdr_seq_info_present */
         return -1;
@@ -255,7 +261,7 @@ int dv_rpu_parse(dv_parser *p, const uint8_t *nal, int size, dv_params *out)
             return -1;
     }
     getn(&b, 2);                           /* vdr_rpu_normalized_idc */
-    get1(&b);                              /* bl_video_full_range */
+    const int bl_full_range = (int)get1(&b);   /* bl_video_full_range */
     const int bl_depth = ue_max(&b, 8) + 8;   /* -1 + 8 when out of range: refused below */
     const uint32_t el_minus8 = ue(&b);
     ue(&b);                                /* vdr_bit_depth_minus8 */
@@ -365,6 +371,7 @@ int dv_rpu_parse(dv_parser *p, const uint8_t *nal, int size, dv_params *out)
 
     p->cur_mapping = mapping_id;
     finish(p, out);
+    out->p5 = rpu_profile == 0 && bl_full_range;
     return 0;
 }
 
@@ -422,9 +429,9 @@ void dv_reconstruct(const dv_params *dv, const float ycc[3], float rgb[3])
         sig[i] = ycc[i] < 0.0f ? 0.0f : ycc[i] > 1.0f ? 1.0f : ycc[i];
     for (int i = 0; i < 3; i++)
         c[i] = reshape(&dv->comp[i], sig, sig[i]);
-    /* libplacebo scales the offsets like the samples: 2^10 / (2^10 - 1). */
+    /* As the shader does (EVO Player c0c6a5e, verified against libplacebo). */
     for (int i = 0; i < 3; i++)
-        c[i] -= dv->offset[i] * (1024.0f / 1023.0f);
+        c[i] -= dv->offset[i];
     for (int i = 0; i < 3; i++)
         lms[i] = pq_eotf(dv->nonlinear[i * 3 + 0] * c[0] + dv->nonlinear[i * 3 + 1] * c[1] +
                          dv->nonlinear[i * 3 + 2] * c[2]);
@@ -433,36 +440,64 @@ void dv_reconstruct(const dv_params *dv, const float ycc[3], float rgb[3])
                          dv->lms2rgb[i * 3 + 2] * lms[2]);
 }
 
-/* ---- texture packing ------------------------------------------------------ */
+/* ---- shader constants ------------------------------------------------------ */
 
-void dv_pack_texture(const dv_params *dv, float *t)
+/* dv_params -> EVO Player's DoviParams block (c0c6a5e, evo_dovi_params_from_av):
+ * the same values, laid out for the shader. Every index is bounded by the
+ * struct, whatever the parser left in *dv. */
+void dv_pack_gpu(const dv_params *dv, dv_gpu_params *p)
 {
-    memset(t, 0, sizeof(float) * DV_TEX_FLOATS);
-    for (int i = 0; i < 3; i++)
-        t[i] = dv->offset[i];
-    for (int i = 0; i < 9; i++) {
-        t[3 + i] = dv->nonlinear[i];
-        t[12 + i] = dv->lms2rgb[i];
+    memset(p, 0, sizeof *p);
+    for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < 3; j++) {
+            p->ycc[i][j] = dv->nonlinear[i * 3 + j];
+            p->lms[i][j] = dv->lms2rgb[i * 3 + j];
+        }
+        p->off[i] = dv->offset[i];
     }
+    for (int i = 0; i < 6; i++)
+        for (int k = 0; k < 4; k++)
+            p->piv[i][k] = 1e9f;
     for (int c = 0; c < 3; c++) {
         const dv_curve *cv = &dv->comp[c];
-        float *b = t + 24 + c * 218;
-        b[0] = (float)cv->num_pivots;
-        for (int i = 0; i < cv->num_pivots && i < DV_MAX_PIECES + 1; i++)
-            b[1 + i] = cv->pivots[i];
-        for (int k = 0; k < cv->num_pivots - 1 && k < DV_MAX_PIECES; k++) {
-            float *pc = b + 10 + k * 26;
-            if (cv->method[k] == 0) {
-                pc[0] = 0.0f;
-                pc[1] = cv->poly[k][0];
-                pc[2] = cv->poly[k][1];
-                pc[3] = cv->poly[k][2];
-            } else {
-                pc[0] = (float)cv->mmr_order[k];
-                pc[4] = cv->mmr_const[k];
-                for (int j = 0; j < cv->mmr_order[k]; j++)
-                    for (int q = 0; q < 7; q++)
-                        pc[5 + j * 7 + q] = cv->mmr[k][j][q];
+        const int np = cv->num_pivots;
+        p->lohi[c][0] = 0.0f;
+        p->lohi[c][1] = 1.0f;
+        if (np < 2 || np > DV_MAX_PIECES + 1)
+            continue;                       /* no curve: the shader passes the signal through */
+        p->lohi[c][0] = cv->pivots[0];
+        p->lohi[c][1] = cv->pivots[np - 1];
+        p->lohi[c][2] = 1.0f;
+        /* the inner pivots pick the piece; the ends only clamp */
+        for (int i = 1; i < np - 1; i++)
+            p->piv[c * 2 + (i - 1) / 4][(i - 1) % 4] = cv->pivots[i];
+        int mmr_idx = 0;
+        for (int i = 0; i < np - 1; i++) {
+            float *co = p->coef[c * DV_MAX_PIECES + i];
+            if (cv->method[i] == 0) {
+                co[0] = cv->poly[i][0];
+                co[1] = cv->poly[i][1];
+                co[2] = cv->poly[i][2];
+                continue;                   /* co[3] == 0: polynomial */
+            }
+            int order = cv->mmr_order[i];
+            if (order < 1)
+                order = 1;
+            if (order > 3)
+                order = 3;
+            if (mmr_idx + 2 * order > DV_GPU_MMR_VEC4)
+                break;                      /* cannot happen: 8 pieces x 3 orders x 2 = 48 */
+            co[0] = cv->mmr_const[i];
+            co[1] = (float)mmr_idx;
+            co[3] = (float)order;
+            for (int j = 0; j < order; j++) {
+                float *a = p->mmr[c * DV_GPU_MMR_VEC4 + mmr_idx];
+                float *b = p->mmr[c * DV_GPU_MMR_VEC4 + mmr_idx + 1];
+                for (int k = 0; k < 3; k++)
+                    a[k] = cv->mmr[i][j][k];
+                for (int k = 0; k < 4; k++)
+                    b[k] = cv->mmr[i][j][3 + k];
+                mmr_idx += 2;
             }
         }
     }
@@ -478,6 +513,10 @@ static dv_parser *g_parser;
 static struct { int64_t pts; dv_params p; int used; } g_ring[DV_RING];
 static int g_next;
 static int g_parsed, g_failed, g_logged_fail;
+/* Jelly5: a probe for profile 5 without a configuration record (a server's
+ * HLS remux drops it; the RPUs stay). Pictures left before giving up. */
+#define DV_PROBE_FRAMES 48
+static int g_probe, g_probe_left;
 
 void dv_session_begin(void)
 {
@@ -488,7 +527,44 @@ void dv_session_begin(void)
     memset(g_ring, 0, sizeof g_ring);
     g_next = 0;
     g_parsed = g_failed = g_logged_fail = 0;
+    g_probe = 0;
     g_active = 1;
+    pthread_mutex_unlock(&g_lock);
+}
+
+void dv_session_begin_probe(void)
+{
+    dv_session_begin();
+    pthread_mutex_lock(&g_lock);
+    g_probe = 1;
+    g_probe_left = DV_PROBE_FRAMES;
+    pthread_mutex_unlock(&g_lock);
+}
+
+/* Probe: the first RPU decides. Call with g_lock held; 1 when *dv may be stored. */
+static int probe_accept(const dv_params *dv)
+{
+    if (!g_probe)
+        return 1;
+    g_probe = 0;
+    if (dv->p5) {
+        evo_bt("dv5: profile 5 RPUs without a configuration record: rebuilt as profile 5");
+        return 1;
+    }
+    g_active = 0;   /* RPUs of another profile (8): its base layer plays as it is */
+    evo_bt("dv5: RPUs of another profile without a configuration record: left alone");
+    return 0;
+}
+
+void dv_session_no_rpu(void)
+{
+    if (!g_active)
+        return;
+    pthread_mutex_lock(&g_lock);
+    if (g_probe && --g_probe_left <= 0) {
+        g_probe = 0;
+        g_active = 0;   /* no Dolby Vision here */
+    }
     pthread_mutex_unlock(&g_lock);
 }
 
@@ -514,6 +590,10 @@ void dv_store(int64_t pts_us, const dv_params *dv)
     if (!dv || !dv->valid)
         return;
     pthread_mutex_lock(&g_lock);
+    if (!g_active || !probe_accept(dv)) {
+        pthread_mutex_unlock(&g_lock);
+        return;
+    }
     g_ring[g_next].pts = pts_us;
     g_ring[g_next].p = *dv;
     g_ring[g_next].used = 1;
@@ -571,13 +651,16 @@ void dv_session_parse_au(const uint8_t *au, int size, int64_t pts_us)
                     evo_bt("dv5: first RPU parsed - pivots %d/%d/%d, %s chroma",
                            p.comp[0].num_pivots, p.comp[1].num_pivots, p.comp[2].num_pivots,
                            p.comp[1].method[0] ? "MMR" : "polynomial");
-            } else if (g_failed++ == 0 || (g_failed % 500) == 0) {
-                evo_bt("dv5: RPU parse failed (%d so far, %d parsed)", g_failed, g_parsed);
+            } else {
+                if (g_failed++ == 0 || (g_failed % 500) == 0)
+                    evo_bt("dv5: RPU parse failed (%d so far, %d parsed)", g_failed, g_parsed);
+                dv_session_no_rpu();
             }
             return;
         }
         i = end - 1;
     }
+    dv_session_no_rpu();
 }
 
 int dv_from_avdovi(const void *data, dv_params *out)
@@ -624,5 +707,6 @@ int dv_from_avdovi(const void *data, dv_params *out)
         tmp.dm.offset[i] = (float)av_q2d(c->ycc_to_rgb_offset[i]);
     tmp.dm.present = 1;
     finish(&tmp, out);
+    out->p5 = h->vdr_rpu_profile == 0 && h->bl_video_full_range_flag;
     return 0;
 }

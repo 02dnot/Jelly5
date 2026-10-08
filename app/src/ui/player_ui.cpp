@@ -92,6 +92,7 @@ void PlayerUi::begin(const NuvioRequest *req, double now, bool reopen)
     if (reopen) {
         kept.m_card_dismissed = m_card_dismissed;
         std::copy(std::begin(m_skip_done), std::end(m_skip_done), kept.m_skip_done);
+        std::copy(std::begin(m_skip_since), std::end(m_skip_since), kept.m_skip_since);   /* no button again for 8 s */
         kept.m_scheduled.swap(m_scheduled);
         kept.m_still = m_still;
         kept.m_asking = m_asking;   /* the question stays up across the gap */
@@ -144,20 +145,102 @@ void PlayerUi::toast(const std::string &text, double now)
 
 float PlayerUi::subtitle_lift() const { return a_controls.value * 210.f; }
 
+segments::Action PlayerUi::action_of(int type) const
+{
+    if (!m_req || type < 0 || type >= segments::TypeCount)
+        return segments::Nothing;
+    const int a = m_req->prefs.segment[type];
+    return a >= 0 && a < segments::ActionCount ? (segments::Action)a : segments::Nothing;
+}
+
+/* The next-episode card can come up at the credits (when there is one to play on
+ * to): then it, not a button, is what "Spør" offers there (#32). */
+bool PlayerUi::card_possible() const
+{
+    return m_req && !m_music && m_req->has_next && m_req->prefs.autoplay_next && !in_group();
+}
+
+/* Where a skip lands: the segment's end, short of the file's end (credits that
+ * run to the end: the last moment plays and playback ends as it would). */
+double PlayerUi::skip_target(const NuvioStatus &st, int i) const
+{
+    const double end = m_req->skips[i].end;
+    return st.duration > 0 ? std::min(end, st.duration - 1.0) : end;
+}
+
+/* The segment whose "Hopp over" button is up, or -1: one set to "Spør", or one
+ * to skip that the viewer seeked into (segments::decide). The credits have the
+ * next-episode card when it can come; without it (a film, the last episode,
+ * autoplay off, a group) they get the button too. It hides 8 s after it came
+ * up (Android TV), and is there again while the controls are up. */
 int PlayerUi::current_skip(const NuvioStatus &st) const
 {
-    if (!m_req || !st.started)
+    if (!m_req || !st.started || m_music)
         return -1;
     for (size_t i = 0; i < m_req->skips.size() && i < 16; i++) {
         const NuvioSkip &k = m_req->skips[i];
-        if (k.type == "outro" || k.type == "credits")
+        const int t = segments::type_of(k.type);
+        if (t < 0 || m_skip_done[i] || st.position < k.start || st.position >= k.end - segments::kEndMargin)
+            continue;
+        if (t == segments::Outro && card_possible())
             continue;   /* the next-episode card covers the end */
         if (next_card(st) && k.start >= card_start(st))
             continue;   /* a preview after the credits: the card has the spot and ✕ */
-        if (st.position >= k.start && st.position < k.end - 1.0 && !m_skip_done[i])
-            return (int)i;
+        if (segments::decide(action_of(t), k.end - k.start, false) != segments::Ask)
+            continue;
+        if (m_skip_since[i] >= 0 && st.now - m_skip_since[i] >= segments::kAskHide && !m_controls)
+            continue;
+        return (int)i;
     }
     return -1;
+}
+
+/* Each tick: a segment the position has left is forgotten (playback reaching it
+ * again asks or skips again, as on Android TV); one that playback ran into and is
+ * set to "Hopp over automatisk" is skipped - never one the viewer scrubbed or
+ * seeked into (a jump between two ticks), nor while scrubbing. In a group the
+ * seek is the group's (tick's to_group). */
+void PlayerUi::segment_tick(const NuvioStatus &st, std::vector<OsdCommand> &out)
+{
+    if (!st.started || m_music)
+        return;
+    const double pos = st.position;
+    double prev = m_prev_pos;
+    if (prev < 0)   /* the first tick: from the very start, playback runs into a segment at 0 */
+        prev = segments::first_prev(pos, m_req->start_position);
+    m_prev_pos = pos;
+    /* Our own skip (automatic or ✕) jumps: where it lands still counts as played
+     * into (a recap right before the intro). Forgotten once there, or after 10 s
+     * (a group's seek takes a moment). */
+    const double target = m_auto_target;
+    if (m_auto_target >= 0 && (std::fabs(pos - m_auto_target) <= segments::kLandSlack || st.now - m_auto_at > 10.0))
+        m_auto_target = -1;
+    for (size_t i = 0; i < m_req->skips.size() && i < 16; i++) {
+        const NuvioSkip &k = m_req->skips[i];
+        const int t = segments::type_of(k.type);
+        if (t < 0 || pos < k.start || pos >= k.end - segments::kEndMargin) {
+            m_skip_done[i] = false;
+            m_skip_since[i] = -1;
+            continue;
+        }
+        if (m_skip_since[i] < 0)
+            m_skip_since[i] = st.now;
+        const bool natural = segments::entered_naturally(prev, pos, k.start) || segments::landed_into(target, pos, k.start);
+        if (m_skip_done[i] || m_seeking || !natural || segments::decide(action_of(t), k.end - k.start, true) != segments::Skip)
+            continue;
+        if (t != segments::Outro && next_card(st) && k.start >= card_start(st))
+            continue;   /* a preview after the credits: the card has the spot */
+        m_skip_done[i] = true;
+        evo_bt("jelly5: skipping the %s (%.0f-%.0f s)", k.type.c_str(), k.start, k.end);
+        if (t == segments::Outro && card_possible() && k.end >= st.duration - 1.0) {
+            m_card_dismissed = true;   /* credits to the end: the next episode now */
+            autoplay_next(st, out, false);
+        } else {
+            out.push_back({OsdCmd::SeekTo, skip_target(st, (int)i)});
+            m_auto_target = skip_target(st, (int)i);
+            m_auto_at = st.now;
+        }
+    }
 }
 
 bool PlayerUi::has_next() const
@@ -168,14 +251,15 @@ bool PlayerUi::has_next() const
 }
 
 /* Where the credits start (Jellyfin's Outro segment, Emby's CreditsStart
- * marker); with none, the old rule: the user's threshold or the last 45 s. */
+ * marker; not when Rulletekst is set to Ingenting); with none, the old rule: the user's threshold or the last 45 s. */
 double PlayerUi::card_start(const NuvioStatus &st) const
 {
     double start = -1;
     for (const NuvioSkip &k : m_req->skips)
         /* Credits that end near the end of this file: not a marker past its end
          * (another cut), nor one in the middle (a detection gone wrong). */
-        if ((k.type == "outro" || k.type == "credits") && k.start < st.duration - 1.0 &&
+        if (segments::type_of(k.type) == segments::Outro && action_of(segments::Outro) != segments::Nothing &&
+            k.start < st.duration - 1.0 &&
             k.end >= st.duration - 180.0 && (start < 0 || k.start < start))
             start = k.start;
     if (start >= 0)
@@ -397,30 +481,24 @@ void PlayerUi::tick(const NuvioStatus &st, std::vector<OsdCommand> &out, bool po
         show_controls(st.now, Zone::Buttons);   /* a moment as the picture appears */
         m_hide_at = st.now + 3.0;
     }
+    segment_tick(st, out);   /* skips what is set to be skipped (Innstillinger) */
     /* A skip button or the next-episode card that appears takes the focus:
      * controls that came up by themselves step aside, unless the viewer has been
      * pressing something in the last 2 s. */
     {
         const int k = current_skip(st);
         const bool card = next_card(st);
-        const bool arrived = (k != m_skip_seen && k >= 0) || (card && !m_card_seen);
+        /* (a button back with the controls after its 8 s has not arrived) */
+        const bool arrived = (k != m_skip_seen && k >= 0 && st.now - m_skip_since[k] < segments::kAskHide) ||
+                             (card && !m_card_seen);
+        if (k != m_skip_seen || card != m_card_seen)
+            m_dirty = true;   /* (a button hiding after its 8 s, too) */
         m_skip_seen = k;
         m_card_seen = card;
         if (arrived && m_controls && m_zone == Zone::Buttons && m_overlay == Overlay::None && !st.paused &&
             st.now - m_input_at > 2.0) {
             m_controls = false;
             m_dirty = true;
-        }
-    }
-    /* Automatic intro skipping (Innstillinger). */
-    if (m_req->prefs.auto_skip && !m_seeking) {
-        const int k = current_skip(st);
-        if (k >= 0) {
-            m_skip_done[k] = true;
-            if (in_group())
-                syncplay::request_seek(m_req->skips[k].end);   /* asked of the group, as Cross is */
-            else
-                out.push_back({OsdCmd::SeekTo, m_req->skips[k].end});
         }
     }
     if (m_seeking && st.now >= m_seek_commit_at) {
@@ -832,7 +910,9 @@ void PlayerUi::input_local(const nuvio_input_state &in, const NuvioStatus &st, s
             m_seeking = false;
         } else if (on_bar && skip >= 0) {
             m_skip_done[skip] = true;
-            out.push_back({OsdCmd::SeekTo, m_req->skips[skip].end});
+            out.push_back({OsdCmd::SeekTo, skip_target(st, skip)});
+            m_auto_target = skip_target(st, skip);   /* a segment right after it is played into */
+            m_auto_at = now;
         } else if (on_bar && next_card(st)) {
             m_card_dismissed = true;
             out.push_back({OsdCmd::PlayNext});
@@ -957,9 +1037,16 @@ void PlayerUi::draw_bar(const NuvioStatus &st, float a)
     const float y = kBarY - h / 2;
     gfx::fill({x0, y, w, h}, alpha(0x38ffffffu, a), h / 2);
     gfx::fill({x0, y, w * (float)std::min(1.0, st.buffered / d), h}, alpha(0x47ffffffu, a), h / 2);
-    for (const NuvioSkip &k : m_req->skips) {   /* intro, recap, credits */
+    /* The segments, under the played part (concept .bar .seg), a calm colour each:
+     * intro blue, credits green, recap violet, preview amber, commercials rose. */
+    static const uint32_t kSegColour[segments::TypeCount] = {0x8c00a4dcu, 0x8c4fbf8cu, 0x8caa5cc3u, 0x8cd9a441u,
+                                                             0x8cd96c7au};
+    for (const NuvioSkip &k : m_req->skips) {
+        const int t = segments::type_of(k.type);
+        if (t < 0)
+            continue;
         const float sx = x0 + w * (float)(k.start / d), ex = x0 + w * (float)(std::min(k.end, d) / d);
-        gfx::fill({sx, y, std::max(2.f, ex - sx), h}, alpha(0x8c00a4dcu, a), 0);
+        gfx::fill({sx, y, std::max(2.f, ex - sx), h}, alpha(kSegColour[t], a), 0);
     }
     const float px = x0 + w * (float)std::min(1.0, pos / d);
     gfx::fill({x0, y, px - x0, h}, alpha(0xffffffffu, a), h / 2);
@@ -1317,7 +1404,7 @@ void PlayerUi::draw_loading(const NuvioStatus &st)
 
 void PlayerUi::draw_skip_next(const NuvioStatus &st)
 {
-    /* Skip intro / recap: a white pill, Cross acts (concept .skip.focus). */
+    /* Hopp over intro / rulletekst / ...: a glass pill, Cross acts (concept .skip.focus). */
     const int k = current_skip(st);
     a_skip.to(k >= 0 ? 1.f : 0.f);
     if (a_skip.value > 0.01f) {
@@ -1325,8 +1412,13 @@ void PlayerUi::draw_skip_next(const NuvioStatus &st)
         if (label.empty())
             label = T("Hopp over intro");
         if (k >= 0)
-            label = m_req->skips[k].type == "recap" ? T("Hopp over oppsummering")
-                    : m_req->skips[k].type == "preview" ? T("Hopp over forhåndsvisning") : T("Hopp over intro");
+            switch (segments::type_of(m_req->skips[k].type)) {
+            case segments::Outro: label = T("Hopp over rulletekst"); break;
+            case segments::Recap: label = T("Hopp over oppsummering"); break;
+            case segments::Preview: label = T("Hopp over forhåndsvisning"); break;
+            case segments::Commercial: label = T("Hopp over reklame"); break;
+            default: label = T("Hopp over intro"); break;
+            }
         /* As every control: glass, and the glass drop when it has the focus, which
          * it has whenever ✕ presses it (the controls hidden, or on the bar). While
          * the viewer moves through the buttons, ✕ is theirs and it has none. */

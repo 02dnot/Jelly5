@@ -4,13 +4,14 @@
  *
  * Settings. Audio/subtitle languages, subtitle mode and autoplay live on the
  * Jellyfin account (so every client agrees); the console-side ones (quality
- * cap, automatic intro skipping, language, subtitle look) live in
+ * cap, what to do at intros, credits and other segments, language, subtitle look) live in
  * /download0/jelly5/settings.json. The quality cap is kept per server (the
  * network to a server at home and one far away are not alike): max_mbps is
  * the current server's (use_server).
  */
 #pragma once
 
+#include "app/segments.h"
 #include "jf/jf_client.h"
 
 #include <functional>
@@ -21,7 +22,11 @@ namespace settings {
 struct Local {
     int max_mbps = 0;            /* the current server's; 0 = no cap (direct play whatever the network allows) */
     std::string max_mbps_for;    /* the server max_mbps is (use_server); a copy for another is not saved as this one's */
-    bool auto_skip_intro = false;
+    /* Per segment type (segments::Type): segments::Action. Older settings had only
+     * "autoSkipIntro": on, the intro is skipped; off, asked about. */
+    int segment[segments::TypeCount] = {segments::default_action(segments::Intro), segments::default_action(segments::Outro),
+                                        segments::default_action(segments::Recap), segments::default_action(segments::Preview),
+                                        segments::default_action(segments::Commercial)};
     int still_watching = 0;      /* "Spør om du fortsatt ser på": 0 off, 1 after 3 episodes, 2 after 2 hours */
     int language = 0;            /* i18n::Choice: 0 follow the PS5, 1 Norsk, 2 English */
     /* How text subtitles look (set in Innstillinger or in the player). */

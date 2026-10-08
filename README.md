@@ -133,7 +133,7 @@ Jelly5 detects whether a server is Jellyfin or Emby, and the same screens work o
 - *Watch together*, lyrics and Jellyfin's home-screen order aren't available.
 - *Skip intro* uses Emby's intro markers, which Emby only creates with Premiere.
 - Scrubbing previews need *Thumbnail image extraction* turned on in the library's settings.
-- Without Premiere, Emby transcodes in software and without HDR tone mapping, so Dolby Vision profile 5 may show off colours.
+- Without Premiere, Emby transcodes in software and without HDR tone mapping.
 - With Premiere, each PS5 user counts as one of Emby's devices.
 - Behind a reverse proxy that serves Emby under `/emby`, the plain address is enough: Jelly5 tries `/emby` itself.
 - Live TV needs Emby Premiere: without it, Emby lists no channels and the *Live TV* tab stays away.
@@ -158,8 +158,8 @@ Once signed in, Seerr's results appear in Search, a *Discover* tab shows what's 
 
 | | Plays | Notes |
 | --- | --- | --- |
-| Video | H.264, HEVC (Main, Main 10), VP9 and older formats | AV1 is transcoded by the server |
-| HDR | HDR10, HLG, HDR10+ (as HDR10), Dolby Vision (its HDR10 base layer) | Dolby Vision profile 5 is transcoded |
+| Video | H.264, HEVC (Main, Main 10), VP9 and older formats | H.264 4:2:2 and 4:4:4, and AV1, are transcoded by the server |
+| HDR | HDR10, HLG, HDR10+ (as HDR10), Dolby Vision (its HDR10 base layer; profile 5 rebuilt as HDR10) | |
 | Audio | AAC, AC3, E-AC3, TrueHD, DTS (incl. DTS-HD MA), FLAC, Opus, MP3 and more | Played as multichannel PCM; with *HDMI bitstream* on, Dolby Digital, Dolby Digital Plus and DTS go to the TV/receiver as they are (TrueHD and DTS-HD MA stay lossless PCM) |
 | Subtitles | SRT, ASS/SSA, PGS, DVD and DVB, WebVTT | Embedded or external |
 | Containers | MKV, MP4, TS/M2TS, AVI and more | No Blu-ray folders or ISO files |

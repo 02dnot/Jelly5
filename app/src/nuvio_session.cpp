@@ -309,10 +309,28 @@ bool nuvio_request_parse(const char *json, NuvioRequest &r)
         pr.show_clock = bool_of(p, "clock", true);
         pr.clock_24h = bool_of(p, "clock24h", true);
         pr.skip_intro = bool_of(p, "skipIntro", true);
-        pr.auto_skip = bool_of(p, "autoSkipIntro", false);           /* Jelly5 */
+        const cJSON *seg = cJSON_GetObjectItemCaseSensitive(p, "segments");   /* Jelly5 */
+        for (int t = 0; t < segments::TypeCount; t++) {
+            const cJSON *v = cJSON_GetObjectItemCaseSensitive(seg, segments::key_of(t));
+            pr.segment[t] = cJSON_IsString(v) ? segments::action_of(v->valuestring, pr.segment[t]) : pr.segment[t];
+        }
         pr.forced_only_when_off = bool_of(p, "forcedOnlyWhenOff", true);
         pr.still_watching_episodes = std::max(0, int_of<int>(p, "stillWatchingEpisodes", 0));
         pr.still_watching_seconds = std::max(0.0, num_of(p, "stillWatchingSeconds", 0.0));
+        pr.keep_audio_stream = std::max(-1, int_of<int>(p, "keepAudioStream", -1));
+        if (const cJSON *k = cJSON_GetObjectItemCaseSensitive(p, "keepSubtitle")) {
+            if (cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(k, "off"))) {
+                pr.keep_subtitle = 1;
+            } else if (cJSON_IsNumber(cJSON_GetObjectItemCaseSensitive(k, "external"))) {
+                pr.keep_subtitle = 2;
+                pr.keep_subtitle_at = int_of<int>(k, "external", -1);
+            } else if (cJSON_IsNumber(cJSON_GetObjectItemCaseSensitive(k, "stream"))) {
+                pr.keep_subtitle = 3;
+                pr.keep_subtitle_at = int_of<int>(k, "stream", -1);
+            }
+            if (pr.keep_subtitle > 1 && pr.keep_subtitle_at < 0)
+                pr.keep_subtitle = 0;
+        }
         if (cJSON_IsNumber(cJSON_GetObjectItemCaseSensitive(p, "tzOffsetMinutes"))) {
             pr.has_tz = true;
             pr.tz_offset_min = int_of<int>(p, "tzOffsetMinutes", 0);
@@ -368,6 +386,8 @@ std::string nuvio_result_json(const NuvioRequest &req, const NuvioResult &res)
     cJSON_AddStringToObject(tracks, "audioLanguage", res.audio_lang.c_str());
     cJSON_AddStringToObject(tracks, "subtitleLanguage", res.subtitle_lang.c_str());
     cJSON_AddItemToObject(tracks, "subtitlesOn", cJSON_CreateBool(res.subtitles_on));
+    cJSON_AddItemToObject(tracks, "audioPicked", cJSON_CreateBool(res.audio_picked));
+    cJSON_AddItemToObject(tracks, "subtitlePicked", cJSON_CreateBool(res.subtitle_picked));
     cJSON_AddNumberToObject(tracks, "subtitleDelayMs", res.subtitle_delay_ms);
     cJSON_AddItemToObject(o, "tracks", tracks);
     char *s = cJSON_PrintUnformatted(o);
