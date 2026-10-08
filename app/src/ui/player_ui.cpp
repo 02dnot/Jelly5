@@ -92,10 +92,17 @@ void PlayerUi::begin(const NuvioRequest *req, double now, bool reopen)
         kept.m_card_dismissed = m_card_dismissed;
         std::copy(std::begin(m_skip_done), std::end(m_skip_done), kept.m_skip_done);
         kept.m_scheduled.swap(m_scheduled);
+        kept.m_still = m_still;
     }
     *this = std::move(kept);
     m_req = req;
     m_music = req && req->item_type == "audio";
+    if (req && !reopen) {   /* "Ser du fortsatt på?": the run so far, from the episode before */
+        m_still.limit_episodes = req->prefs.still_watching_episodes;
+        m_still.limit_seconds = req->prefs.still_watching_seconds;
+        m_still.count = req->autoplay_count;
+        m_still.idle = req->autoplay_idle;
+    }
     m_controls = m_music;   /* the music screen is all controls, always up */
     m_now = m_last = m_load_since = now;
     /* Video opens on the dark loading veil; music never does: its screen (the
@@ -270,7 +277,7 @@ void PlayerUi::seek_step(int dir, const NuvioStatus &st, double now)
     m_zone = Zone::Bar;
 }
 
-void PlayerUi::playback_ended(const NuvioStatus &, std::vector<OsdCommand> &out)
+void PlayerUi::playback_ended(const NuvioStatus &st, std::vector<OsdCommand> &out)
 {
     /* In a group: its queue goes on, not this one. Ask the group for its next entry
      * (jellyfin-web does at an end; the server takes one request per entry) and close;
@@ -286,9 +293,48 @@ void PlayerUi::playback_ended(const NuvioStatus &, std::vector<OsdCommand> &out)
     }
     /* An album always plays on; episodes follow the autoplay setting. */
     if (has_next() && (m_req->prefs.autoplay_next || m_music))
-        out.push_back({OsdCmd::PlayNext});
+        autoplay_next(st, out, true);
     else
         out.push_back({OsdCmd::Stop});
+}
+
+/* Issue #24: after a run of episodes that played on by themselves (Innstillinger:
+ * Spør om du fortsatt ser på), the next one waits for the viewer: the picture stays
+ * paused on this one's end with the question over it. Never for music, nor in a
+ * SyncPlay group (the group decides). */
+void PlayerUi::autoplay_next(const NuvioStatus &st, std::vector<OsdCommand> &out, bool ended)
+{
+    if (m_music || in_group() || !m_still.ask()) {
+        if (!m_music)
+            m_still.autoplayed();
+        out.push_back({OsdCmd::PlayNext});
+        return;
+    }
+    if (m_asking)
+        return;
+    evo_bt("jelly5: still watching? after %d autoplayed episode(s), %.0f s without a press", m_still.count,
+           m_still.idle);
+    m_asking = true;
+    m_card_dismissed = true;
+    m_controls = false;
+    m_seeking = false;
+    m_overlay = Overlay::None;
+    m_dirty = true;
+    if (!ended && !st.paused)
+        out.push_back({OsdCmd::TogglePause});   /* held where the countdown ran out */
+}
+
+/* ✕ (any button but ○): the next episode, the run starts again; ○: stop here. */
+void PlayerUi::answer_still(bool go, std::vector<OsdCommand> &out)
+{
+    m_asking = false;
+    m_dirty = true;
+    if (go) {
+        m_still.press();
+        out.push_back({OsdCmd::PlayNext});
+    } else {
+        out.push_back({OsdCmd::Stop});
+    }
 }
 
 void PlayerUi::tick(const NuvioStatus &st, std::vector<OsdCommand> &out, bool poll_remote)
@@ -299,6 +345,8 @@ void PlayerUi::tick(const NuvioStatus &st, std::vector<OsdCommand> &out, bool po
         return;
     if (poll_remote)
         remote_poll(st, out);
+    if (st.started && !st.paused && !st.buffering && !m_asking && !m_music)
+        m_still.played(step);   /* time played since the last press */
     const size_t mine = out.size();   /* from here on this PS5's own, the group's in a group */
     int track = -1;
     switch (jelly5_subs::download_state(&track)) {
@@ -360,7 +408,7 @@ void PlayerUi::tick(const NuvioStatus &st, std::vector<OsdCommand> &out, bool po
             m_card_since += step;   /* held while paused, scrubbing, in the buttons, or the card is hidden */
         if (m_req->prefs.autoplay_next && st.now - m_card_since >= 10.0 && !st.paused) {
             m_card_dismissed = true;
-            out.push_back({OsdCmd::PlayNext});
+            autoplay_next(st, out, false);
         }
     } else {
         m_card_since = -1;
@@ -559,8 +607,15 @@ void PlayerUi::end()
 void PlayerUi::input(const nuvio_input_state &in, const NuvioStatus &st, std::vector<OsdCommand> &out)
 {
     const size_t first = out.size();
-    if (in.pressed)
+    if (in.pressed) {
         m_input_at = st.now;
+        m_still.press();   /* awake: the run of autoplayed episodes starts again */
+    }
+    if (m_asking) {   /* "Ser du fortsatt på?": ○ stops, anything else plays on */
+        if (in.pressed & ~in.repeats)
+            answer_still(!(in.pressed & NUVIO_BTN_CIRCLE), out);
+        return;
+    }
     input_local(in, st, out);
     if (in_group())
         to_group(st, out, first);
@@ -812,7 +867,7 @@ bool PlayerUi::wants_frame(const NuvioStatus &st)
                         a_next.value != a_next.target || a_spinner.value != a_spinner.target ||
                         a_toast.value != a_toast.target || a_error.value != a_error.target ||
                         a_flash.value > 0.f || m_ep_scroll.value != m_ep_scroll.target ||
-                        a_stats.value != a_stats.target;
+                        a_stats.value != a_stats.target || a_ask.value != a_ask.target;
     static double last_second = 0;
     const bool second = std::floor(st.now) != std::floor(last_second);
     last_second = st.now;
@@ -980,6 +1035,44 @@ void PlayerUi::draw_chapters(const NuvioStatus &st, float a, float dt)
     gfx::pop_scissor();
     draw_pad_hints(r.x + 56, r.y + r.h - 48, {{PadButton::Cross, T("Spill herfra")}, {PadButton::Circle, T("Lukk")}}, 0,
                    26, a);
+}
+
+/* "Ser du fortsatt på?": the picture dims, a glass panel in the centre with the
+ * question, the episode waiting, and what ✕ and ○ do. */
+void PlayerUi::draw_still(const NuvioStatus &)
+{
+    const float a = smoothstep(a_ask.value);
+    if (a <= 0.01f)
+        return;
+    gfx::fill({0, 0, W, H}, alpha(0x8c000000u, a));
+    const gfx::TextStyle ts{gfx::Bold, 44}, es{gfx::Medium, 26, W - 2 * kPad - 112};
+    std::string ep;
+    if (m_req->has_next) {
+        const NuvioEpisode &n = m_req->next;
+        char b[64] = "";
+        if (n.season > 0 && n.episode > 0)
+            std::snprintf(b, sizeof b, "S%d:E%d", n.season, n.episode);
+        ep = b;
+        if (!n.title.empty())
+            ep += (ep.empty() ? "" : " \xC2\xB7 ") + n.title;
+    }
+    const std::vector<PadHint> hints{{PadButton::Cross, T("Fortsett å se")}, {PadButton::Circle, T("Stopp")}};
+    const float hw = pad_hint_width(PadButton::Cross, T("Fortsett å se"), 26) + 26 * 0.9f +
+                     pad_hint_width(PadButton::Circle, T("Stopp"), 26);
+    const float w = std::min(W - 2 * kPad, std::max({760.f, gfx::text_width(T("Ser du fortsatt på?"), ts) + 112,
+                                                     ep.empty() ? 0.f : gfx::text_width(ep, es) + 112, hw + 112}));
+    const float h = ep.empty() ? 236.f : 284.f;
+    const gfx::Rect r{W / 2 - w / 2, H / 2 - h / 2 + (1.f - a) * 24, w, h};   /* rises into place */
+    gfx::push_opacity(a);
+    glass(r, 1.f);
+    float y = r.y + 100;
+    gfx::text(W / 2, y, T("Ser du fortsatt på?"), {gfx::Bold, 44, w - 112}, kText, 1);
+    if (!ep.empty()) {
+        y += 52;
+        gfx::text(W / 2, y, ep, {gfx::Medium, 26, w - 112}, kText2, 1);
+    }
+    draw_pad_hints(W / 2, r.y + r.h - 58, hints, 1, 26);
+    gfx::pop_opacity();
 }
 
 void PlayerUi::draw_controls(const NuvioStatus &st)
@@ -1660,6 +1753,18 @@ void PlayerUi::remote_poll(const NuvioStatus &st, std::vector<OsdCommand> &out)
 void PlayerUi::remote_do(const remote::Command &c, const NuvioStatus &st, std::vector<OsdCommand> &out)
 {
     m_dirty = true;
+    if (!c.syncplay && c.kind != remote::Command::Message) {   /* a phone's command: someone is awake */
+        m_still.press();
+        if (m_asking) {   /* the question up: play on, or stay paused under it */
+            if (c.kind == remote::Command::Unpause || c.kind == remote::Command::PlayPause ||
+                c.kind == remote::Command::Next) {
+                answer_still(true, out);
+                return;
+            }
+            if (c.kind == remote::Command::Pause)
+                return;
+        }
+    }
     const double d = st.duration > 0 ? st.duration - 1 : 1e9;
     if (c.syncplay) {
         /* The group's command, as told: position first (where it should be by now), then state. */
@@ -1938,7 +2043,7 @@ void PlayerUi::draw(const NuvioStatus &st)
     const bool overlay = m_overlay != Overlay::None;
     a_loading.to(st.started || !st.error.empty() || m_music ? 0.f : 1.f);
     a_loading.step(dt, 8.f);
-    a_controls.to((m_controls || m_seeking || st.paused) && !overlay ? 1.f : 0.f);
+    a_controls.to((m_controls || m_seeking || st.paused) && !overlay && !m_asking ? 1.f : 0.f);
     a_controls.step(dt, 12.f);
     a_overlay.to(overlay ? 1.f : 0.f);
     a_overlay.step(dt, 12.f);
@@ -1997,6 +2102,10 @@ void PlayerUi::draw(const NuvioStatus &st)
             draw_chapters(st, oa, dt);
         gfx::pop_opacity();
     }
+
+    a_ask.to(m_asking ? 1.f : 0.f);
+    a_ask.step(dt, 10.f);
+    draw_still(st);
 
     a_stats.step(dt, 12.f);
     draw_stats(st);

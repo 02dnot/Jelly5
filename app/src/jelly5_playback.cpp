@@ -11,6 +11,7 @@
 #include "app/settings.h"
 #include "app/i18n.h"
 #include "app/spawn.h"
+#include "jf/json_num.h"
 
 #include "evo_boot_trace.h"
 
@@ -259,6 +260,10 @@ struct Extras {
     jf::Trickplay trickplay;
     std::vector<jf::LyricLine> lyrics;
     bool not_group = false;   /* not a SyncPlay group's item (a theme song) */
+    /* "Ser du fortsatt på?" (ui/still_watching.h): episodes autoplayed and seconds
+     * played since the viewer's last press, carried from the episode before. */
+    int autoplay_count = 0;
+    double autoplay_idle = 0;
 };
 
 std::string request_json(jf::Client &c, const jf::Item &it, const jf::Playback &pb,
@@ -490,6 +495,9 @@ std::string request_json(jf::Client &c, const jf::Item &it, const jf::Playback &
     cJSON_AddItemToObject(prefs, "autoplayNext", cJSON_CreateBool(set.server.autoplay_next));
     cJSON_AddItemToObject(prefs, "skipIntro", cJSON_CreateBool(1));
     cJSON_AddItemToObject(prefs, "autoSkipIntro", cJSON_CreateBool(set.local.auto_skip_intro));
+    /* Innstillinger: Spør om du fortsatt ser på (Av, after 3 episodes, after 2 hours). */
+    cJSON_AddNumberToObject(prefs, "stillWatchingEpisodes", set.local.still_watching == 1 ? 3 : 0);
+    cJSON_AddNumberToObject(prefs, "stillWatchingSeconds", set.local.still_watching == 2 ? 2 * 3600 : 0);
     cJSON_AddItemToObject(prefs, "clock24h", cJSON_CreateBool(1));
     cJSON *style = cJSON_CreateObject();   /* how text subtitles look (Innstillinger) */
     cJSON_AddNumberToObject(style, "size", set.local.sub_size);
@@ -525,6 +533,8 @@ std::string request_json(jf::Client &c, const jf::Item &it, const jf::Playback &
 
     if (ex.not_group)
         cJSON_AddBoolToObject(o, "notGroup", 1);
+    cJSON_AddNumberToObject(o, "autoplayCount", ex.autoplay_count);
+    cJSON_AddNumberToObject(o, "autoplayIdle", ex.autoplay_idle);
     char *s = cJSON_PrintUnformatted(o);
     std::string out = s ? s : "{}";
     std::free(s);
@@ -565,6 +575,17 @@ bool next_from_result(const std::string &result, int *season, int *episode, std:
 bool is_pick(const jf::Item &e, int season, int number, const std::string &id)
 {
     return !id.empty() ? e.id == id : e.parent_index == season && e.index == number;
+}
+
+/* The player's still-watching count and time at its end (ui/still_watching.h). */
+void still_watching_from_result(const std::string &result, int *count, double *idle)
+{
+    cJSON *j = cJSON_Parse(result.c_str());
+    const cJSON *c = cJSON_GetObjectItemCaseSensitive(j, "autoplayCount");
+    const cJSON *i = cJSON_GetObjectItemCaseSensitive(j, "autoplayIdle");
+    *count = cJSON_IsNumber(c) ? std::max(0, jf::to_int<int>(c->valuedouble)) : 0;
+    *idle = cJSON_IsNumber(i) && i->valuedouble > 0 ? i->valuedouble : 0;
+    cJSON_Delete(j);
 }
 
 double position_from_result(const std::string &result, double fallback)
@@ -1042,6 +1063,9 @@ static bool play_chain_tracks(jf::Client &client, jf::Item item, std::vector<jf:
     /* No cap on the chain: a playlist, an album on repeat or a binge plays on as
      * long as the viewer lets it. It cannot spin: a title that fails or is
      * stopped ends it, and only one that started can end by itself. */
+    /* "Ser du fortsatt på?": what the last player counted goes on to the next. */
+    int still_count = 0;
+    double still_idle = 0;
     for (int chain = 0;; chain++) {
         if (nuvio_player_stop_requested())
             return true;   /* the music stopped between tracks (a film's chain has no such stop) */
@@ -1069,6 +1093,8 @@ static bool play_chain_tracks(jf::Client &client, jf::Item item, std::vector<jf:
             return true;   /* stopped while the server answered: nothing reported, nothing opened */
         if (ex.trickplay.valid())
             evo_bt("jelly5: trickplay %dx%d, %d thumbnails", ex.trickplay.width, ex.trickplay.height, ex.trickplay.count);
+        ex.autoplay_count = still_count;
+        ex.autoplay_idle = still_idle;
         const std::string req = request_json(client, item, pb, episodes, ex);
 
         jelly5_subs::new_title();
@@ -1169,6 +1195,7 @@ static bool play_chain_tracks(jf::Client &client, jf::Item item, std::vector<jf:
         }
         if (!next_from_result(result, &season, &number, &pick))
             return true;
+        still_watching_from_result(result, &still_count, &still_idle);
         const jf::Item *next = nullptr;
         for (const auto &e : episodes)
             if (!next && is_pick(e, season, number, pick))

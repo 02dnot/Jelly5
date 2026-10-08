@@ -592,7 +592,9 @@ void report_progress(const Session &s)
     const int audio = s.st.audio_active >= 0 && s.st.audio_active < (int)s.st.audio.size()
                           ? s.st.audio[s.st.audio_active].stream
                           : -1;
-    nuvio_control_report(s.req.id.c_str(), s.st.position, s.st.duration, s.st.paused ? 1 : 0, audio,
+    /* Asking "Ser du fortsatt på?" at an episode's end: the server sees a pause. */
+    const bool paused = s.st.paused || s_osd.post_play_active();
+    nuvio_control_report(s.req.id.c_str(), s.st.position, s.st.duration, paused ? 1 : 0, audio,
                          nuvio_subs_selected());
 }
 
@@ -1338,6 +1340,7 @@ extern "C" void nuvio_player_run(const char *json)
     if (s.res.state.empty())
         s.res.state = s.failed ? "error" : "stopped";
     s.res.group_end = s_osd.group_end();
+    s_osd.still_watching(&s.res.autoplay_count, &s.res.autoplay_idle);
     if (!s.st.audio.empty() && s.st.audio_active >= 0)
         s.res.audio_lang = s.st.audio[s.st.audio_active].lang;
     {

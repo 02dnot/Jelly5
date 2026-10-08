@@ -7,6 +7,7 @@
 
 #include "cJSON.h"
 #include "jf/json_num.h"
+#include <algorithm>
 
 #include <cmath>
 #include <cstdio>
@@ -188,7 +189,8 @@ bool nuvio_request_parse(const char *json, NuvioRequest &r)
     r.start_position = num_of(root, "startPosition", 0.0);
     if (r.start_position < 0)
         r.start_position = 0;
-    r.autoplay_count = int_of<int>(root, "autoplayCount", 0);
+    r.autoplay_count = std::max(0, int_of<int>(root, "autoplayCount", 0));
+    r.autoplay_idle = std::max(0.0, num_of(root, "autoplayIdle", 0.0));
     r.not_group = bool_of(root, "notGroup", false);
 
     const cJSON *stream = cJSON_GetObjectItemCaseSensitive(root, "stream");
@@ -308,7 +310,8 @@ bool nuvio_request_parse(const char *json, NuvioRequest &r)
         pr.skip_intro = bool_of(p, "skipIntro", true);
         pr.auto_skip = bool_of(p, "autoSkipIntro", false);           /* Jelly5 */
         pr.forced_only_when_off = bool_of(p, "forcedOnlyWhenOff", true);
-        pr.still_watching_episodes = int_of<int>(p, "stillWatchingEpisodes", 3);
+        pr.still_watching_episodes = std::max(0, int_of<int>(p, "stillWatchingEpisodes", 0));
+        pr.still_watching_seconds = std::max(0.0, num_of(p, "stillWatchingSeconds", 0.0));
         if (cJSON_IsNumber(cJSON_GetObjectItemCaseSensitive(p, "tzOffsetMinutes"))) {
             pr.has_tz = true;
             pr.tz_offset_min = int_of<int>(p, "tzOffsetMinutes", 0);
@@ -345,6 +348,8 @@ std::string nuvio_result_json(const NuvioRequest &req, const NuvioResult &res)
         cJSON_AddStringToObject(o, "error", res.error.c_str());
     if (res.group_end)
         cJSON_AddBoolToObject(o, "groupEnd", 1);
+    cJSON_AddNumberToObject(o, "autoplayCount", res.autoplay_count);
+    cJSON_AddNumberToObject(o, "autoplayIdle", res.autoplay_idle);
     if (!res.action.empty()) {
         cJSON *a = cJSON_CreateObject();
         cJSON_AddStringToObject(a, "type", res.action.c_str());
