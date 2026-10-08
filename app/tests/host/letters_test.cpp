@@ -45,6 +45,17 @@ static void run(const char *path)
     const auto &tab = letters::table(latin);
     check(counts.size() == tab.size(), std::string(path) + ": one count per letter");
     const int total = (int)names.size(), n = (int)tab.size();
+    /* Every title's letter as the server counts it: before letter i come exactly
+     * the titles under an earlier one. */
+    for (int i = 0; i < n && i < (int)counts.size(); i++) {
+        int under = 0;
+        for (const std::string &s : names)
+            under += letters::index_of(s, latin) < i;
+        char what[160];
+        std::snprintf(what, sizeof what, "%s: %d titles before %s, the server counts %d", path, under, tab[i].query,
+                      counts[i]);
+        check(under == counts[i], what);
+    }
     int presses = 0, most = 0, sum = 0;
     for (int at = 0; at < total; at++) {
         const int hint = letters::index_of(names[at], latin);

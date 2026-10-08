@@ -40,7 +40,11 @@ struct Thai {
         }
     }
 };
-const Thai kThai;
+const Thai &thai()   /* on first use: table() may be asked before this file's statics are set */
+{
+    static const Thai t;
+    return t;
+}
 
 enum Group { GLatin, GNordic, GGreek, GCyrillic, GArabic, GThai, GHangul, GKana, GHan, GCount };
 const int kGroupSize[GCount] = {26, 2, 24, 28, 28, 46, 14, 10, 1};
@@ -62,7 +66,7 @@ std::vector<Letter> make_emby()
     for (const char *s : kGreek) t.push_back({s, s});
     for (const char *s : kCyrillic) t.push_back({s, s});
     for (const char *s : kArabic) t.push_back({s, s});
-    for (const auto &s : kThai.s) t.push_back({s, s});
+    for (const auto &s : thai().s) t.push_back({s, s});
     for (int i = 0; i < 14; i++) t.push_back({kHangulQuery[i], kHangulLabel[i]});
     for (const char *s : kKana) t.push_back({s, s});
     t.push_back({"一", "漢"});   /* Han: one group, U+4E00 sorts first */

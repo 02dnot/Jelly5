@@ -205,6 +205,8 @@ void Library::apply(const UserDataChange &c)
     d.items.erase(std::remove_if(d.items.begin(), d.items.end(), gone), d.items.end());
     if (d.total > 0)
         d.total = std::max((int)d.items.size(), d.total - (int)(before - d.items.size()));
+    if (d.items.size() != before)
+        d.list_changes++;   /* the letter jump's counts are off by it now */
     /* One that now passes them is not in the grid yet: it comes with the next refresh. */
     if ((m_filters.unplayed && c.played_set && !c.played) || (m_filters.favorites && c.favorite_set && c.favorite))
         m_stale = true;
@@ -257,6 +259,7 @@ bool Library::refresh()
             return;   /* the grid keeps what it had */
         d->items = std::move(page.items);
         d->total = d->items.empty() ? 0 : std::max(page.total, (int)d->items.size());
+        d->list_changes++;
     });
     if (!started) {
         std::lock_guard<std::mutex> g(d->lock);
@@ -592,7 +595,7 @@ void Library::draw_filters(float dt)
  * (NameLessThan); that count is the letter's first title, and the counts grow
  * along the table, so the jump is a search over them, starting where the current
  * title's SortName says: about three counts a press, ten at most, and the counts
- * are kept until the list reloads (tests/host/letters.sh). The pages up to the
+ * are kept until the list changes (tests/host/letters.sh). The pages up to the
  * target load in one request. */
 void Library::jump_letter(int dir)
 {
@@ -622,10 +625,12 @@ void Library::jump_letter(int dir)
     }
     const bool started = jelly5::spawn([d, c, src, s, fq, dir, hint, at, total, gen, latin] {
         const std::vector<letters::Letter> &tab = letters::table(latin);
-        std::map<int, int> counted;   /* the list's counts so far: they hold until it reloads */
+        std::map<int, int> counted;   /* the list's counts so far: they hold until it changes */
+        unsigned changes;
         {
             std::lock_guard<std::mutex> g(d->lock);
-            if (d->letters_gen == gen)
+            changes = d->list_changes;
+            if (d->letters_gen == gen && d->letters_changes == changes)
                 counted = d->letter_counts;
         }
         auto before = [&](int i) {
@@ -648,10 +653,13 @@ void Library::jump_letter(int dir)
         if (gen != d->generation)
             return;   /* reloaded meanwhile: the loading flag is the new load's */
         d->loading = false;
-        for (auto i = counted.begin(); i != counted.end();)   /* a failed count is asked again */
-            i = i->second < 0 ? counted.erase(i) : std::next(i);
-        d->letter_counts = std::move(counted);
-        d->letters_gen = gen;
+        if (d->list_changes == changes) {   /* not if a title left while it counted */
+            for (auto i = counted.begin(); i != counted.end();)   /* a failed count is asked again */
+                i = i->second < 0 ? counted.erase(i) : std::next(i);
+            d->letter_counts = std::move(counted);
+            d->letters_gen = gen;
+            d->letters_changes = changes;
+        }
         d->items.insert(d->items.end(), page.items.begin(), page.items.end());
         if (target >= 0 && target < (int)d->items.size()) {
             /* The title it lands on names the letter: an empty letter in the table
