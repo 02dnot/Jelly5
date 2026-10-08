@@ -3,7 +3,7 @@ toolchain/
 build/
 .DS_Store
 *.ffpfsc
-.env.local
+.env*
 app/build-assets.mk
 toolkit/.deps/
 # Not published: the working notes for Claude Code, and anything kept private

@@ -112,6 +112,7 @@ int main()
     jf::Client emby(jf::s_server, "dev1", "PS5");
     emby.set_kind(jf::Kind::Emby);
     run(emby);
+    emby.logout();   /* (new: into run() once main has it, for Jellyfin's line too) */
     std::printf("SOCKET %s\n", emby.socket_url().substr(jf::s_server.size()).c_str());
 #endif
     return 0;
