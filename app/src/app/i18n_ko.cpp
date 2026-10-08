@@ -518,6 +518,7 @@ const std::unordered_map<std::string, const char *> &korean_table()
         {"Velg et program som kommer i guiden, og trykk ✕ for å ta det opp.", "편성표에서 방송 예정 프로그램을 고르고 ✕를 눌러 녹화하세요."},
         {"Tas opp nå", "녹화 중"},
         {"Favoritt", "즐겨찾기"},
+        {"Dag", "날짜"},
     };
     return t;
 }

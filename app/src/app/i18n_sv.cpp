@@ -518,6 +518,7 @@ const std::unordered_map<std::string, const char *> &swedish_table()
         {"Velg et program som kommer i guiden, og trykk ✕ for å ta det opp.", "Välj ett kommande program i guiden och tryck på ✕ för att spela in det."},
         {"Tas opp nå", "Spelas in nu"},
         {"Favoritt", "Favorit"},
+        {"Dag", "Dag"},
     };
     return t;
 }

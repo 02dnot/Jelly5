@@ -518,6 +518,7 @@ const std::unordered_map<std::string, const char *> &danish_table()
         {"Velg et program som kommer i guiden, og trykk ✕ for å ta det opp.", "Vælg et kommende program i guiden, og tryk på ✕ for at optage det."},
         {"Tas opp nå", "Optages nu"},
         {"Favoritt", "Favorit"},
+        {"Dag", "Dag"},
     };
     return t;
 }

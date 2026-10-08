@@ -299,19 +299,34 @@ const jf::Item *LiveTv::row_channel(int row) const
 std::vector<LiveTv::Cell> LiveTv::cells_of(const jf::Item &channel) const
 {
     std::vector<Cell> out;
-    const int64_t from = m_guide->from, to = m_guide->to;
+    const int64_t from = m_guide->from, to = m_guide->horizon;
+    /* A stretch with no programme: nothing listed there, or not loaded yet (as many
+     * cells as it takes to tell the two apart). */
+    auto gap = [&](int64_t a, int64_t b) {
+        while (a < b) {
+            const bool known = m_guide->covers(a);
+            int64_t e = b;
+            for (const auto &r : m_guide->covered) {
+                if (known && r.first <= a && a < r.second)
+                    e = std::min(e, r.second);
+                if (!known && r.first > a)
+                    e = std::min(e, r.first);
+            }
+            out.push_back({a, e, nullptr, !known});
+            a = e;
+        }
+    };
     int64_t at = from;
     if (const std::vector<jf::Item> *list = m_guide->programs_of(channel.id))
         for (const jf::Item &p : *list) {
             if (p.end_utc <= at || p.start_utc >= to)
                 continue;
             if (p.start_utc > at)
-                out.push_back({at, p.start_utc, nullptr});   /* nothing listed in between */
-            out.push_back({p.start_utc, p.end_utc, &p});
+                gap(at, p.start_utc);
+            out.push_back({p.start_utc, p.end_utc, &p, false});
             at = p.end_utc;
         }
-    if (at < to)
-        out.push_back({at, to, nullptr});
+    gap(at, to);
     return out;
 }
 
@@ -361,8 +376,43 @@ void LiveTv::keep_in_view()
         want = livetv::half_hour(start) - 30 * 60;
     want = std::max(want, m_guide->from);
     m_t0.to((float)(want - m_base) / 60.f);
-    if (m_guide->to - (want + width) < 3 * 3600)
-        livetv::extend(m_guide->to + 12 * 3600);   /* on into the next half day before it is reached */
+    livetv::ensure(want - 3600, want + width + 6 * 3600);   /* what is in view, and some hours on, loaded */
+}
+
+int64_t LiveTv::day_time() const
+{
+    const int64_t left = m_base + (int64_t)std::lround(m_t0.target * 60.f) + 600;
+    Cell c;
+    if (m_zone != Zone::Filters && focused_cell(&c))
+        return std::max(c.start, left - 600);   /* (one running since before the view: the view's day) */
+    return left;
+}
+
+int LiveTv::view_day() const
+{
+    const time_t a = (time_t)day_time(), b = (time_t)livetv::now();
+    struct tm x, y;
+    localtime_r(&a, &x);
+    localtime_r(&b, &y);
+    auto day = [](const struct tm &t) {   /* days since the epoch, by the calendar */
+        return jf::utc_of(std::to_string(t.tm_year + 1900) + "-" + (t.tm_mon < 9 ? "0" : "") +
+                          std::to_string(t.tm_mon + 1) + "-" + (t.tm_mday < 10 ? "0" : "") + std::to_string(t.tm_mday)) /
+               86400;
+    };
+    return (int)std::max<int64_t>(0, day(x) - day(y));
+}
+
+void LiveTv::jump_to_day(int day)
+{
+    day = std::max(0, std::min(kDays - 1, day));
+    const int64_t t = livetv::now() + (int64_t)day * 86400;   /* the same time of day (a DST change aside) */
+    m_anchor = t;
+    if (!m_on_channel)
+        focus_at(t);
+    const int64_t left = std::max(m_guide->from, livetv::half_hour(t) - (day == 0 ? 0 : 1800));
+    m_t0.to((float)(left - m_base) / 60.f);
+    livetv::ensure(left - 3600, left + (int64_t)(view_minutes() * 60) + 6 * 3600);
+    m_focus_changed = m_now;
 }
 
 void LiveTv::place_on_last_channel()
@@ -430,6 +480,20 @@ Action LiveTv::input(uint32_t p)
 
     if (m_filter == Recordings)
         return recordings_input(p);
+    if (m_zone == Zone::Day) {   /* ‹ I dag ›: ← → another day, ↓ back to the channels */
+        if (p & (NUVIO_BTN_LEFT | NUVIO_BTN_RIGHT | NUVIO_BTN_L2 | NUVIO_BTN_R2)) {
+            const int d = view_day() + ((p & (NUVIO_BTN_RIGHT | NUVIO_BTN_R2)) ? 1 : -1);
+            if (d < 0 || d >= kDays)
+                m_bump = true;
+            else
+                jump_to_day(d);
+        } else if (p & (NUVIO_BTN_DOWN | NUVIO_BTN_CROSS)) {
+            m_zone = Zone::Guide;
+        } else if (p & (NUVIO_BTN_UP | NUVIO_BTN_CIRCLE)) {
+            m_zone = Zone::Filters;
+        }
+        return action;
+    }
     if (n == 0) {   /* no channels (yet, or under this filter): only the way back up */
         if (p & (NUVIO_BTN_UP | NUVIO_BTN_CIRCLE))
             m_zone = Zone::Filters;
@@ -439,14 +503,19 @@ Action LiveTv::input(uint32_t p)
     const jf::Item *ch = row_channel(m_row);
     Cell cell;
     const bool has_cell = focused_cell(&cell);
-    if (p & (NUVIO_BTN_UP | NUVIO_BTN_DOWN | NUVIO_BTN_L2 | NUVIO_BTN_R2)) {
-        int d = (p & NUVIO_BTN_DOWN) ? 1 : (p & NUVIO_BTN_UP) ? -1 : (p & NUVIO_BTN_R2) ? 5 : -5;
-        if (m_row + d < 0) {
-            if (d == -1) {
-                m_zone = Zone::Filters;
-                return action;
-            }
-            d = -m_row;
+    if (p & (NUVIO_BTN_L2 | NUVIO_BTN_R2)) {   /* a day back / on, the same time of day */
+        const int d = view_day() + ((p & NUVIO_BTN_R2) ? 1 : -1);
+        if (d < 0 || d >= kDays)
+            m_bump = true;
+        else
+            jump_to_day(d);
+        return action;
+    }
+    if (p & (NUVIO_BTN_UP | NUVIO_BTN_DOWN)) {
+        int d = (p & NUVIO_BTN_DOWN) ? 1 : -1;
+        if (m_row + d < 0) {   /* above the first row: the day picker (from the channels), else the filters */
+            m_zone = m_on_channel ? Zone::Day : Zone::Filters;
+            return action;
         }
         if (m_row + d >= n)
             d = n - 1 - m_row;
@@ -460,12 +529,11 @@ Action LiveTv::input(uint32_t p)
             m_on_channel = false;
             focus_at(std::max(m_anchor, t));
         } else if (ch && has_cell) {
-            if (cell.end < m_guide->to) {
+            if (cell.end < m_guide->horizon) {
                 m_focus_start = cell.end;
                 m_anchor = cell.end;
             } else {
-                livetv::extend(m_guide->to + 12 * 3600);
-                m_bump = true;
+                m_bump = true;   /* the end of the guide */
             }
         }
     } else if (p & NUVIO_BTN_LEFT) {
@@ -480,6 +548,8 @@ Action LiveTv::input(uint32_t p)
             m_bump = true;
         }
     } else if (p & NUVIO_BTN_CROSS) {
+        if (has_cell && cell.loading && !m_on_channel)
+            return action;   /* not loaded yet: nothing to act on */
         if (ch) {
             const bool airing = m_on_channel || !has_cell || (cell.start <= t && t < cell.end) || !cell.program;
             if (airing) {
@@ -661,7 +731,9 @@ void LiveTv::draw_filters(float dt)
     /* What the guide's other buttons do (nothing on screen says it otherwise). */
     if (m_focused && m_zone == Zone::Guide && m_filter != Recordings && !m_rows.empty())
         draw_pad_hints(gfx::W - kPad, kFiltersY + 38,
-                       {{PadButton::Square, T("Favoritt")}, {PadButton::Options, T("Valg")}}, 2, 26);
+                       {{PadButton::L2, ""}, {PadButton::R2, T("Dag")}, {PadButton::Square, T("Favoritt")},
+                        {PadButton::Options, T("Valg")}},
+                       2, 26);
 }
 
 /* ---- Opptak ------------------------------------------------------------------------ */
@@ -841,16 +913,41 @@ void LiveTv::draw_guide(float dt)
     const int64_t t1 = t0 + (int64_t)(view_minutes() * 60);
 
     /* The ruler: the day, then every half hour (a time the now pill covers is left out). */
-    gfx::text(kPad, kRulerY, livetv::day_label(t0 + 600), {gfx::Bold, 22, kChanW - 10}, kText2);
+    {   /* the day picker: ‹ I dag › (its chevrons while it has focus) */
+        const bool on = m_focused && m_zone == Zone::Day;
+        const gfx::Rect r{kPad - 8, kRulerY - 30, kChanW + 8, 42};
+        if (on)
+            m_day_drop.to(r, view_day());
+        else
+            m_day_drop.hide();
+        m_day_drop.draw(dt, 1.f, &m_animating, 21);
+        const std::string day = livetv::day_label(day_time());
+        const gfx::TextStyle ds{gfx::Bold, 22, kChanW - 70};
+        if (on) {
+            const int d = view_day();
+            gfx::text(r.x + 16, kRulerY - 2, "\xE2\x80\xB9", {gfx::Bold, 26}, d > 0 ? kText : alpha(kText3, 0.5f));
+            gfx::text(r.x + r.w / 2, kRulerY, day, ds, kText, 1);
+            gfx::text(r.x + r.w - 16, kRulerY - 2, "\xE2\x80\xBA", {gfx::Bold, 26}, d < kDays - 1 ? kText : alpha(kText3, 0.5f), 2);
+        } else {
+            gfx::text(kPad, kRulerY, day, ds, kText2);
+        }
+    }
     gfx::push_scissor({kGridX - 4, kRulerY - 40, kGridR - kGridX + 8, 60});
     const float now_x = x_of(t), now_half = gfx::text_width(livetv::clock(t), {gfx::Bold, 18}) / 2 + 10;
     for (int64_t s = livetv::half_hour(t0 - 1800); s < t1 + 1800; s += 1800) {
         const float x = x_of(s);
-        const float label_w = gfx::text_width(livetv::clock(s), {gfx::SemiBold, 20});
+        /* Midnight says which day begins there ("I morgen", "Lørdag"): the day changes in view. */
+        const time_t st = (time_t)s;
+        struct tm lt;
+        localtime_r(&st, &lt);
+        const bool midnight = lt.tm_hour == 0 && lt.tm_min == 0;
+        const std::string label = midnight ? livetv::day_label(s) : livetv::clock(s);
+        const gfx::TextStyle ls{midnight ? gfx::Bold : gfx::SemiBold, 20};
+        const float label_w = gfx::text_width(label, ls);
         if (x + 10 + label_w + 6 > now_x - now_half && x - 6 < now_x + now_half)
             continue;
-        gfx::fill({x, kRulerY - 20, 2, 22}, alpha(kText3, 0.6f), 1);
-        gfx::text(x + 10, kRulerY, livetv::clock(s), {gfx::SemiBold, 20}, kText3);
+        gfx::fill({x, kRulerY - 20, 2, 22}, midnight ? kText2 : alpha(kText3, 0.6f), 1);
+        gfx::text(x + 10, kRulerY, label, ls, midnight ? kText : kText3);
     }
     gfx::pop_scissor();
 
@@ -866,6 +963,7 @@ void LiveTv::draw_guide(float dt)
         int64_t start, end;
         bool focus, channel;
         const jf::Item *ch;
+        bool loading;
     };
     std::vector<Drawn> drawn;
     gfx::Rect focus_rect{0, 0, 0, 0};
@@ -880,7 +978,7 @@ void LiveTv::draw_guide(float dt)
         /* The channel. */
         const gfx::Rect cr{kPad, y, kChanW, kCellH};
         gfx::fill(cr, row_focus ? 0x1fffffffu : 0x12ffffffu, kCellR);
-        drawn.push_back({cr, nullptr, 0, 0, row_focus && m_on_channel, true, &ch});
+        drawn.push_back({cr, nullptr, 0, 0, row_focus && m_on_channel, true, &ch, false});
         if (row_focus && m_on_channel) {
             focus_rect = cr;
             focus_key = r * 4096;
@@ -895,7 +993,7 @@ void LiveTv::draw_guide(float dt)
             const gfx::Rect rr{x0, y, x1 - x0, kCellH};
             const bool airing = c.start <= t && t < c.end;
             const bool past = c.end <= t;
-            uint32_t fill = !c.program ? 0x08ffffffu : airing ? 0x1cffffffu : past ? 0x0affffffu : 0x12ffffffu;
+            uint32_t fill = c.loading ? 0x05ffffffu : !c.program ? 0x08ffffffu : airing ? 0x1cffffffu : past ? 0x0affffffu : 0x12ffffffu;
             gfx::fill(rr, fill, kCellR);
             if (airing && c.program) {   /* how far it has come: a line along its foot */
                 const float f = (float)(t - c.start) / (float)std::max<int64_t>(1, c.end - c.start);
@@ -911,7 +1009,7 @@ void LiveTv::draw_guide(float dt)
                 focus_rect = rr;
                 focus_key = r * 4096 + (int)((c.start / 60) % 4096);
             }
-            drawn.push_back({rr, c.program, c.start, c.end, f, false, &ch});
+            drawn.push_back({rr, c.program, c.start, c.end, f, false, &ch, c.loading});
         }
     }
     /* Now. */
@@ -948,8 +1046,8 @@ void LiveTv::draw_guide(float dt)
                 gfx::text(d.r.x + d.r.w - 12, d.r.y + 24, "\xE2\x99\xA5", {gfx::Bold, 16}, alpha(kLive, 0.9f), 2);
             continue;
         }
-        if (d.r.w < 40)
-            continue;
+        if (d.r.w < 40 || d.loading)
+            continue;   /* (not loaded yet: an empty pane, filled in a moment) */
         const bool past = d.end <= t;
         const uint32_t ink = d.focus ? kText : past ? kText3 : kText2;
         float tx = d.r.x + 16;

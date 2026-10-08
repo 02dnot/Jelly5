@@ -518,6 +518,7 @@ const std::unordered_map<std::string, const char *> &hungarian_table()
         {"Velg et program som kommer i guiden, og trykk ✕ for å ta det opp.", "Válassz egy közelgő műsort a műsorújságban, és nyomd meg a ✕ gombot a rögzítéséhez."},
         {"Tas opp nå", "Rögzítés folyamatban"},
         {"Favoritt", "Kedvenc"},
+        {"Dag", "Nap"},
     };
     return t;
 }

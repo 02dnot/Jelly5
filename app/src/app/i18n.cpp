@@ -345,6 +345,7 @@ const std::unordered_map<std::string, const char *> &english_table()
         {"Velg et program som kommer i guiden, og trykk ✕ for å ta det opp.", "Pick a programme still to come in the guide and press ✕ to record it."},
         {"Tas opp nå", "Recording now"},
         {"Favoritt", "Favourite"},
+        {"Dag", "Day"},
     };
     return t;
 }

@@ -518,6 +518,7 @@ const std::unordered_map<std::string, const char *> &russian_table()
         {"Velg et program som kommer i guiden, og trykk ✕ for å ta det opp.", "Выберите будущую передачу в телегиде и нажмите ✕, чтобы записать её."},
         {"Tas opp nå", "Идёт запись"},
         {"Favoritt", "Избранное"},
+        {"Dag", "День"},
     };
     return t;
 }

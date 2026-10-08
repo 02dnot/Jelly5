@@ -518,6 +518,7 @@ const std::unordered_map<std::string, const char *> &greek_table()
         {"Velg et program som kommer i guiden, og trykk ✕ for å ta det opp.", "Επιλέξτε ένα επερχόμενο πρόγραμμα στον οδηγό και πατήστε ✕ για να το εγγράψετε."},
         {"Tas opp nå", "Εγγράφεται τώρα"},
         {"Favoritt", "Αγαπημένο"},
+        {"Dag", "Ημέρα"},
     };
     return t;
 }

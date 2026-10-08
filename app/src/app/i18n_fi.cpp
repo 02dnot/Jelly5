@@ -518,6 +518,7 @@ const std::unordered_map<std::string, const char *> &finnish_table()
         {"Velg et program som kommer i guiden, og trykk ✕ for å ta det opp.", "Valitse oppaasta tuleva ohjelma ja tallenna se painamalla ✕."},
         {"Tas opp nå", "Tallennetaan nyt"},
         {"Favoritt", "Suosikki"},
+        {"Dag", "Päivä"},
     };
     return t;
 }

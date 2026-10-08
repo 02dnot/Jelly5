@@ -114,7 +114,7 @@ Close Jelly5 and delete `/data/homebrew/PPSA99505`. Its accounts, settings and i
 | ○ | Back | Hide the controls, then leave the player |
 | D-pad | Move | Show the controls; left/right seek 10 s |
 | L1 / R1 | Previous / next tab | Previous / next chapter (Live TV: channel) |
-| L2 / R2 | Previous / next letter (A–Z libraries) | Rewind / fast forward, faster the harder you press |
+| L2 / R2 | Previous / next letter (A–Z libraries); a day back / on (Live TV guide) | Rewind / fast forward, faster the harder you press |
 | △ | Search | Episodes (on a film: chapters; Live TV: channels) |
 | □ | Sort and filter (libraries); favourite channel (guide) | Audio and subtitles |
 | Options | Options for the selected title | The controls |
@@ -123,7 +123,7 @@ Close Jelly5 and delete `/data/homebrew/PPSA99505`. Its accounts, settings and i
 
 With HDMI Device Link on the PS5 and CEC on the TV, the TV remote works too: OK is ✕ and Back is ○.
 
-In the Live TV guide, ✕ on what's on now watches the channel, ✕ on a later programme offers to record it, and Options opens the same choices on anything (also on a channel). ○ goes back to now, then to the top.
+In the Live TV guide, ✕ on what's on now watches the channel, ✕ on a later programme offers to record it, and Options opens the same choices on anything (also on a channel). ○ goes back to now, then to the top To jump days, press L2/R2, or go up from the channel column to the day (‹ I dag ›) and press ←/→.
 
 ## Emby
 

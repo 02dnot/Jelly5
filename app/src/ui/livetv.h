@@ -65,13 +65,14 @@ public:
     void enter_from_top() override { m_zone = Zone::Filters; }
 
 private:
-    enum class Zone { Filters, Guide };
+    enum class Zone { Filters, Day, Guide };   /* Day: the day picker over the channel column */
     enum Filter { All, Favorites, Movies, Sports, News, Kids, Series, Recordings, FilterCount };
 
     /* One block of a row: a programme, or a stretch the guide says nothing about. */
     struct Cell {
         int64_t start = 0, end = 0;
         const jf::Item *program = nullptr;   /* null: no listing */
+        bool loading = false;                /* not loaded yet (a stretch the guide has not fetched) */
     };
     std::vector<Cell> cells_of(const jf::Item &channel) const;
     bool matches(const jf::Item &program) const;
@@ -84,6 +85,14 @@ private:
     void focus_at(int64_t t);                /* the cell under t in the focused row */
     void keep_in_view();
     void place_on_last_channel();
+    /* The days the picker offers: 0 today ... kDays - 1. */
+    static constexpr int kDays = 7;
+    /* The moment whose day the picker shows: the focused programme's (not before the
+     * guide's left edge), or the left edge's when the channel has focus. */
+    int64_t day_time() const;
+    int view_day() const;                    /* that day: 0 today, 1 tomorrow ... */
+    void jump_to_day(int day);               /* that day, at the time of day it is now */
+    Drop m_day_drop;
 
     void draw_hero(const jf::Item *channel, const Cell *cell, float dt);
     /* The hero for a programme or recording p (null: the channel only); fades as focus moves. */

@@ -517,6 +517,7 @@ const std::unordered_map<std::string, const char *> &french_table()
         {"Velg et program som kommer i guiden, og trykk ✕ for å ta det opp.", "Choisissez un programme à venir dans le guide et appuyez sur ✕ pour l’enregistrer."},
         {"Tas opp nå", "Enregistrement en cours"},
         {"Favoritt", "Favori"},
+        {"Dag", "Jour"},
     };
     return t;
 }

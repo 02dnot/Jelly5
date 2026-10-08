@@ -518,6 +518,7 @@ const std::unordered_map<std::string, const char *> &polish_table()
         {"Velg et program som kommer i guiden, og trykk ✕ for å ta det opp.", "Wybierz nadchodzący program w przewodniku i naciśnij ✕, aby go nagrać."},
         {"Tas opp nå", "Trwa nagrywanie"},
         {"Favoritt", "Ulubiony"},
+        {"Dag", "Dzień"},
     };
     return t;
 }

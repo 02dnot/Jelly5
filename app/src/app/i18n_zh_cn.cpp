@@ -518,6 +518,7 @@ const std::unordered_map<std::string, const char *> &chinese_simplified_table()
         {"Velg et program som kommer i guiden, og trykk ✕ for å ta det opp.", "在节目指南中选择即将播出的节目，按 ✕ 即可录制。"},
         {"Tas opp nå", "正在录制"},
         {"Favoritt", "收藏"},
+        {"Dag", "日期"},
     };
     return t;
 }

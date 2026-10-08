@@ -513,6 +513,7 @@ const std::unordered_map<std::string, const char *> &italian_table()
         {"Velg et program som kommer i guiden, og trykk ✕ for å ta det opp.", "Scegli un programma in arrivo nella guida e premi ✕ per registrarlo."},
         {"Tas opp nå", "In registrazione"},
         {"Favoritt", "Preferito"},
+        {"Dag", "Giorno"},
     };
     return t;
 }

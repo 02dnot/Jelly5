@@ -518,6 +518,7 @@ const std::unordered_map<std::string, const char *> &japanese_table()
         {"Velg et program som kommer i guiden, og trykk ✕ for å ta det opp.", "番組表でこれから放送される番組を選び、✕を押すと録画できます。"},
         {"Tas opp nå", "録画中"},
         {"Favoritt", "お気に入り"},
+        {"Dag", "日"},
     };
     return t;
 }

@@ -29,6 +29,8 @@ namespace {
 constexpr int64_t kHour = 3600;
 constexpr int64_t kAhead = 12 * kHour;       /* loaded ahead at once: the evening from the afternoon */
 constexpr int64_t kStale = 10 * 60;          /* a guide older than this is loaded again when shown */
+constexpr int64_t kHorizon = 7 * 24 * kHour; /* how far ahead the guide goes (the servers' guide days) */
+constexpr int64_t kKeep = 48 * kHour;        /* more than this held: what lies far from view goes */
 constexpr int kMaxChannels = 2000;           /* the most a guide holds (IPTV lists can be huge) */
 
 std::mutex s_lock;
@@ -124,6 +126,86 @@ std::vector<std::string> ids_of(const Guide &g)
     return ids;
 }
 
+/* The programmes of these channels in [from, to): a big list (IPTV: hundreds of
+ * channels) in a few requests side by side. false when one of them failed. */
+bool fetch_programs(jf::Client *c, const std::vector<std::string> &ids, int64_t from, int64_t to,
+                    std::vector<jf::Item> *out)
+{
+    constexpr size_t kPart = 200;
+    const size_t parts = (ids.size() + kPart - 1) / kPart;
+    std::vector<std::vector<jf::Item>> got(parts);
+    std::vector<char> ok(parts, 0);
+    for (size_t first = 0; first < parts; first += 4) {   /* (four at a time) */
+        std::vector<std::function<void()>> jobs;
+        for (size_t i = first; i < parts && i < first + 4; i++)
+            jobs.emplace_back([&, i] {
+                const std::vector<std::string> part(ids.begin() + i * kPart,
+                                                    ids.begin() + std::min(ids.size(), (i + 1) * kPart));
+                ok[i] = c->programs(part, from, to, &got[i]);
+            });
+        jelly5::run_all(jobs);
+    }
+    bool complete = true;
+    for (size_t i = 0; i < parts; i++) {
+        complete = complete && ok[i];
+        for (jf::Item &it : got[i])
+            out->push_back(std::move(it));
+    }
+    return complete;
+}
+
+/* Adds [a, b) to the spans a guide has loaded (sorted, joined where they touch). */
+void cover(Guide &g, int64_t a, int64_t b)
+{
+    if (b <= a)
+        return;
+    g.covered.push_back({a, b});
+    std::sort(g.covered.begin(), g.covered.end());
+    std::vector<std::pair<int64_t, int64_t>> joined;
+    for (const auto &r : g.covered)
+        if (!joined.empty() && r.first <= joined.back().second)
+            joined.back().second = std::max(joined.back().second, r.second);
+        else
+            joined.push_back(r);
+    g.covered = std::move(joined);
+}
+
+/* Keeps only what lies in the given spans (a guide that jumped days ahead lets go
+ * of the days between; memory stays bounded however far it is taken). */
+void trim(Guide &g, const std::vector<std::pair<int64_t, int64_t>> &keep)
+{
+    auto kept = [&](int64_t a, int64_t b) {
+        for (const auto &k : keep)
+            if (a < k.second && b > k.first)
+                return true;
+        return false;
+    };
+    for (auto &kv : g.programs) {
+        if (!kv.second)
+            continue;
+        bool all = true;
+        for (const jf::Item &p : *kv.second)
+            all = all && kept(p.start_utc, p.end_utc);
+        if (all)
+            continue;
+        std::vector<jf::Item> left;
+        for (const jf::Item &p : *kv.second)
+            if (kept(p.start_utc, p.end_utc))
+                left.push_back(p);
+        kv.second = std::make_shared<const std::vector<jf::Item>>(std::move(left));
+    }
+    std::vector<std::pair<int64_t, int64_t>> covered;
+    for (const auto &r : g.covered)
+        for (const auto &k : keep) {
+            const int64_t a = std::max(r.first, k.first), b = std::min(r.second, k.second);
+            if (a < b)
+                covered.push_back({a, b});
+        }
+    g.covered.clear();
+    for (const auto &r : covered)
+        cover(g, r.first, r.second);
+}
+
 /* A change to the guide, made on a worker (never on a frame): the new snapshot is
  * built outside the lock and published when nothing else was published meanwhile
  * (else it is built again on top of that one). */
@@ -174,31 +256,13 @@ void load(jf::Client *c, unsigned gen, int64_t from, int64_t to)
     if (page.ok) {
         fresh->channels = std::move(page.items);
         fresh->from = from;
-        fresh->to = to;
+        fresh->horizon = from + kHorizon;
         fresh->loaded = true;
-        /* A big list (IPTV: hundreds of channels) in a few requests side by side. */
-        const std::vector<std::string> ids = ids_of(*fresh);
-        constexpr size_t kPart = 200;
-        const size_t parts = (ids.size() + kPart - 1) / kPart;
-        std::vector<std::vector<jf::Item>> got(parts);
-        std::vector<char> ok(parts, 0);
-        for (size_t first = 0; first < parts; first += 4) {   /* (four at a time) */
-            std::vector<std::function<void()>> jobs;
-            for (size_t i = first; i < parts && i < first + 4; i++)
-                jobs.emplace_back([&, i] {
-                    const std::vector<std::string> part(ids.begin() + i * kPart,
-                                                        ids.begin() + std::min(ids.size(), (i + 1) * kPart));
-                    ok[i] = c->programs(part, from, to, &got[i]);
-                });
-            jelly5::run_all(jobs);
-        }
         std::vector<jf::Item> progs;
-        for (size_t i = 0; i < parts; i++) {
-            complete = complete && ok[i];
-            for (jf::Item &it : got[i])
-                progs.push_back(std::move(it));
-        }
+        complete = fetch_programs(c, ids_of(*fresh), from, to, &progs);
         add_programs(*fresh, std::move(progs));
+        if (complete)   /* (part of it only: not marked as had, so it is asked again) */
+            cover(*fresh, from, to);
         jelly5::run_all({[&] { fresh->recordings = c->recordings(60); },
                          [&] { fresh->timers = c->timers(); }});
     }
@@ -226,16 +290,17 @@ void load(jf::Client *c, unsigned gen, int64_t from, int64_t to)
                 std::stable_sort(merged.channels.begin(), merged.channels.end(),
                                  [](const jf::Item &a, const jf::Item &b) { return a.favorite && !b.favorite; });
             }
-            if (g.to > to) {
-                std::vector<jf::Item> later;
-                for (const auto &kv : g.programs)
-                    if (kv.second)
-                        for (const jf::Item &p : *kv.second)
-                            if (p.start_utc >= to)
-                                later.push_back(p);
-                add_programs(merged, std::move(later));
-                merged.to = g.to;
-            }
+            /* What was loaded further on (the guide scrolled or jumped ahead) stays. */
+            std::vector<jf::Item> later;
+            for (const auto &kv : g.programs)
+                if (kv.second)
+                    for (const jf::Item &p : *kv.second)
+                        if (p.start_utc >= to)
+                            later.push_back(p);
+            add_programs(merged, std::move(later));
+            for (const auto &r : g.covered)
+                if (r.second > to)
+                    cover(merged, std::max(r.first, to), r.second);
             g = std::move(merged);
         });
         evo_bt("livetv: %zu channels, guide from %s%s", fresh->channels.size(), clock(from).c_str(),
@@ -272,6 +337,14 @@ const jf::Item *Guide::channel(const std::string &id) const
         if (c.id == id)
             return &c;
     return nullptr;
+}
+
+bool Guide::covers(int64_t t) const
+{
+    for (const auto &r : covered)
+        if (r.first <= t && t < r.second)
+            return true;
+    return false;
 }
 
 const std::vector<jf::Item> *Guide::programs_of(const std::string &channel_id) const
@@ -390,33 +463,45 @@ void refresh(bool force)
     }
 }
 
-void extend(int64_t to)
+void ensure(int64_t from, int64_t to)
 {
     unsigned gen;
-    int64_t from;
     std::vector<std::string> ids;
     jf::Client *c;
     {
         std::lock_guard<std::mutex> g(s_lock);
-        if (!s_client || !s_available || s_extending || s_loading || !s_guide->loaded || to <= s_guide->to)
+        if (!s_client || !s_available || s_extending || s_loading || !s_guide->loaded)
+            return;
+        from = std::max(from, s_guide->from);
+        to = std::min(to, s_guide->horizon);
+        /* Only what is not there yet (from the first gap to the last). */
+        for (const auto &r : s_guide->covered) {
+            if (r.first <= from && r.second > from)
+                from = r.second;
+            if (r.first < to && r.second >= to)
+                to = r.first;
+        }
+        if (to - from < 60)
             return;
         s_extending = true;
         gen = s_gen;
-        from = s_guide->to;
-        to = std::max(to, from + kAhead);   /* half a day at a time */
         ids = ids_of(*s_guide);
         c = s_client;
     }
     const bool started = jelly5::spawn([gen, from, to, ids, c] {
         std::vector<jf::Item> more;
-        const bool ok = c->programs(ids, from, to, &more);
-        if (ok)   /* (part of it only: not marked as had, so it is asked again) */
-            update(gen, [&](Guide &g) {
-                if (g.to != from)
-                    return;   /* the guide was loaded again meanwhile */
-                add_programs(g, more);
-                g.to = to;
-            });
+        const bool ok = fetch_programs(c, ids, from, to, &more);
+        update(gen, [&](Guide &g) {
+            /* Far from what is had (a jump days ahead): what lies between goes. */
+            int64_t had = 0;
+            for (const auto &r : g.covered)
+                had += r.second - r.first;
+            if (had + (to - from) > kKeep)
+                trim(g, {{g.from, g.from + kAhead}, {from - kAhead, to + kAhead}});
+            add_programs(g, more);
+            if (ok)   /* (part of it only: not marked as had, so it is asked again) */
+                cover(g, from, to);
+        });
         std::lock_guard<std::mutex> g(s_lock);
         s_extending = false;
     });
