@@ -91,7 +91,10 @@ static struct {
 
 /* libass copies every font it is given into s_lib and keeps it until
  * ass_clear_fonts. What was added since the last clear, so a font is added once. */
-static char s_sysfonts[8][64];
+static struct sysfont {
+    char path[64];
+    char family[64];          /* empty: not readable */
+} s_sysfonts[8];
 static int s_nsysfonts;
 static struct {
     char name[64];
@@ -121,39 +124,149 @@ static void add_attached_font(const char *name, const uint8_t *data, int size)
     }
 }
 
-/* The console's CJK / Thai fonts, added when a track needs them. */
-static void add_system_font(const char *path)
+/* The family name a font file gives itself (the OpenType name table, name 1),
+ * as libass matches a style's FontName against it. English first, then any
+ * Windows entry, then a Macintosh one. 0 when the file has none. */
+static uint32_t be16(const uint8_t *p) { return (uint32_t)p[0] << 8 | p[1]; }
+static uint32_t be32(const uint8_t *p) { return be16(p) << 16 | be16(p + 2); }
+
+static int font_family_of(const uint8_t *f, size_t n, char *out, size_t cap)
 {
+    out[0] = 0;
+    size_t base = 0;
+    if (n >= 16 && !memcmp(f, "ttcf", 4) && be32(f + 8) >= 1)
+        base = be32(f + 12);                       /* a collection: its first font */
+    if (base > n || n - base < 12)
+        return 0;
+    const uint32_t ntables = be16(f + base + 4);
+    size_t name = 0, name_len = 0;
+    for (uint32_t i = 0; i < ntables; i++) {
+        const size_t r = base + 12 + (size_t)i * 16;
+        if (r + 16 > n)
+            return 0;
+        if (!memcmp(f + r, "name", 4)) {
+            name = be32(f + r + 8);
+            name_len = be32(f + r + 12);
+            break;
+        }
+    }
+    if (!name || name > n || name_len > n - name || name_len < 6)
+        return 0;
+    const uint8_t *t = f + name;
+    const uint32_t count = be16(t + 2), strings = be16(t + 4);
+    int best = -1, best_rank = 0;
+    for (uint32_t i = 0; i < count; i++) {
+        const size_t r = 6 + (size_t)i * 12;
+        if (r + 12 > name_len)
+            break;
+        const uint32_t platform = be16(t + r), lang = be16(t + r + 4), id = be16(t + r + 6);
+        if (id != 1)
+            continue;
+        const int rank = platform == 3 ? (lang == 0x409 ? 3 : 2) : platform == 1 ? 1 : 0;
+        if (rank > best_rank) {
+            best_rank = rank;
+            best = (int)i;
+        }
+    }
+    if (best < 0)
+        return 0;
+    const size_t r = 6 + (size_t)best * 12;
+    const uint32_t len = be16(t + r + 8), off = be16(t + r + 10);
+    if ((size_t)strings + off + len > name_len)
+        return 0;
+    const uint8_t *s = t + strings + off;
+    size_t o = 0;
+    if (best_rank == 1) {                          /* Macintosh: single bytes, ASCII kept */
+        for (uint32_t k = 0; k < len && o + 1 < cap; k++)
+            if (s[k] >= 0x20 && s[k] < 0x7f)
+                out[o++] = (char)s[k];
+    } else {                                       /* Windows: UTF-16BE to UTF-8 */
+        for (uint32_t k = 0; k + 1 < len; k += 2) {
+            uint32_t cp = be16(s + k);
+            if (cp >= 0xd800 && cp < 0xdc00 && k + 3 < len) {
+                const uint32_t lo = be16(s + k + 2);
+                if (lo >= 0xdc00 && lo < 0xe000) {
+                    cp = 0x10000 + ((cp - 0xd800) << 10) + (lo - 0xdc00);
+                    k += 2;
+                }
+            }
+            char u[4];
+            size_t m;
+            if (cp < 0x80) { u[0] = (char)cp; m = 1; }
+            else if (cp < 0x800) { u[0] = (char)(0xc0 | cp >> 6); u[1] = (char)(0x80 | (cp & 0x3f)); m = 2; }
+            else if (cp < 0x10000) { u[0] = (char)(0xe0 | cp >> 12); u[1] = (char)(0x80 | ((cp >> 6) & 0x3f));
+                                     u[2] = (char)(0x80 | (cp & 0x3f)); m = 3; }
+            else { u[0] = (char)(0xf0 | cp >> 18); u[1] = (char)(0x80 | ((cp >> 12) & 0x3f));
+                   u[2] = (char)(0x80 | ((cp >> 6) & 0x3f)); u[3] = (char)(0x80 | (cp & 0x3f)); m = 4; }
+            if (o + m + 1 > cap)
+                break;
+            memcpy(out + o, u, m);
+            o += m;
+        }
+    }
+    out[o] = 0;
+    return o > 0;
+}
+
+/* The console's CJK and Thai fonts, by the track's language (the whole
+ * language, region aside: "ja", "jpn", "zh-TW"; "jav" is Javanese). */
+enum { SYS_JA, SYS_KO, SYS_ZH, SYS_TH, SYS_N };
+static const struct {
+    const char *path;
+    const char *langs[6];
+} k_sys_fonts[SYS_N] = {
+    [SYS_JA] = {"/preinst/common/font/SSTJpPro-Regular.otf", {"ja", "jpn"}},
+    [SYS_KO] = {"/preinst/common/font/YoonGothicProSIE720.otf", {"ko", "kor"}},
+    [SYS_ZH] = {"/preinst/common/font/DFHEI5-SONY.ttf", {"zh", "chi", "zho", "cmn", "yue"}},
+    [SYS_TH] = {"/preinst/common/font/SSTThai-Roman.otf", {"th", "tha"}},
+};
+
+static int lang_is(const char *lang, const char *code)
+{
+    const size_t n = strcspn(lang, "-_");
+    return n == strlen(code) && !strncasecmp(lang, code, n);
+}
+
+static int sys_font_for_lang(const char *lang)
+{
+    if (!lang || !*lang)
+        return -1;
+    for (int f = 0; f < SYS_N; f++)
+        for (int i = 0; i < 6 && k_sys_fonts[f].langs[i]; i++)
+            if (lang_is(lang, k_sys_fonts[f].langs[i]))
+                return f;
+    return -1;
+}
+
+/* Adds a system font once per session and returns its family name, or NULL
+ * when it can't be read (logged once). Caller holds s_lock. */
+static const char *add_system_font(int f)
+{
+    if (f < 0 || f >= SYS_N)
+        return NULL;
+    const char *path = k_sys_fonts[f].path;
     for (int i = 0; i < s_nsysfonts; i++)
-        if (!strcmp(s_sysfonts[i], path))
-            return;
-    if (!s_rend || s_nsysfonts >= 8)
-        return;
-    snprintf(s_sysfonts[s_nsysfonts++], sizeof s_sysfonts[0], "%s", path);   /* tried once, found or not */
+        if (!strcmp(s_sysfonts[i].path, path))
+            return s_sysfonts[i].family[0] ? s_sysfonts[i].family : NULL;
+    if (!s_rend || s_nsysfonts >= (int)(sizeof s_sysfonts / sizeof s_sysfonts[0]))
+        return NULL;
+    struct sysfont *e = &s_sysfonts[s_nsysfonts++];   /* tried once, found or not */
+    snprintf(e->path, sizeof e->path, "%s", path);
+    e->family[0] = 0;
     size_t got = 0;
     char *buf = (char *)ui_text_read_system_font(path, &got);
     if (!buf)
-        return;
+        return NULL;
+    if (!font_family_of((const uint8_t *)buf, got, e->family, sizeof e->family)) {
+        evo_bt("subs: font %s has no family name", path);
+        free(buf);
+        return NULL;
+    }
     ass_add_font(s_lib, path, buf, (int)got);
     ass_set_fonts(s_rend, NULL, "Roboto", ASS_FONTPROVIDER_NONE, NULL, 0);
-    evo_bt("subs: added font %s", path);
+    evo_bt("subs: added font %s (%s)", path, e->family);
     free(buf);
-}
-
-static void fonts_for_language(const char *lang)
-{
-    if (!lang || !*lang)
-        return;
-    if (!strncasecmp(lang, "ja", 2) || !strncasecmp(lang, "jpn", 3))
-        add_system_font("/preinst/common/font/SSTJpPro-Regular.otf");
-    else if (!strncasecmp(lang, "ko", 2) || !strncasecmp(lang, "kor", 3))
-        add_system_font("/preinst/common/font/YoonGothicProSIE720.otf");
-    else if (!strncasecmp(lang, "zh", 2) || !strncasecmp(lang, "chi", 3) ||
-             !strncasecmp(lang, "zho", 3) || !strncasecmp(lang, "cmn", 3) ||
-             !strncasecmp(lang, "yue", 3))
-        add_system_font("/preinst/common/font/DFHEI5-SONY.ttf");
-    else if (!strncasecmp(lang, "th", 2))
-        add_system_font("/preinst/common/font/SSTThai-Roman.otf");
+    return e->family;
 }
 
 /* The font a track's cues are drawn in.  The renderer runs with no system font
@@ -162,31 +275,35 @@ static void fonts_for_language(const char *lang)
  * family the style names and ass_set_fonts' default family ("Roboto").
  * It never falls back by glyph, so a script the named font lacks is drawn as
  * filled boxes whatever else is embedded - Arabic was, although Noto Naskh
- * Arabic UI is in the eboot: no style ever asked for it.  A track whose
- * language needs that font is pointed at it; Roboto stays the default, so
- * Latin and digits in the same cue keep their own. */
+ * Arabic UI is in the eboot: no style ever asked for it.  The same held for
+ * Japanese, Korean, Chinese and Thai: their system fonts were added, but no
+ * style named them.  A track whose language needs a font is pointed at it;
+ * Roboto stays the default, so Latin and digits in the same cue keep their own. */
 static const char *const k_arabic_family = "Noto Naskh Arabic UI";
 static const char *const k_arabic_langs[] = {
     "ar", "ara", "fa", "fas", "per", "ur", "urd", "ps", "pus",
     "ku", "kur", "ckb", "sd", "snd", "ug", "uig",
 };
 
+/* Caller holds s_lock (a system font may be added). */
 static const char *sub_family_for_lang(const char *lang)
 {
     if (!lang || !*lang)
         return NULL;
-    /* The whole language, region aside ("ar", "ara", "ar-SA"): "arm" is Armenian, "fao" Faroese. */
-    const size_t n = strcspn(lang, "-_");
+    /* "arm" is Armenian, "fao" Faroese. */
     for (unsigned i = 0; i < sizeof k_arabic_langs / sizeof k_arabic_langs[0]; i++)
-        if (n == strlen(k_arabic_langs[i]) && !strncasecmp(lang, k_arabic_langs[i], n))
+        if (lang_is(lang, k_arabic_langs[i]))
             return k_arabic_family;
-    return NULL;
+    return add_system_font(sys_font_for_lang(lang));
 }
 
-/* Arabic script: the block, its supplements and the presentation forms. */
-static int utf8_has_arabic(const char *s, size_t n)
+/* The script a cue is written in, for a track nothing tagged with a language:
+ * -2 Arabic, a SYS_* font, or -1 (Latin and the rest: Roboto). Kana is
+ * Japanese, Hangul Korean; Han alone is taken as Chinese. */
+static int utf8_script(const char *s, size_t n)
 {
     const unsigned char *p = (const unsigned char *)s;
+    int han = 0;
     for (size_t i = 0; i < n && p[i]; i++) {
         uint32_t cp;
         size_t len;
@@ -201,23 +318,43 @@ static int utf8_has_arabic(const char *s, size_t n)
             cp = (cp << 6) | (uint32_t)(p[i + k] & 0x3f);
         }
         i += ok ? len - 1 : 0;
-        if (!ok)
+        if (!ok || cp < 0x0600)
             continue;
         if ((cp >= 0x0600 && cp <= 0x06ff) || (cp >= 0x0750 && cp <= 0x077f) ||
             (cp >= 0x08a0 && cp <= 0x08ff) || (cp >= 0xfb50 && cp <= 0xfdff) ||
             (cp >= 0xfe70 && cp <= 0xfeff))
-            return 1;
+            return -2;
+        if (cp >= 0x0e00 && cp <= 0x0e7f)
+            return SYS_TH;
+        if ((cp >= 0x3040 && cp <= 0x30ff) || (cp >= 0x31f0 && cp <= 0x31ff) ||
+            (cp >= 0xff66 && cp <= 0xff9f))
+            return SYS_JA;
+        if ((cp >= 0xac00 && cp <= 0xd7af) || (cp >= 0x1100 && cp <= 0x11ff) ||
+            (cp >= 0x3130 && cp <= 0x318f))
+            return SYS_KO;
+        if ((cp >= 0x4e00 && cp <= 0x9fff) || (cp >= 0x3400 && cp <= 0x4dbf))
+            han = 1;
     }
-    return 0;
+    return han ? SYS_ZH : -1;
 }
 
-/* What the cues themselves say, for a track nothing tagged with a language. */
+/* What the cues themselves say. Han is decided only after every cue, since
+ * Japanese cues may show kana only in some lines. Caller holds s_lock. */
 static const char *cues_family(const strack *t)
 {
-    for (int i = 0; t->ass && i < t->ass->n_events; i++)
-        if (t->ass->events[i].Text && utf8_has_arabic(t->ass->events[i].Text, 4096))
+    int han = 0;
+    for (int i = 0; t->ass && i < t->ass->n_events; i++) {
+        if (!t->ass->events[i].Text)
+            continue;
+        const int s = utf8_script(t->ass->events[i].Text, 4096);
+        if (s == -2)
             return k_arabic_family;
-    return NULL;
+        if (s == SYS_ZH)
+            han = 1;
+        else if (s >= 0)
+            return add_system_font(s);
+    }
+    return han ? add_system_font(SYS_ZH) : NULL;
 }
 
 /* Decides the track's cue font and writes it into its styles.  Decided once:
@@ -231,6 +368,11 @@ static void track_font(strack *t)
         t->font_done = 1;             /* styled, and the file brings its fonts: the author's stay */
         return;
     }
+    /* A system font (megabytes) is read for the track being shown only, not
+     * for every track a file lists: the rest are decided when chosen. */
+    if ((s_selected < 0 || t != &s_tracks[s_selected]) &&
+        (sys_font_for_lang(t->info.lang) >= 0 || !t->info.lang[0]))
+        return;
     const char *family = sub_family_for_lang(t->info.lang);
     if (!family) {
         if (!t->info.lang[0] && t->ass->n_events == 0)
@@ -624,9 +766,9 @@ void nuvio_subs_select(int id)
     pthread_mutex_lock(&s_lock);
     if (id < 0 || id >= s_ntracks)
         id = -1;
+    s_selected = id;                  /* first: track_font reads a system font for the shown track only */
     if (id >= 0) {
         strack *t = &s_tracks[id];
-        fonts_for_language(t->info.lang);
         track_font(t);
         if (t->info.bitmap) {
             /* Bitmap tracks decode only while selected: start clean. */
@@ -635,7 +777,6 @@ void nuvio_subs_select(int id)
             t->need_flush = 1;
         }
     }
-    s_selected = id;
     pthread_mutex_unlock(&s_lock);
     evo_bt("subs: selected %d", id);
 }
@@ -1102,7 +1243,6 @@ static void *ext_loader(void *arg)
                 info.state = 1;
                 t->info = info;
                 if (s_selected == id) {
-                    fonts_for_language(t->info.lang);
                     track_font(t);        /* the cues are in now */
                 }
             } else {

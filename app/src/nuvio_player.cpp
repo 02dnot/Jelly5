@@ -501,6 +501,23 @@ std::string quality_line()
     return q;
 }
 
+/* What the upscaler did to the last frame (evo_agc_upscale_label), in the viewer's words. */
+std::string upscale_name(const char *label)
+{
+    const std::string l = label ? label : "Off";
+    if (l == "Sharp")
+        return T("Skarp (FSR 1)");
+    if (l.rfind("AI", 0) == 0)   /* the network: Standard, Large (a PS5 Pro), Maximum */
+        return std::string(T("AI (Anime4K)")) + (l == "AI (Large)" ? " L" : l == "AI (Maximum)" ? " UL" : "");
+    if (l == "Off (HDR source)")
+        return T("Av (HDR-video)");
+    if (l == "Off (source >= output)")
+        return T("Av (videoen er like skarp som skjermen)");
+    if (l == "Off (unavailable)")
+        return T("Av (ikke tilgjengelig)");
+    return T("Av");
+}
+
 /* The L3 panel (Jellyfin's "Playback Info", for this player): what is playing,
  * how it is decoded and output, and how the stream is keeping up. */
 std::vector<std::pair<std::string, std::string>> playback_stats(const Session &s)
@@ -547,6 +564,7 @@ std::vector<std::pair<std::string, std::string>> playback_stats(const Session &s
         evo_agc_runtime_get_size(&w, &h);
         std::snprintf(b, sizeof b, "%d\xC3\x97%d  \xC2\xB7  %s", w, h, evo_agc_runtime_hdr_output_active() ? "HDR10" : "SDR");
         v.push_back({T("Skjerm"), b});
+        v.push_back({T("Oppskalering"), upscale_name(evo_agc_upscale_label())});
     }
     if (audio_stream_index >= 0 && audio_stream_index < (int)play_fmt->nb_streams) {
         const AVCodecParameters *p = play_fmt->streams[audio_stream_index]->codecpar;
@@ -1073,6 +1091,9 @@ extern "C" void nuvio_player_run(const char *json)
     if (s.req.light_color)
         nuvio_input_set_lightbar(s.req.light_color);   /* the controller glows in the title's colour */
     evo_pb_set_av_offset(settings::get().local.audio_delay_ms / 1000.0);   /* Innstillinger: Lydforsinkelse */
+    /* Innstillinger: Oppskalering. The runtime uses it only for an SDR picture smaller than
+     * the one on the TV, and steps down by itself when the GPU runs out of time. */
+    evo_agc_upscale_set_mode(settings::get().local.upscale);
     /* (music and live TV have nothing to scrub) */
     const bool triggers = !headless && s.req.item_type != "audio" && !s.req.live;
     if (triggers)
@@ -1131,7 +1152,14 @@ extern "C" void nuvio_player_run(const char *json)
                     evo_bt("nuvio: open ok - %s", s.st.quality_line.c_str());
                     /* Profile 5 is rebuilt on the GPU; only a build without that
                      * pipeline would still show it in the wrong colours. */
-                    if (play_fmt && video_stream_index >= 0 &&
+                    /* The hardware decoder hung earlier (the watchdog in
+                     * evo_vdec_native.c): everything plays on the software
+                     * decoder until the app is restarted. Say so. */
+                    if (video_stream_index >= 0 && evo_vdec_native_hung())
+                        s_osd.toast(s.req.str("decoder_hung",
+                                              "The hardware decoder stopped responding. Restart Jelly5 to use it again."),
+                                    now);
+                    else if (play_fmt && video_stream_index >= 0 &&
                         dolby_vision_profile(play_fmt->streams[video_stream_index]->codecpar) == 5 &&
                         !evo_agc_runtime_pipeline_valid(EVO_AGC_PIPE_VIDEO_DV5))
                         s_osd.toast(s.req.str("dv5_unsupported",
@@ -1364,6 +1392,13 @@ extern "C" void nuvio_player_run(const char *json)
                                  (int)f.coded_w, (int)f.coded_h, (int)f.disp_w, (int)f.disp_h,
                                  (int)s_pb->getViewMode(), f.ten_bit, f.color_trc, is_direct, pts);
                 s.last_pts = pts;
+                /* The upscaler went over the GPU's time and stepped down (once per step). */
+                const int capped = evo_agc_upscale_take_downgrade();
+                if (capped >= 0)
+                    s_osd.toast(capped == EVO_AGC_UPSCALE_AI      ? T("Oppskalering: bruker et mindre AI-nett, GPU-en rakk ikke mer")
+                                : capped == EVO_AGC_UPSCALE_SHARP ? T("Oppskalering: bruker Skarp, GPU-en rakk ikke AI")
+                                                                  : T("Oppskalering er slått av: GPU-en rakk det ikke"),
+                                now);
             }
             if (have && (nuvio_subs_visible() || sub_changed))
                 evo_agc_composite_overlay(0, s_sub_canvas.px, CW, CH, sub_changed ? 1 : 0, 1.0f);

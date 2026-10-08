@@ -40,6 +40,7 @@ static enum AVSampleFormat prospero_audio_input_format =
     AV_SAMPLE_FMT_NONE;
 
 static int prospero_audio_input_rate = 0;
+static int prospero_audio_output_channels = 0;
 static const int prospero_audio_output_rate = PROSPERO_AUDIO_OUTPUT_RATE;
 
 
@@ -60,6 +61,7 @@ void prospero_audio_resampler_destroy(void) {
         AV_SAMPLE_FMT_NONE;
 
     prospero_audio_input_rate = 0;
+    prospero_audio_output_channels = 0;
 }
 
 
@@ -138,6 +140,9 @@ int prospero_audio_resampler_configure(
             (enum AVSampleFormat)frame->format &&
         prospero_audio_input_rate ==
             input_rate &&
+        /* The port can be 2.0 or 7.1 for the same source (EVO Player 5aab08b). */
+        prospero_audio_output_channels ==
+            out_channels &&
         av_channel_layout_compare(
             &prospero_audio_input_layout,
             &input_layout
@@ -244,6 +249,9 @@ int prospero_audio_resampler_configure(
 
     prospero_audio_input_rate =
         input_rate;
+
+    prospero_audio_output_channels =
+        out_channels;
 
     av_channel_layout_uninit(
         &input_layout
