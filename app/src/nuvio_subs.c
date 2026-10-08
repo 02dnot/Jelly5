@@ -69,6 +69,7 @@ static int s_delay_ms;
 static int64_t s_start_ms;    /* video stream start: external cues are 0-based */
 static nuvio_sub_style s_style = {100, 0xffffff, 0, 1, 0.0f, 0.0f};
 static unsigned s_style_gen = 1;
+static int s_file_fonts;        /* fonts the open file carries for its styled subtitles */
 static int s_session;         /* bumped by close: stale loader results are dropped */
 static int s_loader_up;
 
@@ -157,8 +158,10 @@ static const char *sub_family_for_lang(const char *lang)
 {
     if (!lang || !*lang)
         return NULL;
+    /* The whole language, region aside ("ar", "ara", "ar-SA"): "arm" is Armenian, "fao" Faroese. */
+    const size_t n = strcspn(lang, "-_");
     for (unsigned i = 0; i < sizeof k_arabic_langs / sizeof k_arabic_langs[0]; i++)
-        if (!strncasecmp(lang, k_arabic_langs[i], strlen(k_arabic_langs[i])))
+        if (n == strlen(k_arabic_langs[i]) && !strncasecmp(lang, k_arabic_langs[i], n))
             return k_arabic_family;
     return NULL;
 }
@@ -207,6 +210,10 @@ static void track_font(strack *t)
 {
     if (!t || !t->ass || t->info.bitmap)
         return;
+    if (t->ass_raw && s_file_fonts > 0) {
+        t->font_done = 1;             /* styled, and the file brings its fonts: the author's stay */
+        return;
+    }
     const char *family = sub_family_for_lang(t->info.lang);
     if (!family) {
         if (!t->info.lang[0] && t->ass->n_events == 0)
@@ -424,6 +431,7 @@ void nuvio_subs_open(AVFormatContext *fmt, int video_stream)
     for (int i = 0; i < MAX_STREAMS; i++)
         s_stream_map[i] = -1;
     s_start_ms = 0;
+    s_file_fonts = 0;
     if (fmt && video_stream >= 0 && video_stream < (int)fmt->nb_streams &&
         fmt->streams[video_stream]->start_time != AV_NOPTS_VALUE)
         s_start_ms = av_rescale_q(fmt->streams[video_stream]->start_time,
@@ -444,9 +452,11 @@ void nuvio_subs_open(AVFormatContext *fmt, int video_stream)
                           (name && name->value && (strcasestr(name->value, ".ttf") ||
                                                    strcasestr(name->value, ".otf") ||
                                                    strcasestr(name->value, ".ttc")));
-            if (is_font && par->extradata && par->extradata_size > 0)
+            if (is_font && par->extradata && par->extradata_size > 0) {
                 ass_add_font(s_lib, name && name->value ? name->value : "attachment",
                              (const char *)par->extradata, par->extradata_size);
+                s_file_fonts++;
+            }
             continue;
         }
         if (par->codec_type != AVMEDIA_TYPE_SUBTITLE || s_ntracks >= MAX_TRACKS)
@@ -486,8 +496,11 @@ void nuvio_subs_open(AVFormatContext *fmt, int video_stream)
         evo_bt("subs: track %d stream %u %s lang=%s title='%s'%s%s", s_ntracks - 1, i,
                t->info.codec, t->info.lang, t->info.title, t->info.forced ? " forced" : "",
                t->info.is_default ? " default" : "");
-        track_font(t);                /* the language already says which font */
     }
+    /* The language already says which font; after the loop, since a file's
+     * font attachments usually come after its subtitle streams. */
+    for (int i = 0; i < s_ntracks; i++)
+        track_font(&s_tracks[i]);
     pthread_mutex_unlock(&s_lock);
 }
 
