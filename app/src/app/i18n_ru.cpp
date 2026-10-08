@@ -304,7 +304,7 @@ const std::unordered_map<std::string, const char *> &russian_table()
         {"Undertekststørrelse", "Размер субтитров"},
         {"Undertekstbakgrunn", "Фон субтитров"},
         {"Spill neste episode automatisk", "Автовоспроизведение следующего эпизода"},
-        {"Spør om du fortsatt ser på", "Спрашивать, смотрите ли вы ещё"}, {"Etter 3 episoder", "После 3 эпизодов"}, {"Etter 2 timer", "Через 2 часа"}, {"Ser du fortsatt på?", "Вы ещё смотрите?"},
+        {"Spør om du fortsatt ser på", "Спрашивать, смотрите ли вы ещё"}, {"Etter 3 episoder", "После 3 эпизодов"}, {"Etter 2 timer", "После 2 часов"}, {"Ser du fortsatt på?", "Вы ещё смотрите?"},
         {"Hopp over intro automatisk", "Автоматически пропускать заставку"},
         {"Om Jelly5", "О Jelly5"},
         {"Automatisk (maks)", "Автоматически (макс.)"},

@@ -95,6 +95,8 @@ private:
     void draw_still(const NuvioStatus &st);
     StillWatching m_still;
     bool m_asking = false;   /* "Ser du fortsatt på?" is up */
+    bool m_ask_hold = false;   /* asked before the end: kept paused under it */
+    double m_ask_paused_at = -1;
     Anim a_ask;
 
     void tracks_input(uint32_t p, const NuvioStatus &st, std::vector<OsdCommand> &out);

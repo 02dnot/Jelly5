@@ -93,6 +93,9 @@ void PlayerUi::begin(const NuvioRequest *req, double now, bool reopen)
         std::copy(std::begin(m_skip_done), std::end(m_skip_done), kept.m_skip_done);
         kept.m_scheduled.swap(m_scheduled);
         kept.m_still = m_still;
+        kept.m_asking = m_asking;   /* the question stays up across the gap */
+        kept.m_ask_hold = m_ask_hold;
+        kept.a_ask.snap(m_asking ? 1.f : 0.f);
     }
     *this = std::move(kept);
     m_req = req;
@@ -302,10 +305,10 @@ void PlayerUi::playback_ended(const NuvioStatus &st, std::vector<OsdCommand> &ou
  * Spør om du fortsatt ser på), the next one waits for the viewer: the picture stays
  * paused on this one's end with the question over it. Never for music, nor in a
  * SyncPlay group (the group decides). */
-void PlayerUi::autoplay_next(const NuvioStatus &st, std::vector<OsdCommand> &out, bool ended)
+void PlayerUi::autoplay_next(const NuvioStatus &, std::vector<OsdCommand> &out, bool ended)
 {
     if (m_music || in_group() || !m_still.ask()) {
-        if (!m_music)
+        if (!m_music && !in_group())
             m_still.autoplayed();
         out.push_back({OsdCmd::PlayNext});
         return;
@@ -320,8 +323,8 @@ void PlayerUi::autoplay_next(const NuvioStatus &st, std::vector<OsdCommand> &out
     m_seeking = false;
     m_overlay = Overlay::None;
     m_dirty = true;
-    if (!ended && !st.paused)
-        out.push_back({OsdCmd::TogglePause});   /* held where the countdown ran out */
+    m_ask_hold = !ended;   /* held where the countdown ran out (tick keeps it paused) */
+    m_ask_paused_at = -1;
 }
 
 /* ✕ (any button but ○): the next episode, the run starts again; ○: stop here. */
@@ -347,6 +350,13 @@ void PlayerUi::tick(const NuvioStatus &st, std::vector<OsdCommand> &out, bool po
         remote_poll(st, out);
     if (st.started && !st.paused && !st.buffering && !m_asking && !m_music)
         m_still.played(step);   /* time played since the last press */
+    /* Asked where the countdown ran out: paused under the question, also after a
+     * reopen (a reconnect opens it playing). Once per half second, as the pause
+     * shows in the status only once the engine has taken it. */
+    if (m_asking && m_ask_hold && st.started && !st.paused && st.now - m_ask_paused_at > 0.5) {
+        out.push_back({OsdCmd::TogglePause});
+        m_ask_paused_at = st.now;
+    }
     const size_t mine = out.size();   /* from here on this PS5's own, the group's in a group */
     int track = -1;
     switch (jelly5_subs::download_state(&track)) {
@@ -1761,8 +1771,9 @@ void PlayerUi::remote_do(const remote::Command &c, const NuvioStatus &st, std::v
                 answer_still(true, out);
                 return;
             }
-            if (c.kind == remote::Command::Pause)
-                return;
+            if (c.kind == remote::Command::Pause || c.kind == remote::Command::Seek ||
+                c.kind == remote::Command::Rewind || c.kind == remote::Command::FastForward)
+                return;   /* a seek would play on silently under the question */
         }
     }
     const double d = st.duration > 0 ? st.duration - 1 : 1e9;

@@ -11,6 +11,12 @@
  * natural end) since the viewer last pressed anything in the player, and the
  * time played since that press. Any press starts both again. The chain carries
  * them from one episode's player to the next (autoplayCount, autoplayIdle).
+ *
+ * "Etter 3 episoder" (limit_episodes 3) means three episodes in a row without
+ * a press, the one the viewer started (or last pressed in) included: E1 started
+ * by hand, E2 and E3 autoplay, and the question comes before E4, as in
+ * jellyfin-web (its count is of the items played, the first one too). So the
+ * count of autoplayed episodes asks at limit - 1.
  * Header-only and plain, so the rule can be tested on the host.
  */
 #pragma once
@@ -18,7 +24,7 @@
 namespace ui {
 
 struct StillWatching {
-    int limit_episodes = 0;     /* ask once this many have autoplayed in a row; 0 = not by count */
+    int limit_episodes = 0;     /* ask after this many episodes in a row without a press; 0 = not by count */
     double limit_seconds = 0;   /* ask once this long has played since the last press; 0 = not by time */
     int count = 0;              /* episodes started by autoplay since the last press */
     double idle = 0;            /* seconds played since the last press */
@@ -38,7 +44,8 @@ struct StillWatching {
     /* At the moment the next episode would autoplay: ask instead? */
     bool ask() const
     {
-        return (limit_episodes > 0 && count >= limit_episodes) || (limit_seconds > 0 && idle >= limit_seconds);
+        return (limit_episodes > 0 && count + 1 >= limit_episodes) ||   /* + the one playing now */
+               (limit_seconds > 0 && idle >= limit_seconds);
     }
     /* The next episode is starting by itself. */
     void autoplayed() { count++; }
