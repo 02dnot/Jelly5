@@ -4,7 +4,7 @@
  *
  * Settings, opened from the avatar in the top bar: account (switch user,
  * sign out), playback (quality cap, audio and subtitle language, subtitle
- * mode, autoplay, automatic intro skipping), Seerr (on, its address, how it
+ * mode, autoplay, what to do at each kind of segment: intro, credits ...), Seerr (on, its address, how it
  * signs in, the session, the network, a connection test), the server, and
  * about. A list in the Apple TV style: value on the right, Left/Right or
  * Cross changes it. Seerr's rows other than "on" show only when it is on.
@@ -22,7 +22,9 @@ class SettingsScreen : public Screen {
 public:
     enum Row {
         SwitchUser, SignOut,
-        Quality, AudioLang, SubMode, SubLang, SubSize, SubBackground, Autoplay, StillWatching, AutoSkip, AudioDelay, NightMode, Bitstream,
+        Quality, AudioLang, SubMode, SubLang, SubSize, SubBackground, Autoplay, StillWatching,
+        SkipIntro, SkipOutro, SkipRecap, SkipPreview, SkipCommercial,   /* in segments::Type order */
+        AudioDelay, NightMode, Bitstream,
         ThemeMusic,
         SeerrOn, SeerrUrl, SeerrAuth, SeerrAccount, SeerrTest,
         AppLanguage, Refresh, Updates, Together, ServerInfo, About, RowCount

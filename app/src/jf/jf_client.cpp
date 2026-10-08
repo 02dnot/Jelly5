@@ -308,6 +308,7 @@ Features Client::features() const
         f.quick_connect = f.syncplay = f.lyrics = false;
         f.home_sections = false;
         f.latin_sort_names = false;
+        f.media_segments = false;
     }
     return f;
 }

@@ -45,6 +45,10 @@ const Mode kModes[] = {{"Default", "Standard"},
                        {"None", "Av"}};
 constexpr int kNumModes = 5;
 
+static_assert(SettingsScreen::SkipOutro - SettingsScreen::SkipIntro == segments::Outro &&
+                  SettingsScreen::SkipCommercial - SettingsScreen::SkipIntro == segments::Commercial,
+              "the segment rows follow segments::Type");
+
 const char *kHeaders[] = {"Konto", "Avspilling", "Seerr", "Generelt"};
 
 /* Its card: 0 account, 1 playback, 2 Seerr, 3 general, 4 about (no header). */
@@ -95,7 +99,11 @@ const char *label_of(int row)
                                          T("Undertekstbakgrunn"),
                                          T("Spill neste episode automatisk"),
                                          T("Spør om du fortsatt ser på"),
-                                         T("Hopp over intro automatisk"),
+                                         T("Intro"),
+                                         T("Rulletekst"),
+                                         T("Oppsummering"),
+                                         T("Forhåndsvisning"),
+                                         T("Reklame"),
                                          T("Lydforsinkelse"),
                                          T("Nattmodus"),
                                          T("HDMI-bitstr\xC3\xB8m"),
@@ -138,6 +146,8 @@ bool SettingsScreen::shown(int r) const
     const jf::Features f = m_client.features();
     if (r == Together)
         return f.syncplay;
+    if (r >= SkipRecap && r <= SkipCommercial)   /* Emby marks only intros and credits */
+        return f.media_segments;
     if (r < SeerrUrl || r > SeerrTest)
         return true;
     return seerr_service::config().enabled;
@@ -207,7 +217,12 @@ std::string SettingsScreen::value(Row r) const
         return s.local.still_watching == 1   ? T("Etter 3 episoder")
                : s.local.still_watching == 2 ? T("Etter 2 timer")
                                              : T("Av");
-    case AutoSkip: return s.local.auto_skip_intro ? T("På") : T("Av");
+    case SkipIntro: case SkipOutro: case SkipRecap: case SkipPreview: case SkipCommercial:
+        switch (s.local.segment[r - SkipIntro]) {
+        case segments::Skip: return T("Hopp over automatisk");
+        case segments::Nothing: return T("Ingenting");
+        default: return T("Spør");
+        }
     case NightMode: return s.local.night_mode ? T("På") : T("Av");
     case Bitstream:   /* night mode needs the sound decoded here, so it wins */
         return !s.local.hdmi_bitstream ? T("Av") : s.local.night_mode ? T("Av med nattmodus") : T("På");
@@ -284,10 +299,13 @@ void SettingsScreen::change(Row r, int dir)
         s.local.still_watching = cycle(s.local.still_watching, 3);
         settings::set_local(s.local);
         break;
-    case AutoSkip:
-        s.local.auto_skip_intro = !s.local.auto_skip_intro;
+    case SkipIntro: case SkipOutro: case SkipRecap: case SkipPreview: case SkipCommercial: {
+        /* Hopp over automatisk, Spør, Ingenting (from the next playback) */
+        int &a = s.local.segment[r - SkipIntro];
+        a = cycle(a, segments::ActionCount);
         settings::set_local(s.local);
         break;
+    }
     case NightMode:
         s.local.night_mode = !s.local.night_mode;
         settings::set_local(s.local);

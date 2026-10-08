@@ -203,6 +203,7 @@ struct Features {
     bool lyrics = true;
     bool home_sections = true;                /* the web client's home order (DisplayPreferences) */
     bool latin_sort_names = true;             /* SortName in Latin letters: Jellyfin's are, Emby's keep their script */
+    bool media_segments = true;               /* recaps, previews, commercials too (Emby marks only intros and credits) */
 };
 
 class Client {

@@ -28,6 +28,7 @@
 #include "gfx/gfx.h"
 #include "nuvio_osd.h"   /* NuvioStatus, OsdCommand */
 #include "app/remote.h"
+#include "app/segments.h"
 #include "ui/anim.h"
 #include "ui/screen.h"
 #include "ui/still_watching.h"
@@ -81,7 +82,12 @@ private:
     /* L2/R2 held: scrub at a speed set by how hard the trigger is pressed. */
     void analog_scrub(const nuvio_input_state &in, const NuvioStatus &st);
     double m_trig_at = 0, m_trig_down_at = 0;
-    int current_skip(const NuvioStatus &st) const;
+    /* Media segments (app/segments.h: the viewer's choice per type, Android TV's rules). */
+    int current_skip(const NuvioStatus &st) const;    /* the segment whose skip button is up, or -1 */
+    void segment_tick(const NuvioStatus &st, std::vector<OsdCommand> &out);
+    segments::Action action_of(int type) const;
+    bool card_possible() const;                       /* the next-episode card can come at the credits */
+    double skip_target(const NuvioStatus &st, int i) const;
     double card_start(const NuvioStatus &st) const;   /* when the next-episode card comes up */
     bool next_card(const NuvioStatus &st) const;
     bool has_next() const;   /* music: the queue's play order, not the request's next track */
@@ -150,7 +156,9 @@ private:
     double m_seek_target = 0, m_seek_commit_at = 0, m_seek_last_step = 0;
     float m_seek_step = 10;
 
-    bool m_skip_done[16] = {};
+    bool m_skip_done[16] = {};          /* skipped (or asked to): until the position leaves it */
+    double m_skip_since[16] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};   /* in it since */
+    double m_prev_pos = -1;             /* the position last tick: did playback run into a segment */
     bool m_card_dismissed = false;
     bool m_card_seen = false;           /* the card was up last tick (its focus on arrival) */
     double m_card_since = -1;           /* the next-episode countdown */

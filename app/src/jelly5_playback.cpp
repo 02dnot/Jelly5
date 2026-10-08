@@ -494,7 +494,10 @@ std::string request_json(jf::Client &c, const jf::Item &it, const jf::Playback &
     cJSON_AddItemToObject(prefs, "forcedOnlyWhenOff", cJSON_CreateBool(mode != "None"));
     cJSON_AddItemToObject(prefs, "autoplayNext", cJSON_CreateBool(set.server.autoplay_next));
     cJSON_AddItemToObject(prefs, "skipIntro", cJSON_CreateBool(1));
-    cJSON_AddItemToObject(prefs, "autoSkipIntro", cJSON_CreateBool(set.local.auto_skip_intro));
+    cJSON *seg = cJSON_CreateObject();   /* Innstillinger: what to do at each segment type */
+    for (int t = 0; t < segments::TypeCount; t++)
+        cJSON_AddStringToObject(seg, segments::key_of(t), segments::action_key(set.local.segment[t]));
+    cJSON_AddItemToObject(prefs, "segments", seg);
     /* Innstillinger: Spør om du fortsatt ser på (Av, after 3 episodes, after 2 hours). */
     cJSON_AddNumberToObject(prefs, "stillWatchingEpisodes", set.local.still_watching == 1 ? 3 : 0);
     cJSON_AddNumberToObject(prefs, "stillWatchingSeconds", set.local.still_watching == 2 ? 2 * 3600 : 0);

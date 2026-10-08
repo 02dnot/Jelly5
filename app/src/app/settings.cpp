@@ -77,7 +77,20 @@ void load_local()
     auto at = s_quality.find(s_server);
     s_all.local.max_mbps = at != s_quality.end() ? at->second : s_quality_default;
     s_all.local.max_mbps_for = s_server;
-    s_all.local.auto_skip_intro = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(j, "autoSkipIntro"));
+    /* Each segment type's choice; missing (older settings): the default, and the
+     * intro from the old "autoSkipIntro" switch (on: skip, off: ask). */
+    {
+        const cJSON *seg = cJSON_GetObjectItemCaseSensitive(j, "segments");
+        for (int t = 0; t < segments::TypeCount; t++) {
+            int a = segments::default_action(t);
+            if (t == segments::Intro && cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(j, "autoSkipIntro")))
+                a = segments::Skip;
+            const cJSON *v = cJSON_GetObjectItemCaseSensitive(seg, segments::key_of(t));
+            if (cJSON_IsString(v))
+                a = segments::action_of(v->valuestring, a);
+            s_all.local.segment[t] = a;
+        }
+    }
     /* Missing (older settings) or unknown: off. */
     s_all.local.still_watching =
         jf::to_int<int>(cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(j, "stillWatching")));
@@ -139,7 +152,12 @@ void set_local(const Local &l)
     for (const auto &kv : quality)
         cJSON_AddNumberToObject(by, kv.first.c_str(), kv.second);
     cJSON_AddItemToObject(j, "maxMbpsByServer", by);
-    cJSON_AddBoolToObject(j, "autoSkipIntro", l.auto_skip_intro);
+    /* "autoSkipIntro" too, for an older Jelly5 reading this file. */
+    cJSON_AddBoolToObject(j, "autoSkipIntro", l.segment[segments::Intro] == segments::Skip);
+    cJSON *seg = cJSON_CreateObject();
+    for (int t = 0; t < segments::TypeCount; t++)
+        cJSON_AddStringToObject(seg, segments::key_of(t), segments::action_key(l.segment[t]));
+    cJSON_AddItemToObject(j, "segments", seg);
     cJSON_AddNumberToObject(j, "stillWatching", l.still_watching);
     cJSON_AddNumberToObject(j, "language", l.language);
     cJSON_AddBoolToObject(j, "refresh120", l.refresh_120);
