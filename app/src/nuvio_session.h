@@ -11,6 +11,7 @@
  * subtitle addons to ask, and the viewer's preferences and language.
  */
 #include "nuvio_subs.h"
+#include "app/segments.h"
 
 #include <cstdint>
 #include <map>
@@ -94,7 +95,10 @@ struct NuvioPrefs {
     bool show_clock = true;
     bool clock_24h = true;
     bool skip_intro = true;
-    bool auto_skip = false;                  /* Jelly5: skip intros without asking */
+    /* Jelly5: what to do at each segment type (segments::Type -> segments::Action). */
+    int segment[segments::TypeCount] = {segments::default_action(segments::Intro), segments::default_action(segments::Outro),
+                                        segments::default_action(segments::Recap), segments::default_action(segments::Preview),
+                                        segments::default_action(segments::Commercial)};
     /* Jelly5: "Ser du fortsatt på?" (ui/still_watching.h); 0 = never ask. */
     int still_watching_episodes = 0;         /* autoplayed episodes in a row */
     double still_watching_seconds = 0;       /* seconds played since the last press */
