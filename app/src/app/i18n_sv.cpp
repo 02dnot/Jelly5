@@ -524,6 +524,17 @@ const std::unordered_map<std::string, const char *> &swedish_table()
         {"Velg et program som kommer i guiden, og trykk ✕ for å ta det opp.", "Välj ett kommande program i guiden och tryck på ✕ för att spela in det."},
         {"Tas opp nå", "Spelas in nu"},
         {"Favoritt", "Favorit"},
+        {"Oppskalering", "Uppskalning"},
+        {"Skarp", "Skarp"},
+        {"AI (Anime4K)", "AI (Anime4K)"},
+        {"Oppskalering gjør video med lavere oppløsning enn TV-en skarpere (ikke HDR). AI er laget for animasjon.", "Uppskalning gör video med lägre upplösning än tv:n skarpare (inte HDR). AI är gjord för animation."},
+        {"Skarp (FSR 1)", "Skarp (FSR 1)"},
+        {"Av (HDR-video)", "Av (HDR-video)"},
+        {"Av (videoen er like skarp som skjermen)", "Av (videon är lika skarp som skärmen)"},
+        {"Av (ikke tilgjengelig)", "Av (inte tillgänglig)"},
+        {"Oppskalering: bruker et mindre AI-nett, GPU-en rakk ikke mer", "Uppskalning: mindre AI-nät, GPU:n hann inte med"},
+        {"Oppskalering: bruker Skarp, GPU-en rakk ikke AI", "Uppskalning: Skarp, GPU:n hann inte med AI"},
+        {"Oppskalering er slått av: GPU-en rakk det ikke", "Uppskalning är avstängd: GPU:n hann inte med"},
     };
     return t;
 }

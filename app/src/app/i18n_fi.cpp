@@ -524,6 +524,17 @@ const std::unordered_map<std::string, const char *> &finnish_table()
         {"Velg et program som kommer i guiden, og trykk ✕ for å ta det opp.", "Valitse oppaasta tuleva ohjelma ja tallenna se painamalla ✕."},
         {"Tas opp nå", "Tallennetaan nyt"},
         {"Favoritt", "Suosikki"},
+        {"Oppskalering", "Skaalaus"},
+        {"Skarp", "Terävä"},
+        {"AI (Anime4K)", "Tekoäly (Anime4K)"},
+        {"Oppskalering gjør video med lavere oppløsning enn TV-en skarpere (ikke HDR). AI er laget for animasjon.", "Skaalaus terävöittää videota, jonka tarkkuus on televisiota pienempi (ei HDR). Tekoäly on tehty animaatiolle."},
+        {"Skarp (FSR 1)", "Terävä (FSR 1)"},
+        {"Av (HDR-video)", "Pois (HDR-video)"},
+        {"Av (videoen er like skarp som skjermen)", "Pois (video on yhtä tarkka kuin näyttö)"},
+        {"Av (ikke tilgjengelig)", "Pois (ei käytettävissä)"},
+        {"Oppskalering: bruker et mindre AI-nett, GPU-en rakk ikke mer", "Skaalaus: pienempi tekoälyverkko, GPU ei pysynyt mukana"},
+        {"Oppskalering: bruker Skarp, GPU-en rakk ikke AI", "Skaalaus: Terävä, GPU ei pysynyt tekoälyn mukana"},
+        {"Oppskalering er slått av: GPU-en rakk det ikke", "Skaalaus on pois: GPU ei pysynyt mukana"},
     };
     return t;
 }

@@ -351,6 +351,18 @@ const std::unordered_map<std::string, const char *> &english_table()
         {"Velg et program som kommer i guiden, og trykk ✕ for å ta det opp.", "Pick a programme still to come in the guide and press ✕ to record it."},
         {"Tas opp nå", "Recording now"},
         {"Favoritt", "Favourite"},
+        /* Upscaling and subtitle auto-sync (EVO Player's engine) */
+        {"Oppskalering", "Upscaling"},
+        {"Skarp", "Sharp"},
+        {"AI (Anime4K)", "AI (Anime4K)"},
+        {"Oppskalering gjør video med lavere oppløsning enn TV-en skarpere (ikke HDR). AI er laget for animasjon.", "Upscaling sharpens video with a lower resolution than the TV (not HDR). AI is made for animation."},
+        {"Skarp (FSR 1)", "Sharp (FSR 1)"},
+        {"Av (HDR-video)", "Off (HDR video)"},
+        {"Av (videoen er like skarp som skjermen)", "Off (the video is as sharp as the screen)"},
+        {"Av (ikke tilgjengelig)", "Off (not available)"},
+        {"Oppskalering: bruker et mindre AI-nett, GPU-en rakk ikke mer", "Upscaling: using a smaller AI network, the GPU couldn't keep up"},
+        {"Oppskalering: bruker Skarp, GPU-en rakk ikke AI", "Upscaling: using Sharp, the GPU couldn't keep up with AI"},
+        {"Oppskalering er slått av: GPU-en rakk det ikke", "Upscaling is off: the GPU couldn't keep up"},
     };
     return t;
 }

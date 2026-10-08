@@ -519,6 +519,17 @@ const std::unordered_map<std::string, const char *> &portuguese_table()
         {"Velg et program som kommer i guiden, og trykk ✕ for å ta det opp.", "Escolha um programa futuro no guia e pressione ✕ para gravá-lo."},
         {"Tas opp nå", "Gravando agora"},
         {"Favoritt", "Favorito"},
+        {"Oppskalering", "Aumento de resolução"},
+        {"Skarp", "Nítido"},
+        {"AI (Anime4K)", "IA (Anime4K)"},
+        {"Oppskalering gjør video med lavere oppløsning enn TV-en skarpere (ikke HDR). AI er laget for animasjon.", "O aumento de resolução deixa mais nítidos os vídeos com resolução menor que a da TV (exceto HDR). A IA foi feita para animação."},
+        {"Skarp (FSR 1)", "Nítido (FSR 1)"},
+        {"Av (HDR-video)", "Desativado (vídeo HDR)"},
+        {"Av (videoen er like skarp som skjermen)", "Desativado (o vídeo é tão nítido quanto a tela)"},
+        {"Av (ikke tilgjengelig)", "Desativado (indisponível)"},
+        {"Oppskalering: bruker et mindre AI-nett, GPU-en rakk ikke mer", "Aumento de resolução: rede de IA menor, a GPU não acompanhou"},
+        {"Oppskalering: bruker Skarp, GPU-en rakk ikke AI", "Aumento de resolução: Nítido, a GPU não acompanhou a IA"},
+        {"Oppskalering er slått av: GPU-en rakk det ikke", "Aumento de resolução desativado: a GPU não acompanhou"},
     };
     return t;
 }

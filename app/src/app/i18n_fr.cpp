@@ -523,6 +523,17 @@ const std::unordered_map<std::string, const char *> &french_table()
         {"Velg et program som kommer i guiden, og trykk ✕ for å ta det opp.", "Choisissez un programme à venir dans le guide et appuyez sur ✕ pour l’enregistrer."},
         {"Tas opp nå", "Enregistrement en cours"},
         {"Favoritt", "Favori"},
+        {"Oppskalering", "Mise à l'échelle"},
+        {"Skarp", "Net"},
+        {"AI (Anime4K)", "IA (Anime4K)"},
+        {"Oppskalering gjør video med lavere oppløsning enn TV-en skarpere (ikke HDR). AI er laget for animasjon.", "La mise à l'échelle rend plus nettes les vidéos de résolution inférieure à celle de la TV (hors HDR). L'IA est conçue pour l'animation."},
+        {"Skarp (FSR 1)", "Net (FSR 1)"},
+        {"Av (HDR-video)", "Désactivé (vidéo HDR)"},
+        {"Av (videoen er like skarp som skjermen)", "Désactivé (la vidéo est aussi nette que l'écran)"},
+        {"Av (ikke tilgjengelig)", "Désactivé (indisponible)"},
+        {"Oppskalering: bruker et mindre AI-nett, GPU-en rakk ikke mer", "Mise à l'échelle : réseau IA plus petit, le GPU ne suivait pas"},
+        {"Oppskalering: bruker Skarp, GPU-en rakk ikke AI", "Mise à l'échelle : mode Net, le GPU ne suivait pas l'IA"},
+        {"Oppskalering er slått av: GPU-en rakk det ikke", "Mise à l'échelle désactivée : le GPU ne suivait pas"},
     };
     return t;
 }

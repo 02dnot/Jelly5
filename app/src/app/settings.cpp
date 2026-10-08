@@ -107,6 +107,9 @@ void load_local()
         s_all.local.check_updates = cJSON_IsTrue(v);
     const int delay = jf::to_int<int>(cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(j, "audioDelayMs")));
     s_all.local.audio_delay_ms = std::max(-500, std::min(500, delay));
+    s_all.local.upscale = jf::to_int<int>(cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(j, "upscale")));
+    if (s_all.local.upscale < 0 || s_all.local.upscale > 2)
+        s_all.local.upscale = 0;
     if (const cJSON *hz = cJSON_GetObjectItemCaseSensitive(j, "refresh120"))
         s_all.local.refresh_120 = cJSON_IsTrue(hz);
     if (const cJSON *st = cJSON_GetObjectItemCaseSensitive(j, "subtitles")) {
@@ -161,6 +164,7 @@ void set_local(const Local &l)
     cJSON_AddNumberToObject(j, "stillWatching", l.still_watching);
     cJSON_AddNumberToObject(j, "language", l.language);
     cJSON_AddBoolToObject(j, "refresh120", l.refresh_120);
+    cJSON_AddNumberToObject(j, "upscale", l.upscale);
     cJSON_AddNumberToObject(j, "audioDelayMs", l.audio_delay_ms);
     cJSON_AddBoolToObject(j, "nightMode", l.night_mode);
     cJSON_AddBoolToObject(j, "hdmiBitstream", l.hdmi_bitstream);

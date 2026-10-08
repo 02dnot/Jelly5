@@ -524,6 +524,17 @@ const std::unordered_map<std::string, const char *> &turkish_table()
         {"Velg et program som kommer i guiden, og trykk ✕ for å ta det opp.", "Rehberde yaklaşan bir program seç ve kaydetmek için ✕ tuşuna bas."},
         {"Tas opp nå", "Şu anda kaydediliyor"},
         {"Favoritt", "Favori"},
+        {"Oppskalering", "Ölçekleme"},
+        {"Skarp", "Keskin"},
+        {"AI (Anime4K)", "YZ (Anime4K)"},
+        {"Oppskalering gjør video med lavere oppløsning enn TV-en skarpere (ikke HDR). AI er laget for animasjon.", "Ölçekleme, TV'den düşük çözünürlüklü videoları keskinleştirir (HDR hariç). YZ animasyon için yapılmıştır."},
+        {"Skarp (FSR 1)", "Keskin (FSR 1)"},
+        {"Av (HDR-video)", "Kapalı (HDR video)"},
+        {"Av (videoen er like skarp som skjermen)", "Kapalı (video ekran kadar keskin)"},
+        {"Av (ikke tilgjengelig)", "Kapalı (kullanılamıyor)"},
+        {"Oppskalering: bruker et mindre AI-nett, GPU-en rakk ikke mer", "Ölçekleme: daha küçük YZ ağı, GPU yetişemedi"},
+        {"Oppskalering: bruker Skarp, GPU-en rakk ikke AI", "Ölçekleme: Keskin, GPU YZ'ye yetişemedi"},
+        {"Oppskalering er slått av: GPU-en rakk det ikke", "Ölçekleme kapatıldı: GPU yetişemedi"},
     };
     return t;
 }

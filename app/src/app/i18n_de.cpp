@@ -519,6 +519,17 @@ const std::unordered_map<std::string, const char *> &german_table()
         {"Velg et program som kommer i guiden, og trykk ✕ for å ta det opp.", "Wähle im Programmführer eine kommende Sendung und drücke ✕, um sie aufzunehmen."},
         {"Tas opp nå", "Wird gerade aufgenommen"},
         {"Favoritt", "Favorit"},
+        {"Oppskalering", "Hochskalierung"},
+        {"Skarp", "Scharf"},
+        {"AI (Anime4K)", "KI (Anime4K)"},
+        {"Oppskalering gjør video med lavere oppløsning enn TV-en skarpere (ikke HDR). AI er laget for animasjon.", "Hochskalierung schärft Videos mit niedrigerer Auflösung als der Fernseher (kein HDR). KI ist für Animation gemacht."},
+        {"Skarp (FSR 1)", "Scharf (FSR 1)"},
+        {"Av (HDR-video)", "Aus (HDR-Video)"},
+        {"Av (videoen er like skarp som skjermen)", "Aus (das Video ist so scharf wie der Bildschirm)"},
+        {"Av (ikke tilgjengelig)", "Aus (nicht verfügbar)"},
+        {"Oppskalering: bruker et mindre AI-nett, GPU-en rakk ikke mer", "Hochskalierung: kleineres KI-Netz, die GPU kam nicht mit"},
+        {"Oppskalering: bruker Skarp, GPU-en rakk ikke AI", "Hochskalierung: Scharf, die GPU kam mit KI nicht mit"},
+        {"Oppskalering er slått av: GPU-en rakk det ikke", "Hochskalierung ist aus: Die GPU kam nicht mit"},
     };
     return t;
 }

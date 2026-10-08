@@ -524,6 +524,17 @@ const std::unordered_map<std::string, const char *> &chinese_traditional_table()
         {"Velg et program som kommer i guiden, og trykk ✕ for å ta det opp.", "在節目表中選擇即將播出的節目，按 ✕ 即可錄影。"},
         {"Tas opp nå", "正在錄影"},
         {"Favoritt", "我的最愛"},
+        {"Oppskalering", "超解析度"},
+        {"Skarp", "銳利"},
+        {"AI (Anime4K)", "AI (Anime4K)"},
+        {"Oppskalering gjør video med lavere oppløsning enn TV-en skarpere (ikke HDR). AI er laget for animasjon.", "超解析度會讓解析度低於電視的影片更清晰（不含 HDR）。AI 專為動畫設計。"},
+        {"Skarp (FSR 1)", "銳利 (FSR 1)"},
+        {"Av (HDR-video)", "關閉（HDR 影片）"},
+        {"Av (videoen er like skarp som skjermen)", "關閉（影片與螢幕一樣清晰）"},
+        {"Av (ikke tilgjengelig)", "關閉（無法使用）"},
+        {"Oppskalering: bruker et mindre AI-nett, GPU-en rakk ikke mer", "超解析度：GPU 跟不上，改用較小的 AI 網路"},
+        {"Oppskalering: bruker Skarp, GPU-en rakk ikke AI", "超解析度：GPU 跟不上 AI，改用銳利"},
+        {"Oppskalering er slått av: GPU-en rakk det ikke", "超解析度已關閉：GPU 跟不上"},
     };
     return t;
 }

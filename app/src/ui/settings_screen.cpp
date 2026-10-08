@@ -94,6 +94,7 @@ const char *label_of(int row)
     const char *const labels[] = {T("Bytt bruker eller server"),
                                          T("Logg ut"),
                                          T("Maks kvalitet"),
+                                         T("Oppskalering"),
                                          T("Foretrukket lydspråk"),
                                          T("Undertekster"),
                                          T("Undertekstspråk"),
@@ -203,6 +204,8 @@ std::string SettingsScreen::value(Row r) const
     case SwitchUser: return m_client.user_name();
     case Quality:
         return s.local.max_mbps == 0 ? T("Automatisk (maks)") : std::to_string(s.local.max_mbps) + " Mbit/s";
+    case Upscale:
+        return s.local.upscale == 1 ? T("Skarp") : s.local.upscale == 2 ? T("AI (Anime4K)") : T("Av");
     case AudioLang: return T(kLangs[index_of(kLangs, s.server.audio_language)].name);
     case SubMode: return T(kModes[index_of(kModes, s.server.subtitle_mode)].name);
     case SubLang: return T(kLangs[index_of(kLangs, s.server.subtitle_language)].name);
@@ -298,6 +301,11 @@ void SettingsScreen::change(Row r, int dir)
         settings::set_local(s.local);
         break;
     }
+    case Upscale:   /* Av, Skarp, AI (also set as each video starts) */
+        s.local.upscale = cycle(s.local.upscale, 3);
+        settings::set_local(s.local);
+        evo_agc_upscale_set_mode(s.local.upscale);
+        break;
     case StillWatching:   /* Av, after 3 episodes, after 2 hours (from the next playback) */
         s.local.still_watching = cycle(s.local.still_watching, 3);
         settings::set_local(s.local);
@@ -483,6 +491,7 @@ void SettingsScreen::draw(double, float dt)
      * last row scrolls far enough to show them all. */
     std::vector<const char *> notes = {
         T("Lyd, undertekster og autoavspilling lagres på kontoen din på serveren og gjelder i alle appene du bruker med den."),
+        T("Oppskalering gjør video med lavere oppløsning enn TV-en skarpere (ikke HDR). AI er laget for animasjon."),
         T("Språk følger PS5-en, eller velg her."),
         T("Jelly5 er fri programvare (GPL-3.0) og bygger på EVO Player og Nuvio PS5.")};
     if (seerr_service::config().enabled)   /* only where it means something */

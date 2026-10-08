@@ -524,6 +524,17 @@ const std::unordered_map<std::string, const char *> &japanese_table()
         {"Velg et program som kommer i guiden, og trykk ✕ for å ta det opp.", "番組表でこれから放送される番組を選び、✕を押すと録画できます。"},
         {"Tas opp nå", "録画中"},
         {"Favoritt", "お気に入り"},
+        {"Oppskalering", "アップスケーリング"},
+        {"Skarp", "シャープ"},
+        {"AI (Anime4K)", "AI (Anime4K)"},
+        {"Oppskalering gjør video med lavere oppløsning enn TV-en skarpere (ikke HDR). AI er laget for animasjon.", "アップスケーリングは、テレビより解像度の低い映像をくっきりさせます（HDR を除く）。AI はアニメ向けです。"},
+        {"Skarp (FSR 1)", "シャープ (FSR 1)"},
+        {"Av (HDR-video)", "オフ（HDR 映像）"},
+        {"Av (videoen er like skarp som skjermen)", "オフ（映像は画面と同じ精細さ）"},
+        {"Av (ikke tilgjengelig)", "オフ（利用不可）"},
+        {"Oppskalering: bruker et mindre AI-nett, GPU-en rakk ikke mer", "アップスケーリング：GPU が追いつかないため、小さい AI ネットワークを使用"},
+        {"Oppskalering: bruker Skarp, GPU-en rakk ikke AI", "アップスケーリング：GPU が AI に追いつかないため、シャープを使用"},
+        {"Oppskalering er slått av: GPU-en rakk det ikke", "アップスケーリングをオフにしました：GPU が追いつきません"},
     };
     return t;
 }

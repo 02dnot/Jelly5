@@ -524,6 +524,17 @@ const std::unordered_map<std::string, const char *> &ukrainian_table()
         {"Velg et program som kommer i guiden, og trykk ✕ for å ta det opp.", "Виберіть майбутню передачу в телегіді й натисніть ✕, щоб записати її."},
         {"Tas opp nå", "Триває запис"},
         {"Favoritt", "Вибране"},
+        {"Oppskalering", "Масштабування"},
+        {"Skarp", "Чітке"},
+        {"AI (Anime4K)", "ШІ (Anime4K)"},
+        {"Oppskalering gjør video med lavere oppløsning enn TV-en skarpere (ikke HDR). AI er laget for animasjon.", "Масштабування робить чіткішим відео з роздільністю, нижчою за телевізор (не HDR). ШІ створено для анімації."},
+        {"Skarp (FSR 1)", "Чітке (FSR 1)"},
+        {"Av (HDR-video)", "Вимк. (відео HDR)"},
+        {"Av (videoen er like skarp som skjermen)", "Вимк. (відео таке ж чітке, як екран)"},
+        {"Av (ikke tilgjengelig)", "Вимк. (недоступно)"},
+        {"Oppskalering: bruker et mindre AI-nett, GPU-en rakk ikke mer", "Масштабування: менша мережа ШІ, GPU не встигав"},
+        {"Oppskalering: bruker Skarp, GPU-en rakk ikke AI", "Масштабування: Чітке, GPU не встигав за ШІ"},
+        {"Oppskalering er slått av: GPU-en rakk det ikke", "Масштабування вимкнено: GPU не встигав"},
     };
     return t;
 }

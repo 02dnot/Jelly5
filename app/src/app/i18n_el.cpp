@@ -524,6 +524,17 @@ const std::unordered_map<std::string, const char *> &greek_table()
         {"Velg et program som kommer i guiden, og trykk ✕ for å ta det opp.", "Επιλέξτε ένα επερχόμενο πρόγραμμα στον οδηγό και πατήστε ✕ για να το εγγράψετε."},
         {"Tas opp nå", "Εγγράφεται τώρα"},
         {"Favoritt", "Αγαπημένο"},
+        {"Oppskalering", "Κλιμάκωση"},
+        {"Skarp", "Ευκρινής"},
+        {"AI (Anime4K)", "AI (Anime4K)"},
+        {"Oppskalering gjør video med lavere oppløsning enn TV-en skarpere (ikke HDR). AI er laget for animasjon.", "Η κλιμάκωση κάνει πιο ευκρινές το βίντεο με χαμηλότερη ανάλυση από την τηλεόραση (όχι HDR). Το AI είναι φτιαγμένο για κινούμενα σχέδια."},
+        {"Skarp (FSR 1)", "Ευκρινής (FSR 1)"},
+        {"Av (HDR-video)", "Ανενεργό (βίντεο HDR)"},
+        {"Av (videoen er like skarp som skjermen)", "Ανενεργό (το βίντεο είναι εξίσου ευκρινές με την οθόνη)"},
+        {"Av (ikke tilgjengelig)", "Ανενεργό (μη διαθέσιμο)"},
+        {"Oppskalering: bruker et mindre AI-nett, GPU-en rakk ikke mer", "Κλιμάκωση: μικρότερο δίκτυο AI, η GPU δεν πρόλαβε"},
+        {"Oppskalering: bruker Skarp, GPU-en rakk ikke AI", "Κλιμάκωση: Ευκρινής, η GPU δεν πρόλαβε το AI"},
+        {"Oppskalering er slått av: GPU-en rakk det ikke", "Η κλιμάκωση απενεργοποιήθηκε: η GPU δεν πρόλαβε"},
     };
     return t;
 }

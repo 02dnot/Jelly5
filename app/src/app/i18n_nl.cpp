@@ -524,6 +524,17 @@ const std::unordered_map<std::string, const char *> &dutch_table()
         {"Velg et program som kommer i guiden, og trykk ✕ for å ta det opp.", "Kies een komend programma in de gids en druk op ✕ om het op te nemen."},
         {"Tas opp nå", "Wordt nu opgenomen"},
         {"Favoritt", "Favoriet"},
+        {"Oppskalering", "Opschalen"},
+        {"Skarp", "Scherp"},
+        {"AI (Anime4K)", "AI (Anime4K)"},
+        {"Oppskalering gjør video med lavere oppløsning enn TV-en skarpere (ikke HDR). AI er laget for animasjon.", "Opschalen maakt video met een lagere resolutie dan de tv scherper (geen HDR). AI is gemaakt voor animatie."},
+        {"Skarp (FSR 1)", "Scherp (FSR 1)"},
+        {"Av (HDR-video)", "Uit (HDR-video)"},
+        {"Av (videoen er like skarp som skjermen)", "Uit (de video is even scherp als het scherm)"},
+        {"Av (ikke tilgjengelig)", "Uit (niet beschikbaar)"},
+        {"Oppskalering: bruker et mindre AI-nett, GPU-en rakk ikke mer", "Opschalen: kleiner AI-netwerk, de GPU kon het niet bijhouden"},
+        {"Oppskalering: bruker Skarp, GPU-en rakk ikke AI", "Opschalen: Scherp, de GPU kon AI niet bijhouden"},
+        {"Oppskalering er slått av: GPU-en rakk det ikke", "Opschalen staat uit: de GPU kon het niet bijhouden"},
     };
     return t;
 }

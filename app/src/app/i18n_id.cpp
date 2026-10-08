@@ -524,6 +524,17 @@ const std::unordered_map<std::string, const char *> &indonesian_table()
         {"Velg et program som kommer i guiden, og trykk ✕ for å ta det opp.", "Pilih acara mendatang di panduan dan tekan ✕ untuk merekamnya."},
         {"Tas opp nå", "Sedang direkam"},
         {"Favoritt", "Favorit"},
+        {"Oppskalering", "Peningkatan resolusi"},
+        {"Skarp", "Tajam"},
+        {"AI (Anime4K)", "AI (Anime4K)"},
+        {"Oppskalering gjør video med lavere oppløsning enn TV-en skarpere (ikke HDR). AI er laget for animasjon.", "Peningkatan resolusi mempertajam video beresolusi lebih rendah dari TV (bukan HDR). AI dibuat untuk animasi."},
+        {"Skarp (FSR 1)", "Tajam (FSR 1)"},
+        {"Av (HDR-video)", "Mati (video HDR)"},
+        {"Av (videoen er like skarp som skjermen)", "Mati (video sudah setajam layar)"},
+        {"Av (ikke tilgjengelig)", "Mati (tidak tersedia)"},
+        {"Oppskalering: bruker et mindre AI-nett, GPU-en rakk ikke mer", "Peningkatan resolusi: jaringan AI lebih kecil, GPU tidak sanggup"},
+        {"Oppskalering: bruker Skarp, GPU-en rakk ikke AI", "Peningkatan resolusi: Tajam, GPU tidak sanggup menjalankan AI"},
+        {"Oppskalering er slått av: GPU-en rakk det ikke", "Peningkatan resolusi dimatikan: GPU tidak sanggup"},
     };
     return t;
 }

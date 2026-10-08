@@ -524,6 +524,17 @@ const std::unordered_map<std::string, const char *> &thai_table()
         {"Velg et program som kommer i guiden, og trykk ✕ for å ta det opp.", "เลือกรายการที่กำลังจะมาในผังรายการแล้วกด ✕ เพื่อบันทึก"},
         {"Tas opp nå", "กำลังบันทึก"},
         {"Favoritt", "รายการโปรด"},
+        {"Oppskalering", "การขยายภาพ"},
+        {"Skarp", "คมชัด"},
+        {"AI (Anime4K)", "AI (Anime4K)"},
+        {"Oppskalering gjør video med lavere oppløsning enn TV-en skarpere (ikke HDR). AI er laget for animasjon.", "การขยายภาพทำให้วิดีโอที่ความละเอียดต่ำกว่าทีวีคมชัดขึ้น (ไม่รวม HDR) AI ออกแบบมาสำหรับแอนิเมชัน"},
+        {"Skarp (FSR 1)", "คมชัด (FSR 1)"},
+        {"Av (HDR-video)", "ปิด (วิดีโอ HDR)"},
+        {"Av (videoen er like skarp som skjermen)", "ปิด (วิดีโอคมชัดเท่าหน้าจอแล้ว)"},
+        {"Av (ikke tilgjengelig)", "ปิด (ไม่พร้อมใช้งาน)"},
+        {"Oppskalering: bruker et mindre AI-nett, GPU-en rakk ikke mer", "การขยายภาพ: ใช้เครือข่าย AI ที่เล็กลง เพราะ GPU ทำงานไม่ทัน"},
+        {"Oppskalering: bruker Skarp, GPU-en rakk ikke AI", "การขยายภาพ: ใช้คมชัด เพราะ GPU ทำ AI ไม่ทัน"},
+        {"Oppskalering er slått av: GPU-en rakk det ikke", "ปิดการขยายภาพแล้ว: GPU ทำงานไม่ทัน"},
     };
     return t;
 }

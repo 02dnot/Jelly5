@@ -524,6 +524,17 @@ const std::unordered_map<std::string, const char *> &vietnamese_table()
         {"Velg et program som kommer i guiden, og trykk ✕ for å ta det opp.", "Chọn một chương trình sắp phát trong lịch và nhấn ✕ để ghi."},
         {"Tas opp nå", "Đang ghi"},
         {"Favoritt", "Yêu thích"},
+        {"Oppskalering", "Nâng cấp độ phân giải"},
+        {"Skarp", "Sắc nét"},
+        {"AI (Anime4K)", "AI (Anime4K)"},
+        {"Oppskalering gjør video med lavere oppløsning enn TV-en skarpere (ikke HDR). AI er laget for animasjon.", "Nâng cấp độ phân giải làm video có độ phân giải thấp hơn TV sắc nét hơn (không áp dụng HDR). AI dành cho hoạt hình."},
+        {"Skarp (FSR 1)", "Sắc nét (FSR 1)"},
+        {"Av (HDR-video)", "Tắt (video HDR)"},
+        {"Av (videoen er like skarp som skjermen)", "Tắt (video đã sắc nét như màn hình)"},
+        {"Av (ikke tilgjengelig)", "Tắt (không khả dụng)"},
+        {"Oppskalering: bruker et mindre AI-nett, GPU-en rakk ikke mer", "Nâng cấp: dùng mạng AI nhỏ hơn, GPU không theo kịp"},
+        {"Oppskalering: bruker Skarp, GPU-en rakk ikke AI", "Nâng cấp: dùng Sắc nét, GPU không theo kịp AI"},
+        {"Oppskalering er slått av: GPU-en rakk det ikke", "Đã tắt nâng cấp: GPU không theo kịp"},
     };
     return t;
 }

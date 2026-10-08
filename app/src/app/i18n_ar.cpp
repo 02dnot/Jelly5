@@ -524,6 +524,17 @@ const std::unordered_map<std::string, const char *> &arabic_table()
         {"Velg et program som kommer i guiden, og trykk ✕ for å ta det opp.", "اختر برنامجًا قادمًا في الدليل واضغط ✕ لتسجيله."},
         {"Tas opp nå", "يتم التسجيل الآن"},
         {"Favoritt", "مفضلة"},
+        {"Oppskalering", "رفع الدقة"},
+        {"Skarp", "حاد"},
+        {"AI (Anime4K)", "ذكاء اصطناعي (Anime4K)"},
+        {"Oppskalering gjør video med lavere oppløsning enn TV-en skarpere (ikke HDR). AI er laget for animasjon.", "يجعل رفع الدقة الفيديو الأقل دقة من التلفاز أكثر وضوحًا (ليس HDR). الذكاء الاصطناعي مصمم للرسوم المتحركة."},
+        {"Skarp (FSR 1)", "حاد (FSR 1)"},
+        {"Av (HDR-video)", "إيقاف (فيديو HDR)"},
+        {"Av (videoen er like skarp som skjermen)", "إيقاف (الفيديو بوضوح الشاشة نفسه)"},
+        {"Av (ikke tilgjengelig)", "إيقاف (غير متاح)"},
+        {"Oppskalering: bruker et mindre AI-nett, GPU-en rakk ikke mer", "رفع الدقة: شبكة ذكاء اصطناعي أصغر، لم تواكب وحدة GPU"},
+        {"Oppskalering: bruker Skarp, GPU-en rakk ikke AI", "رفع الدقة: حاد، لم تواكب وحدة GPU الذكاء الاصطناعي"},
+        {"Oppskalering er slått av: GPU-en rakk det ikke", "تم إيقاف رفع الدقة: لم تواكب وحدة GPU"},
     };
     return t;
 }

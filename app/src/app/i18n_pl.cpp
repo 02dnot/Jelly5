@@ -524,6 +524,17 @@ const std::unordered_map<std::string, const char *> &polish_table()
         {"Velg et program som kommer i guiden, og trykk ✕ for å ta det opp.", "Wybierz nadchodzący program w przewodniku i naciśnij ✕, aby go nagrać."},
         {"Tas opp nå", "Trwa nagrywanie"},
         {"Favoritt", "Ulubiony"},
+        {"Oppskalering", "Skalowanie"},
+        {"Skarp", "Ostre"},
+        {"AI (Anime4K)", "AI (Anime4K)"},
+        {"Oppskalering gjør video med lavere oppløsning enn TV-en skarpere (ikke HDR). AI er laget for animasjon.", "Skalowanie wyostrza wideo o niższej rozdzielczości niż telewizor (bez HDR). AI jest przeznaczone do animacji."},
+        {"Skarp (FSR 1)", "Ostre (FSR 1)"},
+        {"Av (HDR-video)", "Wył. (wideo HDR)"},
+        {"Av (videoen er like skarp som skjermen)", "Wył. (wideo jest tak ostre jak ekran)"},
+        {"Av (ikke tilgjengelig)", "Wył. (niedostępne)"},
+        {"Oppskalering: bruker et mindre AI-nett, GPU-en rakk ikke mer", "Skalowanie: mniejsza sieć AI, GPU nie nadążał"},
+        {"Oppskalering: bruker Skarp, GPU-en rakk ikke AI", "Skalowanie: Ostre, GPU nie nadążał z AI"},
+        {"Oppskalering er slått av: GPU-en rakk det ikke", "Skalowanie wyłączone: GPU nie nadążał"},
     };
     return t;
 }

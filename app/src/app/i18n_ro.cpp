@@ -524,6 +524,17 @@ const std::unordered_map<std::string, const char *> &romanian_table()
         {"Velg et program som kommer i guiden, og trykk ✕ for å ta det opp.", "Alege un program viitor din ghid și apasă ✕ pentru a-l înregistra."},
         {"Tas opp nå", "Se înregistrează acum"},
         {"Favoritt", "Favorit"},
+        {"Oppskalering", "Scalare"},
+        {"Skarp", "Clar"},
+        {"AI (Anime4K)", "IA (Anime4K)"},
+        {"Oppskalering gjør video med lavere oppløsning enn TV-en skarpere (ikke HDR). AI er laget for animasjon.", "Scalarea face mai clare videoclipurile cu rezoluție mai mică decât a televizorului (nu HDR). IA este făcută pentru animație."},
+        {"Skarp (FSR 1)", "Clar (FSR 1)"},
+        {"Av (HDR-video)", "Dezactivat (video HDR)"},
+        {"Av (videoen er like skarp som skjermen)", "Dezactivat (videoclipul e la fel de clar ca ecranul)"},
+        {"Av (ikke tilgjengelig)", "Dezactivat (indisponibil)"},
+        {"Oppskalering: bruker et mindre AI-nett, GPU-en rakk ikke mer", "Scalare: rețea IA mai mică, GPU-ul nu a ținut pasul"},
+        {"Oppskalering: bruker Skarp, GPU-en rakk ikke AI", "Scalare: Clar, GPU-ul nu a ținut pasul cu IA"},
+        {"Oppskalering er slått av: GPU-en rakk det ikke", "Scalarea e dezactivată: GPU-ul nu a ținut pasul"},
     };
     return t;
 }

@@ -524,6 +524,17 @@ const std::unordered_map<std::string, const char *> &korean_table()
         {"Velg et program som kommer i guiden, og trykk ✕ for å ta det opp.", "편성표에서 방송 예정 프로그램을 고르고 ✕를 눌러 녹화하세요."},
         {"Tas opp nå", "녹화 중"},
         {"Favoritt", "즐겨찾기"},
+        {"Oppskalering", "업스케일링"},
+        {"Skarp", "선명"},
+        {"AI (Anime4K)", "AI (Anime4K)"},
+        {"Oppskalering gjør video med lavere oppløsning enn TV-en skarpere (ikke HDR). AI er laget for animasjon.", "업스케일링은 TV보다 해상도가 낮은 영상을 선명하게 합니다(HDR 제외). AI는 애니메이션용입니다."},
+        {"Skarp (FSR 1)", "선명 (FSR 1)"},
+        {"Av (HDR-video)", "끔 (HDR 영상)"},
+        {"Av (videoen er like skarp som skjermen)", "끔 (영상이 화면만큼 선명함)"},
+        {"Av (ikke tilgjengelig)", "끔 (사용할 수 없음)"},
+        {"Oppskalering: bruker et mindre AI-nett, GPU-en rakk ikke mer", "업스케일링: GPU가 따라가지 못해 더 작은 AI 네트워크 사용"},
+        {"Oppskalering: bruker Skarp, GPU-en rakk ikke AI", "업스케일링: GPU가 AI를 따라가지 못해 선명 사용"},
+        {"Oppskalering er slått av: GPU-en rakk det ikke", "업스케일링 꺼짐: GPU가 따라가지 못함"},
     };
     return t;
 }
