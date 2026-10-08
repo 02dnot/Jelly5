@@ -5,9 +5,12 @@
 #include "ui/syncplay_screen.h"
 
 #include "app/i18n.h"
+#include "app/spawn.h"
 #include "nuvio_input.h"
 
 #include <algorithm>
+#include <cstdio>
+#include <cstring>
 #include <thread>
 
 namespace ui {
@@ -23,13 +26,17 @@ void SyncPlayScreen::refresh()
         d->busy = true;
     }
     m_refreshed = m_now;
-    std::thread([d] {
+    const bool started = jelly5::spawn([d] {
         std::vector<syncplay::Group> groups = syncplay::list();
         std::lock_guard<std::mutex> g(d->lock);
         d->groups = std::move(groups);
         d->busy = false;
         d->loaded = true;
-    }).detach();
+    });
+    if (!started) {   /* no thread: the next refresh tries again */
+        std::lock_guard<std::mutex> g(d->lock);
+        d->busy = false;
+    }
 }
 
 void SyncPlayScreen::activate()
@@ -50,12 +57,15 @@ void SyncPlayScreen::act(int row)
     const std::string user = m_user;
     int i = row;
     if (in_group && i-- == 0) {
-        std::thread([] { syncplay::leave(); }).detach();
+        jelly5::spawn([] { syncplay::leave(); });
     } else if (i-- == 0) {
-        std::thread([user] { syncplay::create(user + (i18n::english() ? "'s group" : "s gruppe")); }).detach();
+        /* "Karis gruppe"; sized to the name, so a long one is never cut mid-letter */
+        std::string group(std::strlen(T("%ss gruppe")) + user.size() + 1, '\0');
+        group.resize((size_t)std::max(0, std::snprintf(&group[0], group.size(), T("%ss gruppe"), user.c_str())));
+        jelly5::spawn([group] { syncplay::create(group); });
     } else if (i >= 0 && i < (int)groups.size()) {
         const std::string id = groups[i].id;
-        std::thread([id] { syncplay::join(id); }).detach();
+        jelly5::spawn([id] { syncplay::join(id); });
     }
     m_refreshed = m_now - 9;   /* look again shortly */
 }

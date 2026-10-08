@@ -62,6 +62,26 @@ void button(const gfx::Rect &r, const std::string &label, bool focus, float, int
     });
 }
 
+/* A client of its own for each sign-in attempt, on the checked server: a Quick
+ * Connect still polling and a password sign-in both write a session, and never
+ * share one. */
+std::shared_ptr<jf::Client> attempt_client(const jf::Client &checked)
+{
+    auto c = std::make_shared<jf::Client>(checked.server(), checked.device_id(), checked.device_name());
+    c->set_kind(checked.kind());
+    return c;
+}
+
+/* A button's width: at least `min`, wider when a label (in bold, as when
+ * focused) needs it; every label it can show is passed, so it never jumps. */
+float button_w(float min, std::initializer_list<std::string> labels)
+{
+    float w = min;
+    for (const std::string &l : labels)
+        w = std::max(w, gfx::text_width(l, {gfx::Bold, 26}) + 64);
+    return w;
+}
+
 } // namespace
 
 Login::Login(const jf::Client &app_client, const std::string &server, const std::string &user, bool can_cancel,
@@ -146,6 +166,7 @@ bool Login::take_result(accounts::Account *out)
         return false;
     m_shared->signed_in = false;
     *out = m_shared->result;
+    m_password.clear();   /* signed in: the password is not kept in memory */
     return true;
 }
 
@@ -194,7 +215,7 @@ void Login::scan(double now)
             if (!known[i])
                 checks.push_back([&f, &reachable, i] {
                 /* Not through a client: its failed requests count as the signed-in
-                 * server being gone (jf::unreachable_streak, the "no contact" note). */
+                 * server being gone (Client::unreachable_streak, the "no contact" note). */
                 jf::Client probe("", "", "");
                 probe.set_server(f[i].address);   /* (the address as typed ones are taken) */
                 reachable[i] = jf::http_request("GET", probe.server() + "/System/Info/Public",
@@ -242,14 +263,16 @@ void Login::check_server()
     const bool started = jelly5::spawn([sh, c, gen] {
         std::string name, version, id;
         jf::Kind kind = jf::Kind::Jellyfin;
-        bool ok = c->public_info(&name, &version, &id, &kind);
+        /* A server's answer carries its version: other JSON on that route (a proxy, a
+         * sign-in gate) is not one, and an Emby may still be under /emby. */
+        bool ok = c->public_info(&name, &version, &id, &kind) && !version.empty();
         /* An Emby behind a reverse proxy may answer only under /emby: an address
          * typed without a path is tried there too, and then used with it. */
         std::shared_ptr<jf::Client> use = c;
         const size_t scheme = c->server().find("://");
         if (!ok && scheme != std::string::npos && c->server().find('/', scheme + 3) == std::string::npos) {
             auto under = std::make_shared<jf::Client>(c->server() + "/emby", c->device_id(), c->device_name());
-            if (under->public_info(&name, &version, &id, &kind)) {
+            if (under->public_info(&name, &version, &id, &kind) && !version.empty()) {
                 use = under;
                 ok = true;
             }
@@ -284,7 +307,7 @@ void Login::check_server()
 void Login::sign_in()
 {
     std::shared_ptr<Shared> sh = m_shared;
-    std::shared_ptr<jf::Client> c = m_own;
+    std::shared_ptr<jf::Client> c = attempt_client(client());
     const std::string user = m_user, pass = m_password;
     unsigned gen;
     {
@@ -294,7 +317,6 @@ void Login::sign_in()
         gen = sh->gen;
     }
     const bool started = jelly5::spawn([sh, c, user, pass, gen] {
-        c->set_session("", "", "");
         const bool ok = c->authenticate(user, pass);
         std::lock_guard<std::mutex> g(sh->lock);
         if (sh->gen != gen)
@@ -319,7 +341,7 @@ void Login::sign_in()
 void Login::start_quick_connect()
 {
     std::shared_ptr<Shared> sh = m_shared;
-    std::shared_ptr<jf::Client> c = m_own;
+    std::shared_ptr<jf::Client> c = attempt_client(client());
     const unsigned gen = next_gen();   /* (a code asked for before is dropped) */
     {
         std::lock_guard<std::mutex> g(sh->lock);
@@ -331,7 +353,6 @@ void Login::start_quick_connect()
     m_step = QuickConnectStep;
     m_focus = 0;
     const bool started = jelly5::spawn([sh, c, gen] {
-        c->set_session("", "", "");
         jf::QuickConnect qc;
         if (!c->quick_connect_start(&qc)) {
             std::lock_guard<std::mutex> g(sh->lock);
@@ -576,9 +597,10 @@ void Login::draw(double now, float dt)
     if (m_step == ServerStep) {
         gfx::text(kX, 230, T("Koble til Jellyfin eller Emby"), {gfx::Bold, 64}, kText);
         gfx::text(kX, 290, T("Skriv inn adressen til Jellyfin- eller Emby-serveren din, for eksempel 192.168.0.10:8096."),
-                  {gfx::Medium, 28, 1200}, kText2);
+                  {gfx::Medium, 28, 1200, 2, 38}, kText2);
         field({kX, 390, kW, 84}, "SERVER", m_server, "http://", m_focus == 0, lift("srv", m_focus == 0));
-        button({kX, 530, 260, 76}, busy ? T("Kobler til \xE2\x80\xA6") : T("Fortsett"), m_focus == 1, lift("go", m_focus == 1));
+        button({kX, 530, button_w(260, {T("Kobler til \xE2\x80\xA6"), T("Fortsett")}), 76},
+               busy ? T("Kobler til \xE2\x80\xA6") : T("Fortsett"), m_focus == 1, lift("go", m_focus == 1));
         /* Servers on the network, found by asking (Jellyfin's discovery). */
         scan(now);
         std::vector<jf::FoundServer> found;
@@ -640,7 +662,7 @@ void Login::draw(double now, float dt)
                     /* One pane of glass: focused, the circle is the focus glass itself. A
                      * ring under a glass circle blurred twice and showed as noise. */
                     glass_panel(r, d / 2, 1.f, false, f ? 1.f : 0.f);
-                    gfx::text(r.x + d / 2, r.y + d / 2 + 16, users[i].name.substr(0, 1), {gfx::Bold, 48}, kText, 1);
+                    gfx::text(r.x + d / 2, r.y + d / 2 + 16, first_letter(users[i].name), {gfx::Bold, 48}, kText, 1);
                 } else {
                     art::draw(r, url, "", 240, 240, d / 2);
                 }
@@ -655,13 +677,17 @@ void Login::draw(double now, float dt)
         field({kX, y + 150, kW, 84}, T("PASSORD"), std::string(m_password.size(), '*'), T("Passord"), f == 1,
               lift("pass", f == 1));
         const float by = y + 270;
-        button({kX, by, 240, 76}, busy ? T("Logger inn \xE2\x80\xA6") : T("Logg inn"), f == 2, lift("in", f == 2));
-        if (m_has_quick_connect) {
-            button({kX + 260, by, 330, 76}, T("Bruk Quick Connect"), f == 3, lift("qc", f == 3));
-            button({kX + 610, by, 250, 76}, T("Annen server"), f == 4, lift("other", f == 4));
-        } else {   /* Emby: no Quick Connect */
-            button({kX + 260, by, 250, 76}, T("Annen server"), f == 4, lift("other", f == 4));
+        /* The row's buttons as wide as their labels need, side by side. */
+        float bx = kX;
+        const float w_in = button_w(240, {T("Logger inn \xE2\x80\xA6"), T("Logg inn")});
+        button({bx, by, w_in, 76}, busy ? T("Logger inn \xE2\x80\xA6") : T("Logg inn"), f == 2, lift("in", f == 2));
+        bx += w_in + 20;
+        if (m_has_quick_connect) {   /* Emby has no Quick Connect */
+            const float w_qc = button_w(330, {T("Bruk Quick Connect")});
+            button({bx, by, w_qc, 76}, T("Bruk Quick Connect"), f == 3, lift("qc", f == 3));
+            bx += w_qc + 20;
         }
+        button({bx, by, button_w(250, {T("Annen server")}), 76}, T("Annen server"), f == 4, lift("other", f == 4));
     } else {
         gfx::text(kX, 230, "Quick Connect", {gfx::Bold, 64}, kText);
         gfx::text(kX, 300,
@@ -702,14 +728,16 @@ void Login::draw(double now, float dt)
                 gfx::text(panel.x + side / 2, panel.y + side + 52, T("Skann med telefonen"), {gfx::SemiBold, 24},
                           kText2, 1);
                 gfx::text(panel.x + side / 2, panel.y + side + 86, T("og trykk Godkjenn i Jellyfin"),
-                          {gfx::Medium, 20}, kText3, 1);
+                          {gfx::Medium, 20, side + 60}, kText3, 1);
             }
         }
+        const float w_other = button_w(250, {T("Annen server")});
         if (m_checking) {   /* until the server answers, the way out is the only button */
-            button({kX, 690, 250, 76}, T("Annen server"), true, lift("other2", true));
+            button({kX, 690, w_other, 76}, T("Annen server"), true, lift("other2", true));
         } else {
-            button({kX, 690, 560, 76}, T("Logg inn med brukernavn og passord"), m_focus == 0, lift("pw", m_focus == 0));
-            button({kX + 580, 690, 250, 76}, T("Annen server"), m_focus == 1, lift("other2", m_focus == 1));
+            const float w_pw = button_w(560, {T("Logg inn med brukernavn og passord")});
+            button({kX, 690, w_pw, 76}, T("Logg inn med brukernavn og passord"), m_focus == 0, lift("pw", m_focus == 0));
+            button({kX + w_pw + 20, 690, w_other, 76}, T("Annen server"), m_focus == 1, lift("other2", m_focus == 1));
         }
     }
     if (!s_focused)

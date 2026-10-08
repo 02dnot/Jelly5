@@ -15,6 +15,7 @@
  */
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <mutex>
 #include <string>
@@ -65,6 +66,7 @@ struct Item {
         int tmdb_ref = 0;                     /* a library item Discover shows: its TMDB id (not external) */
         std::string poster, backdrop, thumb;
         std::string jellyfin_id;
+        bool unseen = false;                  /* Seerr names a server item this account didn't find */
     } ext;
     bool external() const { return ext.tmdb_id != 0; }
 };
@@ -77,6 +79,7 @@ struct MediaStream {
     int width = 0, height = 0, channels = 0, bit_depth = 0;
     bool is_default = false, is_forced = false, is_external = false, is_text = false;
     std::string delivery_url;                 /* external subtitles */
+    std::string delivery_method;              /* subtitles: Embed, External (also an embedded one in a transcode) ... */
 };
 
 struct Segment {
@@ -111,6 +114,11 @@ struct Version {
     int height = 0;
     int64_t bitrate = 0;
     std::string label;                        /* "2160p · HEVC · HDR" */
+    /* Embedded subtitles the server serves as files for this version (a transcode
+     * carries none: DeliveryMethod External, IsExternal false). */
+    std::vector<MediaStream> served_subtitles;
+    std::vector<MediaStream> streams;         /* its own (another file: other indices) */
+    int default_audio = -1, default_subtitle = -1;
 };
 
 struct Playback {
@@ -263,10 +271,13 @@ public:
     static std::string escape(const std::string &s);   /* for a query value */
     /* A cheap request that needs no sign-in: is the server there? */
     bool ping();
+    /* This client's requests in a row that got no answer at all: the server or
+     * the network is gone. 0 once anything answers. */
+    int unreachable_streak() const { return unreachable_.load(); }
     /* The home screen's sections as the user ordered them in Jellyfin (Settings ->
      * Home: "resume", "nextup", "latestmedia", "smalllibrarytiles", "none" ...),
-     * empty when they kept the default. */
-    std::vector<std::string> home_sections();
+     * empty when they kept the default. *ok (if given) is false when the server did not answer. */
+    std::vector<std::string> home_sections(bool *ok = nullptr);
     /* The user's display settings for libraries (from /Users/Me): ids of libraries
      * left out of "Nylig lagt til". */
     const std::vector<std::string> &latest_excludes() const { return latest_excludes_; }
@@ -323,7 +334,10 @@ public:
                           int width) const;
 
     void report_start(const Playback &pb, int64_t position_ticks);
-    void report_progress(const Playback &pb, int64_t position_ticks, bool paused);
+    /* audio_index, subtitle_index: the server's stream indices (as playback_info's;
+     * -1 audio and -2 subtitle: not known, not sent; subtitle -1: off). */
+    void report_progress(const Playback &pb, int64_t position_ticks, bool paused, int audio_index = -1,
+                         int subtitle_index = -2);
     void report_stopped(const Playback &pb, int64_t position_ticks);
     /* Ends a server transcode (no-op for direct play). */
     void stop_encoding(const Playback &pb);
@@ -339,6 +353,9 @@ public:
     /* Remote control: this device plays video and audio and takes playstate
      * commands and messages (POST /Sessions/Capabilities/Full). */
     bool post_capabilities();
+    /* Ends this session on the server: its token stops working (signing out,
+     * an account removed from the console). */
+    bool logout();
     /* Subtitle search through the server's plugins (Open Subtitles and the like):
      * the user may manage subtitles (an administrator, or the policy allows it)
      * and, as far as an administrator can see, a subtitle plugin is installed.
@@ -380,10 +397,7 @@ private:
     void set_error(std::string e) { std::lock_guard<std::mutex> g(error_lock_); error_ = std::move(e); }
     std::string error_;
     mutable std::mutex error_lock_;
+    std::atomic<int> unreachable_{0};   /* see unreachable_streak */
 };
-
-/* Requests in a row (from any client) that got no answer at all: the server or
- * the network is gone. 0 once anything answers. */
-int unreachable_streak();
 
 } // namespace jf

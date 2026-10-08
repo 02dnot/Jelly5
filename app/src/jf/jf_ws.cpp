@@ -5,16 +5,19 @@
 #include "jf_ws.h"
 
 #include <algorithm>
+#include <cerrno>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
 
+#include <fcntl.h>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <poll.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <unistd.h>
 
 #include <openssl/err.h>
@@ -59,6 +62,36 @@ std::string base64(const unsigned char *d, size_t n)
     return out;
 }
 
+/* A connect that gives up after timeout_ms, then a blocking socket whose reads
+ * and writes give up after 10 s: poll() can say readable while SSL_read still
+ * waits for the rest of a TLS record, and a server that stops there must not
+ * hold the remote thread past an account switch. A timed-out read or write
+ * fails, and the caller reconnects. */
+bool connect_with_timeout(int fd, const sockaddr *addr, socklen_t len, int timeout_ms)
+{
+    /* Non-blocking connect, then poll and SO_ERROR for the outcome. errno is not
+     * consulted: the app's libc doesn't see the kernel's EINPROGRESS (a connect in
+     * progress read as a failure, on every attempt, on the console). Without
+     * fcntl, a plain blocking connect; the timeouts below still bound the reads. */
+    const int flags = fcntl(fd, F_GETFL, 0);
+    const bool nonblock = flags >= 0 && fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0;
+    if (connect(fd, addr, len) != 0) {
+        if (!nonblock)
+            return false;
+        pollfd p{fd, POLLOUT, 0};
+        int err = 0;
+        socklen_t elen = sizeof err;
+        if (poll(&p, 1, timeout_ms) <= 0 || getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &elen) != 0 || err != 0)
+            return false;
+    }
+    if (nonblock && fcntl(fd, F_SETFL, flags) < 0)
+        return false;
+    timeval tv{10, 0};
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
+    return true;
+}
+
 unsigned rnd()
 {
     static unsigned s = (unsigned)time(nullptr) ^ 0x5a17u;
@@ -87,7 +120,7 @@ bool WebSocket::open(const std::string &url, const std::vector<std::string> &hea
         return false;
     }
     m_fd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
-    if (m_fd < 0 || connect(m_fd, res->ai_addr, res->ai_addrlen) != 0) {
+    if (m_fd < 0 || !connect_with_timeout(m_fd, res->ai_addr, res->ai_addrlen, 8000)) {
         freeaddrinfo(res);
         *error = "cannot connect to " + host + ":" + port;
         close();
@@ -285,8 +318,10 @@ int WebSocket::recv(std::string *out, int timeout_ms)
             for (unsigned char b : e)
                 len = len << 8 | b;
         }
-        if (len > (8u << 20))
-            return -1;   /* nothing Jellyfin sends is this large */
+        if (len > (8u << 20) || message.size() + len > (8u << 20))
+            return -1;   /* nothing Jellyfin sends is this large, in one frame or in pieces */
+        if (opcode >= 0x8 && (len > 125 || !fin))
+            return -1;   /* control frames are short and never fragmented (RFC 6455 5.5) */
         unsigned char mask[4] = {0, 0, 0, 0};
         if ((h[1] & 0x80) && !read_exact(mask, 4))
             return -1;

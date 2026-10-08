@@ -110,6 +110,9 @@ std::string suggested_url();
 /* The Jellyfin server at `from` answers at `to` now (accounts::remember moved
  * its accounts): its Seerr settings and its accounts' sessions move with it. */
 void move_server(const std::string &from, const std::string &to);
+/* The account was signed out or removed from the console: its Seerr session
+ * and settings are no longer kept. */
+void forget_account(const std::string &server, const std::string &user_id);
 
 /* Connects again (and signs in by Quick Connect when that is the method). */
 void reconnect();
@@ -117,9 +120,10 @@ void reconnect();
  * account row): from then on, and only for that address, the console approves
  * Seerr's Quick Connect codes with this Jellyfin account by itself. */
 void approve_quick_connect();
-/* A request found the session gone (Seerr: 401/403): sign in again. */
-void session_lost();
-/* Each frame: signs in again a minute after session_lost() gave up (cheap). */
+/* A request on client c found the session gone (Seerr: 401/403): sign in again.
+ * Ignored when c is not the current session's (a late answer to an earlier one). */
+void session_lost(const seerr::Client *c);
+/* Each frame: signs in again once session_lost()'s wait is over (cheap). */
 void poll();
 /* The Jellyfin password (user empty: the account's own name) or a local account. */
 void sign_in(const std::string &user, const std::string &password);

@@ -12,7 +12,9 @@
 #include "app/settings.h"
 #include "app/syncplay.h"
 #include "app/i18n.h"
+#include "app/i18n_cldr.h"
 #include "jelly5_playback.h"
+#include "evo_boot_trace.h"
 #include "gfx/art.h"
 #include "gfx/gfx.h"
 #include "nuvio_subs.h"
@@ -51,34 +53,15 @@ std::string clock_at(double seconds_from_now)
     return b;
 }
 
-/* Language names in the interface's language: Norwegian from the list below,
- * English (and anything not listed) from the player's own names. */
+/* Language names in the interface's language (CLDR's), the player's own English
+ * names for a code CLDR lacks. */
 std::string language_name(const std::string &code)
 {
-    if (i18n::english()) {
-        const std::string n = nuvio_language_name(code);
-        return n.empty() ? T("Ukjent språk") : n;
-    }
-    struct L {
-        const char *codes, *name;
-    };
-    static const L names[] = {{"nor nob no nb", "Norsk"},   {"nno nn", "Nynorsk"},  {"eng en", "Engelsk"},
-                              {"swe sv", "Svensk"},        {"dan da", "Dansk"},     {"fin fi", "Finsk"},
-                              {"ger deu de", "Tysk"},      {"fre fra fr", "Fransk"}, {"spa es", "Spansk"},
-                              {"ita it", "Italiensk"},     {"jpn ja", "Japansk"},   {"kor ko", "Koreansk"},
-                              {"chi zho zh", "Kinesisk"},  {"por pt", "Portugisisk"}, {"rus ru", "Russisk"},
-                              {"dut nld nl", "Nederlandsk"}, {"pol pl", "Polsk"},   {"ice isl is", "Islandsk"}};
     if (code.empty() || code == "und")
         return T("Ukjent språk");
-    std::string lc = code;
-    for (char &c : lc)
-        c = (char)std::tolower((unsigned char)c);
-    for (const L &l : names) {
-        const std::string list = std::string(" ") + l.codes + " ";
-        if (list.find(" " + lc + " ") != std::string::npos)
-            return l.name;
-    }
-    const std::string n = nuvio_language_name(code);
+    std::string n = i18n::language_name(code);
+    if (n.empty())
+        n = nuvio_language_name(code);
     return n.empty() ? code : n;
 }
 
@@ -99,9 +82,18 @@ void pause_glyph(float cx, float cy, float size, uint32_t c)
 
 } // namespace
 
-void PlayerUi::begin(const NuvioRequest *req, double now)
+void PlayerUi::begin(const NuvioRequest *req, double now, bool reopen)
 {
-    *this = PlayerUi();
+    /* A reopen (a reconnect, the software decoder) is the same playback: a
+     * dismissed card, the skips done and the group's pending commands stay.
+     * m_group_ready does not: Ready again re-syncs the group after the gap. */
+    PlayerUi kept;
+    if (reopen) {
+        kept.m_card_dismissed = m_card_dismissed;
+        std::copy(std::begin(m_skip_done), std::end(m_skip_done), kept.m_skip_done);
+        kept.m_scheduled.swap(m_scheduled);
+    }
+    *this = std::move(kept);
     m_req = req;
     m_music = req && req->item_type == "audio";
     m_controls = m_music;   /* the music screen is all controls, always up */
@@ -149,9 +141,17 @@ int PlayerUi::current_skip(const NuvioStatus &st) const
     return -1;
 }
 
+bool PlayerUi::has_next() const
+{
+    if (!m_req)
+        return false;
+    return m_music ? jelly5_music_has_next(m_req->has_next) : m_req->has_next;
+}
+
 bool PlayerUi::next_card(const NuvioStatus &st) const
 {
-    if (!m_req || m_music || !m_req->has_next || m_card_dismissed || !st.started || st.duration <= 0)
+    if (!m_req || m_music || !m_req->has_next || m_card_dismissed || !st.started || st.duration <= 0 ||
+        in_group())   /* in a group, the group's queue goes on (playback_ended) */
         return false;
     for (const NuvioSkip &k : m_req->skips)
         if ((k.type == "outro" || k.type == "credits") && st.position >= k.start && st.position < k.end)
@@ -184,7 +184,7 @@ std::vector<PlayerUi::Button> PlayerUi::buttons() const
         b.push_back(Button::Chapters);
     b.push_back(Button::Tracks);
     b.push_back(Button::Speed);
-    if (m_req && m_req->has_next)
+    if (has_next())
         b.push_back(Button::Next);
     return b;
 }
@@ -220,6 +220,7 @@ void PlayerUi::open_overlay(Overlay o)
         if (nuvio_subs_count() > 0)
             m_col = 1;
         m_rows[1] = nuvio_subs_selected() + 1;
+        m_subs_seen = nuvio_subs_count();
     } else if (o == Overlay::Episodes) {
         m_ep_col = 1;
         m_ep_season = m_req->season;
@@ -254,8 +255,20 @@ void PlayerUi::seek_step(int dir, const NuvioStatus &st, double now)
 
 void PlayerUi::playback_ended(const NuvioStatus &, std::vector<OsdCommand> &out)
 {
+    /* In a group: its queue goes on, not this one. Ask the group for its next entry
+     * (jellyfin-web does at an end; the server takes one request per entry) and close;
+     * the next entry comes as the group's Play. */
+    if (in_group()) {
+        m_group_end = true;   /* nor does the music queue here play on (jelly5_playback) */
+        if (m_req && (m_req->prefs.autoplay_next || m_music) && syncplay::queue_has_next()) {
+            syncplay::request_next();
+            m_group_handoff = true;
+        }
+        out.push_back({OsdCmd::Stop});
+        return;
+    }
     /* An album always plays on; episodes follow the autoplay setting. */
-    if (m_req && m_req->has_next && (m_req->prefs.autoplay_next || m_music))
+    if (has_next() && (m_req->prefs.autoplay_next || m_music))
         out.push_back({OsdCmd::PlayNext});
     else
         out.push_back({OsdCmd::Stop});
@@ -263,11 +276,13 @@ void PlayerUi::playback_ended(const NuvioStatus &, std::vector<OsdCommand> &out)
 
 void PlayerUi::tick(const NuvioStatus &st, std::vector<OsdCommand> &out, bool poll_remote)
 {
+    const double step = std::max(0.0, st.now - m_now);   /* since the last tick */
     m_now = st.now;
     if (!m_req)
         return;
     if (poll_remote)
         remote_poll(st, out);
+    const size_t mine = out.size();   /* from here on this PS5's own, the group's in a group */
     int track = -1;
     switch (jelly5_subs::download_state(&track)) {
     case jelly5_subs::Done:
@@ -282,12 +297,29 @@ void PlayerUi::tick(const NuvioStatus &st, std::vector<OsdCommand> &out, bool po
         show_controls(st.now, Zone::Buttons);   /* a moment as the picture appears */
         m_hide_at = st.now + 3.0;
     }
+    /* A skip button that appears takes the focus: controls that came up by
+     * themselves (as the picture starts) step aside, unless the viewer has been
+     * pressing something in the last 2 s. */
+    {
+        const int k = current_skip(st);
+        if (k != m_skip_seen) {
+            m_skip_seen = k;
+            if (k >= 0 && m_controls && m_zone == Zone::Buttons && m_overlay == Overlay::None && !st.paused &&
+                st.now - m_input_at > 2.0) {
+                m_controls = false;
+                m_dirty = true;
+            }
+        }
+    }
     /* Automatic intro skipping (Innstillinger). */
     if (m_req->prefs.auto_skip && !m_seeking) {
         const int k = current_skip(st);
         if (k >= 0) {
             m_skip_done[k] = true;
-            out.push_back({OsdCmd::SeekTo, m_req->skips[k].end});
+            if (in_group())
+                syncplay::request_seek(m_req->skips[k].end);   /* asked of the group, as Cross is */
+            else
+                out.push_back({OsdCmd::SeekTo, m_req->skips[k].end});
         }
     }
     if (m_seeking && st.now >= m_seek_commit_at) {
@@ -303,6 +335,8 @@ void PlayerUi::tick(const NuvioStatus &st, std::vector<OsdCommand> &out, bool po
     if (next_card(st)) {
         if (m_card_since < 0)
             m_card_since = st.now;
+        else if (st.paused || m_overlay != Overlay::None || m_seeking)
+            m_card_since += step;   /* held while paused, scrubbing, or the card is hidden */
         if (m_req->prefs.autoplay_next && st.now - m_card_since >= 10.0 && !st.paused) {
             m_card_dismissed = true;
             out.push_back({OsdCmd::PlayNext});
@@ -310,11 +344,24 @@ void PlayerUi::tick(const NuvioStatus &st, std::vector<OsdCommand> &out, bool po
     } else {
         m_card_since = -1;
     }
+    if (in_group())
+        to_group(st, out, mine);
+}
+
+/* Subtitle tracks can arrive while Lyd og undertekster is open (the fetch, a
+ * download): a focus on Tilpass or Søk, under the tracks, moves down with them. */
+void PlayerUi::keep_sub_rows()
+{
+    const int ns = nuvio_subs_count();
+    if (m_rows[1] > m_subs_seen)
+        m_rows[1] = std::max(0, m_rows[1] + ns - m_subs_seen);
+    m_subs_seen = ns;
 }
 
 /* Lyd og undertekster: columns 0 audio, 1 subtitles (+ "Tilpass"), 2 style. */
 void PlayerUi::tracks_input(uint32_t p, const NuvioStatus &st, std::vector<OsdCommand> &out)
 {
+    keep_sub_rows();
     const int na = (int)st.audio.size(), ns = nuvio_subs_count();
     const int nv = m_req->sources.size() > 1 ? (int)m_req->sources.size() : 0;   /* versions, under the audio */
     const bool find = jelly5_subs::available();
@@ -381,7 +428,8 @@ void PlayerUi::tracks_input(uint32_t p, const NuvioStatus &st, std::vector<OsdCo
             m_col = 2;
     } else if (p & NUVIO_BTN_CROSS) {
         if (m_col == 0 && r < na) {
-            out.push_back({OsdCmd::SelectAudio, 0, r});
+            if (r != st.audio_active)   /* the playing track: nothing to reload */
+                out.push_back({OsdCmd::SelectAudio, 0, r});
         } else if (m_col == 0 && r >= na && r - na < nv) {
             if (r - na != m_req->source_index) {   /* another version, from this moment */
                 out.push_back({OsdCmd::SwitchSource, 0, r - na});
@@ -471,19 +519,36 @@ void PlayerUi::episodes_input(uint32_t p, std::vector<OsdCommand> &out)
             OsdCommand c{OsdCmd::PlayEpisode};
             c.season = e.season;
             c.episode = e.episode;
+            c.video_id = e.video_id;
             out.push_back(c);
             m_overlay = Overlay::None;
         }
     }
 }
 
+void PlayerUi::end()
+{
+    /* Closed while a group item played (not for the group's next one): the group
+     * no longer waits for this PS5, until it plays the group's queue again. */
+    if (m_group_ready && !m_group_handoff)
+        syncplay::player_stopped();
+    m_req = nullptr;
+}
+
 void PlayerUi::input(const nuvio_input_state &in, const NuvioStatus &st, std::vector<OsdCommand> &out)
 {
     const size_t first = out.size();
+    if (in.pressed)
+        m_input_at = st.now;
     input_local(in, st, out);
-    if (!syncplay::active())
-        return;
-    /* In a group: what the viewer did here is asked of the group instead. */
+    if (in_group())
+        to_group(st, out, first);
+}
+
+/* In a group: pause, seek and next (from out[first] on) are asked of the group
+ * instead of done here, whether the viewer or a phone asked. */
+void PlayerUi::to_group(const NuvioStatus &st, std::vector<OsdCommand> &out, size_t first)
+{
     for (size_t i = first; i < out.size();) {
         const OsdCommand &c = out[i];
         if (c.cmd == OsdCmd::TogglePause) {
@@ -574,6 +639,7 @@ void PlayerUi::input_local(const nuvio_input_state &in, const NuvioStatus &st, s
     if (p & (NUVIO_BTN_L1 | NUVIO_BTN_R1)) {
         const double from = m_seeking ? m_seek_target : st.position;
         const bool forward = (p & NUVIO_BTN_R1) != 0;
+        const double last = st.duration > 0 ? st.duration - 1 : 1e9;   /* no duration yet: no end */
         m_seeking = false;
         const std::vector<NuvioChapter> &ch = m_req->chapters;
         if (ch.size() > 1) {
@@ -588,13 +654,13 @@ void PlayerUi::input_local(const nuvio_input_state &in, const NuvioStatus &st, s
                 /* already in the last chapter */
             } else {
                 to = std::max(0, to);
-                out.push_back({OsdCmd::SeekTo, std::max(0.0, std::min(st.duration - 1, ch[to].start))});
+                out.push_back({OsdCmd::SeekTo, std::max(0.0, std::min(last, ch[to].start))});
                 if (!ch[to].name.empty())
                     toast(ch[to].name, now);
             }
         } else {   /* no chapters: quick jumps, as on Netflix, 10 s back / forward */
             const double to = from + (forward ? 10.0 : -10.0);
-            out.push_back({OsdCmd::SeekTo, std::max(0.0, std::min(st.duration - 1, to))});
+            out.push_back({OsdCmd::SeekTo, std::max(0.0, std::min(last, to))});
         }
         show_controls(now, Zone::Bar);
         return;
@@ -877,8 +943,9 @@ void PlayerUi::draw_chapters(const NuvioStatus &st, float a, float dt)
                                                     : std::to_string(i + 1) + ". " + ch[i].name;
         const float hx = tx + gfx::text(tx, y + 48, name, {gfx::Bold, 26, lw - 520}, alpha(focus ? kText : kText2, a));
         if (i == now_i) {
-            gfx::fill({hx + 14, y + 24, 128, 30}, alpha(0xe600a4dcu, a), 15);
-            gfx::text(hx + 78, y + 46, T("SPILLER NÅ"), {gfx::Bold, 16}, alpha(kText, a), 1);
+            const float pw = gfx::text_width(T("SPILLER NÅ"), {gfx::Bold, 16}) + 32;
+            gfx::fill({hx + 14, y + 24, pw, 30}, alpha(0xe600a4dcu, a), 15);
+            gfx::text(hx + 14 + pw / 2, y + 46, T("SPILLER NÅ"), {gfx::Bold, 16}, alpha(kText, a), 1);
         }
         const int s = (int)ch[i].start;
         char t[16];
@@ -1061,13 +1128,25 @@ void PlayerUi::draw_skip_next(const NuvioStatus &st)
         if (k >= 0)
             label = m_req->skips[k].type == "recap" ? T("Hopp over oppsummering")
                     : m_req->skips[k].type == "preview" ? T("Hopp over forhåndsvisning") : T("Hopp over intro");
-        const gfx::TextStyle st2{gfx::Bold, 26};
-        const float w = gfx::text_width(label, st2) + 72;
+        /* As every control: glass, and the glass drop when it has the focus, which
+         * it has whenever ✕ presses it (the controls hidden, or on the bar). While
+         * the viewer moves through the buttons, ✕ is theirs and it has none. */
+        const bool focus = k >= 0 && !m_seeking && (!m_controls || m_zone == Zone::Bar);
+        const gfx::TextStyle st2{focus ? gfx::Bold : gfx::SemiBold, 26};
+        const float w = gfx::text_width(label, {gfx::Bold, 26}) + 72;
         const float y = H - 350 - (1.f - a_skip.value) * 20 + (m_controls ? 0 : 200);
         const gfx::Rect r{W - kPad - w, y, w, 72};
         gfx::push_opacity(a_skip.value);
-        glass_panel(r, 14, 1.f, true, 1.f);   /* the one thing to press: the focus glass */
-        gfx::text(r.x + r.w / 2, r.y + 46, label, st2, kText, 1);
+        glass_panel(r, 14, 1.f, true);
+        if (focus)
+            m_skip_drop.to(r, k, 0, y);
+        else
+            m_skip_drop.hide();
+        bool moving = false;
+        m_skip_drop.draw(m_dt, 1.f, &moving, 14);
+        if (moving)
+            m_dirty = true;
+        gfx::text(r.x + r.w / 2, r.y + 46, label, st2, focus ? kText : kText2, 1);
         gfx::pop_opacity();
     }
 
@@ -1076,7 +1155,20 @@ void PlayerUi::draw_skip_next(const NuvioStatus &st)
     a_next.to(card ? 1.f : 0.f);
     if (a_next.value > 0.01f && m_req->has_next) {
         const NuvioEpisode &n = m_req->next;
-        const gfx::Rect r{W - kPad - 560, H - 440 - (1.f - a_next.value) * 20 + (m_controls ? 0 : 290), 560, 156};
+        /* 560 wide, wider when the line under the title needs it (a long language). */
+        const bool counting = m_req->prefs.autoplay_next && m_card_since >= 0;
+        char c[48] = "";
+        if (counting) {
+            const double left = std::max(0.0, 10.0 - (st.now - m_card_since));
+            std::snprintf(c, sizeof c, T("Spilles om %d s"), (int)std::ceil(left));
+        }
+        const float line_w = counting ? gfx::text_width(T("Spilles om %d s"), {gfx::Medium, 20}) + 18 +
+                                            pad_hint_width(PadButton::Cross, T("Nå"), 24)
+                                      : pad_hint_width(PadButton::Cross, T("Spill av"), 24) + 24 * 0.9f +
+                                            pad_hint_width(PadButton::Circle, T("Se rulletekst"), 24);
+        const float cw_card = std::min(std::max(560.f, 270 + line_w + 8), W - 2 * kPad);
+        const gfx::Rect r{W - kPad - cw_card, H - 440 - (1.f - a_next.value) * 20 + (m_controls ? 0 : 290), cw_card,
+                          156};
         gfx::push_opacity(a_next.value);
         glass(r, 1.f);
         art::draw({r.x + 18, r.y + 18, 213, 120}, n.thumbnail, n.blurhash, 480, 270, 10);
@@ -1085,10 +1177,8 @@ void PlayerUi::draw_skip_next(const NuvioStatus &st)
         char title[256];
         std::snprintf(title, sizeof title, "S%d:E%d \xC2\xB7 %s", n.season, n.episode, n.title.c_str());
         gfx::text(tx, r.y + 80, title, {gfx::Bold, 24, r.w - 270}, kText);
-        if (m_req->prefs.autoplay_next && m_card_since >= 0) {
+        if (counting) {
             const double left = std::max(0.0, 10.0 - (st.now - m_card_since));
-            char c[48];
-            std::snprintf(c, sizeof c, T("Spilles om %d s"), (int)std::ceil(left));
             const float cw = gfx::text(tx, r.y + 116, c, {gfx::Medium, 20}, kText2);
             draw_pad_hint(tx + cw + 18, r.y + 109, PadButton::Cross, T("Nå"), 24);
             gfx::fill({tx, r.y + 132, r.w - 270, 4}, 0x33ffffffu, 2);
@@ -1105,6 +1195,7 @@ void PlayerUi::draw_skip_next(const NuvioStatus &st)
  * column; "Tilpass undertekster" opens style and timing in a third. */
 void PlayerUi::draw_tracks(const NuvioStatus &st, float a)
 {
+    keep_sub_rows();
     const gfx::Rect r{160, 120, W - 320, H - 240};
     glass(r, a);
     gfx::text(r.x + 56, r.y + 86, T("Lyd og undertekster"), {gfx::Bold, 40}, alpha(kText, a));
@@ -1142,10 +1233,12 @@ void PlayerUi::draw_tracks(const NuvioStatus &st, float a)
                 gfx::fill({lx + 6, y + row_h / 2 - 8, 3, 13}, alpha(fg, a), 1.5f);
             }
             lx += 28;
-            gfx::text(lx, y + 40, label, {selected ? gfx::Bold : gfx::Medium, 25, widths[c] - 60 - (right.empty() ? 0 : 150)},
-                      alpha(fg, a));
+            /* The tags on the right keep their width; the name gives way (at most half the column). */
+            const float rw = right.empty() ? 0
+                                           : std::min(gfx::text_width(right, {gfx::Medium, 20}) + 20, widths[c] / 2);
+            gfx::text(lx, y + 40, label, {selected ? gfx::Bold : gfx::Medium, 25, widths[c] - 60 - rw}, alpha(fg, a));
             if (!right.empty())
-                gfx::text(cols[c] + widths[c] - 18, y + 39, right, {gfx::Medium, 20},
+                gfx::text(cols[c] + widths[c] - 18, y + 39, right, {gfx::Medium, 20, widths[c] / 2 - 20},
                           alpha(focus ? kText2 : kText3, a), 2);
         }
     };
@@ -1241,7 +1334,7 @@ void PlayerUi::draw_tracks(const NuvioStatus &st, float a)
             if (x.hash_match) right += T("Passer ");
             if (x.hearing_impaired) right += "SDH ";
             if (x.forced) right += T("Tvungen ");
-            if (right.empty() && x.downloads > 0) right = std::to_string(x.downloads) + T(" nedl.");
+            if (right.empty() && x.downloads > 0) right = TN(x.downloads, "%d nedl.", "%d nedl.");
         });
         const float sy = top + 30 + (row_h + 4) + 40;   /* where the first result goes */
         if (state == jelly5_subs::Busy)
@@ -1342,11 +1435,13 @@ void PlayerUi::draw_episodes(float a, float dt)
         std::snprintf(title, sizeof title, "%d. %s", e.episode, e.title.c_str());
         float hx = tx + gfx::text(tx, y + 48, title, {gfx::Bold, 26, lw - 520}, alpha(focus ? kText : kText2, a));
         if (here) {
-            gfx::fill({hx + 14, y + 24, 128, 30}, alpha(0xe600a4dcu, a), 15);
-            gfx::text(hx + 78, y + 46, T("SPILLER NÅ"), {gfx::Bold, 16}, alpha(kText, a), 1);
+            const float pw = gfx::text_width(T("SPILLER NÅ"), {gfx::Bold, 16}) + 32;
+            gfx::fill({hx + 14, y + 24, pw, 30}, alpha(0xe600a4dcu, a), 15);
+            gfx::text(hx + 14 + pw / 2, y + 46, T("SPILLER NÅ"), {gfx::Bold, 16}, alpha(kText, a), 1);
         } else if (e.watched) {
-            gfx::fill({hx + 14, y + 24, 62, 30}, alpha(0x33ffffffu, a), 15);
-            gfx::text(hx + 45, y + 46, T("Sett"), {gfx::SemiBold, 17}, alpha(kText, a), 1);
+            const float bw = gfx::text_width(T("Sett"), {gfx::SemiBold, 17}) + 24;
+            gfx::fill({hx + 14, y + 24, bw, 30}, alpha(0x33ffffffu, a), 15);
+            gfx::text(hx + 14 + bw / 2, y + 46, T("Sett"), {gfx::SemiBold, 17}, alpha(kText, a), 1);
         }
         gfx::text(lx + lw - 24, y + 48, e.runtime, {gfx::Medium, 20}, alpha(kText3, a), 2);
         gfx::text(tx, y + 88, e.overview.empty() ? T("Ingen beskrivelse.") : e.overview,
@@ -1399,7 +1494,7 @@ void PlayerUi::music_input(uint32_t p, const NuvioStatus &st, std::vector<OsdCom
     } else if (p & (NUVIO_BTN_LEFT | NUVIO_BTN_RIGHT | NUVIO_BTN_L2 | NUVIO_BTN_R2)) {
         seek_step((p & (NUVIO_BTN_RIGHT | NUVIO_BTN_R2)) ? 1 : -1, st, now);
     } else if (p & NUVIO_BTN_R1) {
-        if (m_req->has_next)
+        if (has_next())
             out.push_back({OsdCmd::PlayNext});
     } else if (p & NUVIO_BTN_L1) {
         previous_track(st, out);
@@ -1415,27 +1510,73 @@ void PlayerUi::music_input(uint32_t p, const NuvioStatus &st, std::vector<OsdCom
 void PlayerUi::previous_track(const NuvioStatus &st, std::vector<OsdCommand> &out)
 {
     int here = -1;
-    for (size_t i = 0; i < m_req->episodes.size(); i++)
+    for (size_t i = 0; i < m_req->episodes.size() && here < 0; i++)   /* by id: numbers can repeat */
+        if (m_req->episodes[i].video_id == m_req->id)
+            here = (int)i;
+    for (size_t i = 0; i < m_req->episodes.size() && here < 0; i++)
         if (m_req->episodes[i].season == m_req->season && m_req->episodes[i].episode == m_req->episode)
             here = (int)i;
-    if (st.position > 3.0 || here <= 0) {
+    /* Music: the queue's play order decides which track is before (the album's
+     * list lacks what a phone queued); the chain steps back in it. */
+    const bool before = m_music ? jelly5_music_has_previous(here > 0) : here > 0;
+    if (st.position > 3.0 || !before) {
         out.push_back({OsdCmd::SeekTo, 0.0});
     } else {
         OsdCommand c{OsdCmd::PlayEpisode};
-        c.season = m_req->episodes[here - 1].season;
-        c.episode = m_req->episodes[here - 1].episode;
+        c.season = here > 0 ? m_req->episodes[here - 1].season : m_req->season;
+        c.episode = here > 0 ? m_req->episodes[here - 1].episode : m_req->episode;
+        c.video_id = here > 0 ? m_req->episodes[here - 1].video_id : m_req->id;
         out.push_back(c);
     }
 }
 
+/* In a group, and this is the group's item (a theme song, say, is not). */
+bool PlayerUi::in_group() const { return m_req && !m_req->not_group && syncplay::active(); }
+
 void PlayerUi::remote_poll(const NuvioStatus &st, std::vector<OsdCommand> &out)
 {
+    const bool group = in_group();
+    /* The group set its queue anew around what plays here: paused, Ready again. */
+    if (group && syncplay::ready_asked() && m_group_ready && m_group_seek < 0) {
+        m_group_ready = false;
+        m_group_stalled = false;
+    }
     /* SyncPlay: an opened group item waits paused until the group says go. */
-    if (syncplay::active() && st.started && !m_group_ready) {
+    if (group && st.started && !m_group_ready) {
         m_group_ready = true;
         if (!st.paused)
             out.push_back({OsdCmd::TogglePause});
         syncplay::player_started(st.position, false);
+    }
+    /* A group seek: play from the new place until the picture moves there, then
+     * pause and tell the group (jellyfin-web waits for the player's "playing" so). */
+    if (m_group_seek >= 0) {
+        /* Landed: near the target, or moved away from where it was further than
+         * playing on would take it - a seek lands on a keyframe, maybe seconds off. */
+        const double drift = st.position - (m_group_seek_from + (st.now - m_group_seek_since));
+        const bool jumped = std::fabs(st.position - m_group_seek_from) > 1.0 && std::fabs(drift) > 1.0;
+        if (m_group_seek_landed < 0 && !st.buffering && (std::fabs(st.position - m_group_seek) < 1.0 || jumped))
+            m_group_seek_landed = st.position;
+        const bool moving = m_group_seek_landed >= 0 && !st.paused && !st.buffering &&
+                            st.position > m_group_seek_landed + 0.1;
+        if (moving || st.now - m_group_seek_since > 30.0) {
+            if (!st.paused)
+                out.push_back({OsdCmd::TogglePause});
+            syncplay::seeked(st.position);
+            m_group_seek = -1;
+        }
+    } else if (m_group_ready && group && st.buffering != m_group_stalled) {
+        /* Stalled while the group plays: the group waits for this PS5 (Buffering)
+         * and goes on once it plays again (Ready). */
+        m_group_stalled = st.buffering;
+        syncplay::buffering(st.buffering, st.position, !st.paused);
+    }
+    /* A group seek overtaken by another group command (a Pause, say): the group
+     * still waits for this PS5's Ready, sent once that command has been done. */
+    if (m_group_seek_owed && m_group_seek < 0 && !st.buffering &&
+        std::none_of(m_scheduled.begin(), m_scheduled.end(), [](const remote::Command &s) { return s.syncplay; })) {
+        m_group_seek_owed = false;
+        syncplay::buffering(false, st.position, !st.paused);
     }
     /* Commands due now (the group's carry a moment). */
     for (size_t i = 0; i < m_scheduled.size();) {
@@ -1450,11 +1591,25 @@ void PlayerUi::remote_poll(const NuvioStatus &st, std::vector<OsdCommand> &out)
     remote::Command c;
     while (remote::take(&c)) {
         m_dirty = true;
+        if (c.syncplay && !group)
+            continue;   /* about the group's item, which is not open here */
+        if (c.syncplay) {
+            /* The group's latest word replaces what it said before (jellyfin-web
+             * clears its scheduled command too): an Unpause timed ahead must not
+             * fire after a Pause that came since. */
+            m_scheduled.erase(std::remove_if(m_scheduled.begin(), m_scheduled.end(),
+                                             [](const remote::Command &s) { return s.syncplay; }),
+                              m_scheduled.end());
+            if (m_group_seek >= 0 && c.kind != remote::Command::Seek)
+                m_group_seek_owed = true;
+            m_group_seek = -1;
+        }
         if (c.at > st.now + 0.005) {
             m_scheduled.push_back(c);
             continue;
         }
-        if (c.kind == remote::Command::Play || c.kind == remote::Command::Stop) {
+        const bool queued = c.kind == remote::Command::Play && (c.play_command == "PlayNext" || c.play_command == "PlayLast");
+        if ((c.kind == remote::Command::Play && !queued) || c.kind == remote::Command::Stop) {
             remote_do(c, st, out);
             return;
         }
@@ -1482,17 +1637,33 @@ void PlayerUi::remote_do(const remote::Command &c, const NuvioStatus &st, std::v
             if (off) out.push_back({OsdCmd::SeekTo, std::max(0.0, std::min(d, target))});
             return;
         case remote::Command::Seek:
-            out.push_back({OsdCmd::SeekTo, std::max(0.0, std::min(d, target))});
-            if (!st.paused) out.push_back({OsdCmd::TogglePause});
-            syncplay::seeked(target);   /* ready at the new place */
+            /* Playing, to the new place; Ready once it plays there (remote_poll). */
+            if (st.paused) out.push_back({OsdCmd::TogglePause});
+            m_group_seek = std::max(0.0, std::min(d, target));
+            out.push_back({OsdCmd::SeekTo, m_group_seek});
+            m_group_seek_since = st.now;
+            m_group_seek_from = st.position;
+            m_group_seek_landed = -1;
+            m_group_seek_owed = false;
+            m_group_stalled = false;
             return;
         case remote::Command::Stop: out.push_back({OsdCmd::Stop}); return;
         default: return;
         }
     }
+    const size_t first = out.size();
     {
         switch (c.kind) {
-        case remote::Command::Play:   /* something else to play: stop, the app starts it */
+        case remote::Command::Play:
+            /* "Play next" / "Add to queue": into the music queue; with nothing to queue
+             * on (a video), not a reason to stop what plays. */
+            if (c.play_command == "PlayNext" || c.play_command == "PlayLast") {
+                if (!jelly5_music_enqueue(c.item_ids, c.play_command == "PlayNext"))
+                    evo_bt("remote: %s ignored: no queue to add to", c.play_command.c_str());
+                break;
+            }
+            /* something else to play: stop, the app starts it */
+            m_group_handoff = c.play_command == "SyncPlay";
             remote::put_back(c);
             out.push_back({OsdCmd::Stop});
             return;
@@ -1511,7 +1682,7 @@ void PlayerUi::remote_do(const remote::Command &c, const NuvioStatus &st, std::v
         case remote::Command::Rewind: out.push_back({OsdCmd::SeekTo, std::max(0.0, st.position - 10)}); break;
         case remote::Command::FastForward: out.push_back({OsdCmd::SeekTo, std::min(d, st.position + 30)}); break;
         case remote::Command::Next:
-            if (m_req->has_next) out.push_back({OsdCmd::PlayNext});
+            if (has_next()) out.push_back({OsdCmd::PlayNext});
             break;
         case remote::Command::Previous: previous_track(st, out); break;
         case remote::Command::Message:
@@ -1519,6 +1690,9 @@ void PlayerUi::remote_do(const remote::Command &c, const NuvioStatus &st, std::v
             break;
         }
     }
+    /* A phone's pause, seek or next while in a group: the group's to do. */
+    if (in_group())
+        to_group(st, out, first);
 }
 
 /* Now playing (Apple Music on tvOS): the cover on the left over its own colours,
@@ -1614,7 +1788,7 @@ void PlayerUi::draw_music(const NuvioStatus &st)
         play_glyph(mid - 12, ty, 34, kText);
     else
         pause_glyph(mid, ty, 32, kText);
-    skip(mid + 120, ty, 30, true, r.has_next ? kText : kText3);
+    skip(mid + 120, ty, 30, true, has_next() ? kText : kText3);
     gfx::text(mid - 135, ty + 70, "L1", {gfx::SemiBold, 18}, kText3, 1);
     gfx::text(mid + 135, ty + 70, "R1", {gfx::SemiBold, 18}, kText3, 1);
 

@@ -3,8 +3,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """
     scripts/deploy.py            upload app/build/app/<TITLE_ID>/ to /data/homebrew/<TITLE_ID>/
+                                 (asks first that Jelly5 is closed; --yes when it is known)
     scripts/deploy.py --check    only check that the console's FTP answers
     scripts/deploy.py --probe    upload the bring-up probe (PPSA99506) instead
+    scripts/deploy.py --help     this text (any other unknown argument too: nothing is sent)
 
 A first install is staged in /data/jelly5-staging/<TITLE_ID> and renamed into
 place; later deploys overwrite the files in place, because ShadowMountPlus
@@ -69,7 +71,7 @@ OWN_PREFIXES = ("/data/homebrew/PPSA99505", "/data/homebrew/PPSA99506", "/data/h
 
 
 def rm_rf(ftp, path, depth=0):
-    if not any(path == p or path.startswith(p.rstrip("/") + "/") or path.startswith(p) for p in OWN_PREFIXES):
+    if not any(path == p.rstrip("/") or path.startswith(p.rstrip("/") + "/") for p in OWN_PREFIXES):
         raise SystemExit(f"refusing to delete {path}: not a Jelly5 path")
     if depth > 16 or not exists(ftp, path):
         return
@@ -111,7 +113,18 @@ def upload_tree(ftp, local, remote):
     print(f"  {total / 1e6:.1f} MB in {dt:.1f} s ({total / 1e6 / max(dt, 0.01):.1f} MB/s)")
 
 
+KNOWN = {"--check", "--probe", "--media-probe", "--yes"}
+
+
 def main():
+    args = sys.argv[1:]
+    if any(a in ("-h", "--help") for a in args):
+        print(__doc__.strip())
+        return
+    unknown = [a for a in args if a not in KNOWN]
+    if unknown:   # a typo must never deploy (a deploy while Jelly5 runs can panic the console)
+        print(__doc__.strip())
+        sys.exit(f"unknown argument {' '.join(unknown)}: nothing sent")
     e = env()
     host = e.get("PS5_HOST")
     port = int(e.get("PS5_FTP_PORT", "2121"))
@@ -134,6 +147,11 @@ def main():
     local = os.path.join(ROOT, "app/build/app", tid)
     if not os.path.exists(os.path.join(local, "eboot.bin")):
         sys.exit(f"{local} has no eboot.bin - build first (app/scripts/build.sh)")
+    if "--yes" not in args:
+        if not sys.stdin.isatty():
+            sys.exit("not a terminal: pass --yes once Jelly5 is known to be closed")
+        if input(f"Is {tid} closed on the console (PS button, close)? [y/N] ").strip().lower() not in ("y", "yes", "j", "ja"):
+            sys.exit("nothing sent")
 
     base = "/data/homebrew"
     final = f"{base}/{tid}"

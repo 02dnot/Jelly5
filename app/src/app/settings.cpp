@@ -4,13 +4,17 @@
  */
 #include "app/settings.h"
 #include "app/i18n.h"
+#include "app/spawn.h"
+#include "jf/json_num.h"
 
 #include <algorithm>
 
 #include "evo_boot_trace.h"
 
+#include <atomic>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <map>
 #include <mutex>
 #include <sys/stat.h>
@@ -31,6 +35,14 @@ All s_all;
 std::map<std::string, int> s_quality;
 int s_quality_default = 0;
 std::string s_server;
+/* Saving to the server reads the whole configuration and posts it back: one save
+ * at a time, and only the latest change, so an older one cannot land last. */
+std::mutex s_save_lock;
+std::atomic<unsigned> s_save_gen{0};
+/* The account s_all.server was read from (null: not read yet, or it failed).
+ * Only its client writes them back: before that they are the defaults, not
+ * the account's, and set_prefs would put all of them on its server. */
+const jf::Client *s_prefs_of = nullptr;
 
 } // namespace
 
@@ -54,17 +66,19 @@ void load_local()
     if (!j)
         return;
     std::lock_guard<std::mutex> g(s_lock);
-    s_quality_default = std::max(0, (int)cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(j, "maxMbps")));
+    /* cJSON_GetNumberValue gives NaN for a missing key: to_int makes it 0. */
+    s_quality_default =
+        std::max(0, jf::to_int<int>(cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(j, "maxMbps"))));
     s_quality.clear();
     const cJSON *q;
     cJSON_ArrayForEach(q, cJSON_GetObjectItemCaseSensitive(j, "maxMbpsByServer"))
         if (q->string && cJSON_IsNumber(q))
-            s_quality[q->string] = std::max(0, (int)q->valuedouble);
+            s_quality[q->string] = std::max(0, jf::to_int<int>(q->valuedouble));
     auto at = s_quality.find(s_server);
     s_all.local.max_mbps = at != s_quality.end() ? at->second : s_quality_default;
     s_all.local.max_mbps_for = s_server;
     s_all.local.auto_skip_intro = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(j, "autoSkipIntro"));
-    s_all.local.language = (int)cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(j, "language"));
+    s_all.local.language = jf::to_int<int>(cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(j, "language")));
     if (const cJSON *v = cJSON_GetObjectItemCaseSensitive(j, "nightMode"))
         s_all.local.night_mode = cJSON_IsTrue(v);
     if (const cJSON *v = cJSON_GetObjectItemCaseSensitive(j, "hdmiBitstream"))
@@ -73,19 +87,19 @@ void load_local()
         s_all.local.theme_music = cJSON_IsTrue(v);
     if (const cJSON *v = cJSON_GetObjectItemCaseSensitive(j, "checkUpdates"))
         s_all.local.check_updates = cJSON_IsTrue(v);
-    s_all.local.audio_delay_ms =
-        std::max(-500, std::min(500, (int)cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(j, "audioDelayMs"))));
+    const int delay = jf::to_int<int>(cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(j, "audioDelayMs")));
+    s_all.local.audio_delay_ms = std::max(-500, std::min(500, delay));
     if (const cJSON *hz = cJSON_GetObjectItemCaseSensitive(j, "refresh120"))
         s_all.local.refresh_120 = cJSON_IsTrue(hz);
     if (const cJSON *st = cJSON_GetObjectItemCaseSensitive(j, "subtitles")) {
         Local &l = s_all.local;
         const cJSON *v;
         if (cJSON_IsNumber(v = cJSON_GetObjectItemCaseSensitive(st, "size")))
-            l.sub_size = std::max(50, std::min(200, (int)v->valuedouble));
+            l.sub_size = std::max(50, std::min(200, jf::to_int<int>(v->valuedouble)));
         if (cJSON_IsNumber(v = cJSON_GetObjectItemCaseSensitive(st, "offset")))
-            l.sub_offset = std::max(0.f, std::min(40.f, (float)v->valuedouble));
+            l.sub_offset = (float)std::max(0.0, std::min(40.0, v->valuedouble));
         if (cJSON_IsNumber(v = cJSON_GetObjectItemCaseSensitive(st, "background")))
-            l.sub_background = std::max(0.f, std::min(1.f, (float)v->valuedouble));
+            l.sub_background = (float)std::max(0.0, std::min(1.0, v->valuedouble));
         if (cJSON_IsBool(v = cJSON_GetObjectItemCaseSensitive(st, "outline")))
             l.sub_outline = cJSON_IsTrue(v);
     }
@@ -136,9 +150,21 @@ void set_local(const Local &l)
     cJSON_AddItemToObject(j, "subtitles", st);
     char *text = cJSON_PrintUnformatted(j);
     cJSON_Delete(j);
-    if (FILE *f = std::fopen(kFile, "wb")) {
-        std::fputs(text, f);
-        std::fclose(f);
+    if (!text)
+        return;
+    /* Beside and whole, then renamed over: a crash or a full disk mid-write keeps the
+     * old settings instead of truncating them to defaults. (No fsync: this runs on
+     * the render thread at every change, and a sync can take tens of ms.) */
+    const std::string tmp = std::string(kFile) + ".tmp";
+    const size_t n = std::strlen(text);
+    bool ok = false;
+    if (FILE *f = std::fopen(tmp.c_str(), "wb")) {
+        ok = std::fwrite(text, 1, n, f) == n && std::fflush(f) == 0;
+        ok = std::fclose(f) == 0 && ok;
+    }
+    if (!ok || std::rename(tmp.c_str(), kFile) != 0) {
+        std::remove(tmp.c_str());
+        evo_bt("settings: cannot write %s", kFile);
     }
     std::free(text);
 }
@@ -147,18 +173,23 @@ void use_server(const std::string &key)
 {
     std::lock_guard<std::mutex> g(s_lock);
     s_server = key;
+    s_all.server = jf::UserPrefs();   /* the last account's are not this one's */
+    s_prefs_of = nullptr;
     auto at = s_quality.find(key);
     s_all.local.max_mbps = at != s_quality.end() ? at->second : s_quality_default;
     s_all.local.max_mbps_for = key;
 }
 
-void load_server(jf::Client &c)
+void load_server(jf::Client &c, const std::function<bool()> &current)
 {
     jf::UserPrefs p;
     if (!c.get_prefs(&p))
         return;
     std::lock_guard<std::mutex> g(s_lock);
+    if (!current())
+        return;   /* the account changed while it was read */
     s_all.server = p;
+    s_prefs_of = &c;
 }
 
 void set_server(jf::Client &c, const jf::UserPrefs &p)
@@ -166,12 +197,21 @@ void set_server(jf::Client &c, const jf::UserPrefs &p)
     {
         std::lock_guard<std::mutex> g(s_lock);
         s_all.server = p;
+        if (s_prefs_of != &c) {
+            evo_bt("settings: the account's preferences were never read; kept on the console only");
+            return;
+        }
     }
     jf::Client *cp = &c;
-    std::thread([cp, p] {
-        if (!cp->set_prefs(p))
-            evo_bt("settings: saving to the server failed: %s", cp->last_error().c_str());
-    }).detach();
+    const unsigned gen = ++s_save_gen;
+    if (!jelly5::spawn([cp, p, gen] {
+            std::lock_guard<std::mutex> g(s_save_lock);
+            if (gen != s_save_gen)
+                return;   /* a newer change posts instead */
+            if (!cp->set_prefs(p))
+                evo_bt("settings: saving to the server failed: %s", cp->last_error().c_str());
+        }))
+        evo_bt("settings: saving to the server failed: no thread");
 }
 
 } // namespace settings

@@ -20,6 +20,8 @@ namespace art {
 namespace {
 
 constexpr int kUploadsPerFrame = 3;
+constexpr double kRetryAfter = 30.0;   /* a failed picture is asked for again (an outage passes) */
+constexpr uint64_t kForgetAfter = 3600; /* frames: an entry without a texture unused this long goes */
 
 double now_s()
 {
@@ -39,6 +41,8 @@ struct Entry {
     uint64_t used = 0;
     size_t bytes = 0;
     bool failed = false;
+    double failed_at = 0;         /* when it last failed (asked again kRetryAfter later) */
+    bool retrying = false;        /* asked again, no answer yet */
 };
 
 std::unordered_map<std::string, Entry> s_art;
@@ -170,8 +174,17 @@ const gfx::Texture *get(const std::string &url, int max_w, int max_h)
         return nullptr;
     Entry &e = s_art[url];
     e.used = s_tick;
-    if (e.tex || e.failed)
+    if (e.tex)
         return e.tex;
+    if (e.failed && !e.retrying) {
+        if (now_s() - e.failed_at < kRetryAfter)
+            return nullptr;
+        /* Asked again. failed() stays true until it answers, so a screen's
+         * fallback for a missing picture does not blink every half minute. */
+        e.retrying = true;
+        e.handle = ui_image_retry(ui_image_request(url.c_str(), max_w, max_h, 0));
+        e.ahead = false;
+    }
     if (e.first_drawn == 0)
         e.first_drawn = now_s();
     e.max_w = max_w;
@@ -188,15 +201,22 @@ const gfx::Texture *get(const std::string &url, int max_w, int max_h)
         if (!e.tex)
             s_pressure = true;   /* pool full: tick() frees some, then this retries */
         if (e.tex) {
-            e.bytes = (size_t)img->w * img->h * 4;
+            e.failed = e.retrying = false;
+            e.bytes = (((size_t)img->w * 4 + 255) & ~(size_t)255) * img->h;   /* as the pool holds it: rows padded to 256 */
             s_bytes += e.bytes;
             /* Ready at once (the disk cache, or fetched ahead): shown as it is, no
              * BlurHash and no fade. Only a picture that had to wait fades in. */
             const double now = now_s();
             e.ready_at = now - e.first_drawn < 0.15 ? now - 60.0 : now;
+            /* The texture holds it now: the decoded copy goes (after an
+             * eviction it is fetched again, from the disk cache). */
+            ui_image_release(e.handle);
+            e.handle = -1;
         }
     } else if (!img && failed && ui_image_alive(e.handle)) {
         e.failed = true;
+        e.failed_at = now_s();
+        e.retrying = false;
     }
     if (!e.tex)
         s_animating = true;   /* still waiting: keep frames coming */
@@ -264,8 +284,13 @@ void tick()
     s_tick++;
     s_uploads = 0;
     s_animating = false;
-    const bool pressure = s_pressure;
+    /* A full pool frees only once the released textures have waited out the frames
+     * in flight (4), and uploads keep failing meanwhile: one round per 5 ticks. */
+    static uint64_t s_pressure_next = 0;
+    const bool pressure = s_pressure && s_tick >= s_pressure_next;
     s_pressure = false;
+    if (pressure)
+        s_pressure_next = s_tick + 5;
     if (s_hash.size() > kMaxHashes) {   /* placeholders: back to 3/4 of the cap, oldest first */
         std::vector<std::pair<uint64_t, std::string>> old;
         for (auto &kv : s_hash)
@@ -279,17 +304,26 @@ void tick()
             s_hash.erase(p.second);
         }
     }
+    if (s_tick % 600 == 0)   /* failed, prefetched or never finished, and long not drawn: forgotten */
+        for (auto it = s_art.begin(); it != s_art.end();)
+            it = !it->second.tex && it->second.used + kForgetAfter < s_tick ? s_art.erase(it) : std::next(it);
     if (s_bytes <= budget() && !pressure)
         return;
-    /* Over budget: drop the least recently drawn textures (not this frame's). */
+    /* Over budget: drop the least recently drawn textures (not this frame's). Under
+     * pressure at least 32 MB of them, whatever the budget: the pool can be full while
+     * art is under it (text, placeholders, what waits to be freed, fragmentation),
+     * and freeing nothing left every upload failing. */
+    constexpr size_t kPressureFree = 32u * 1024u * 1024u;
+    size_t freed = 0;
     std::vector<std::pair<uint64_t, std::string>> lru;
     for (auto &kv : s_art)
         if (kv.second.tex && kv.second.used + 2 < s_tick)
             lru.emplace_back(kv.second.used, kv.first);
     std::sort(lru.begin(), lru.end());
     for (auto &p : lru) {
-        if (s_bytes <= budget() * 3 / 4)
+        if (s_bytes <= budget() * 3 / 4 && (!pressure || freed >= kPressureFree))
             break;
+        freed += s_art[p.second].bytes;
         evict(s_art[p.second]);
         s_art.erase(p.second);
     }

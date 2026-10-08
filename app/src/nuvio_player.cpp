@@ -115,6 +115,9 @@ ui::PlayerUi s_osd;
 /* Jelly5: headless (music behind the menus) - nothing drawn, no controller; the
  * status and request are published for the app to draw. */
 std::atomic<bool> s_headless{false};
+/* Jelly5: the caller's own stop (a theme song's, the music's): the run ends when it
+ * is set, and does not start when it already is. Null for a film. */
+std::atomic<const std::atomic<bool> *> s_stop{nullptr};
 std::mutex s_now_lock;
 NuvioStatus s_now_status;
 NuvioRequest s_now_request;
@@ -403,6 +406,11 @@ struct Session {
     bool cancel = false;
     bool done = false;
     bool user_picked_subs = false;
+    /* The selected subtitle track, found again once a reopened stream is open:
+     * an external one by its url, an embedded one by its stream index. */
+    bool resub_pending = false;
+    std::string resub_url;
+    int resub_stream = -1;
     double open_started = 0;
     double last_frame_at = 0;
     double last_pos = 0, last_pos_change = 0;
@@ -578,6 +586,16 @@ void refresh_audio(Session &s)
     }
 }
 
+/* The position, pause and tracks for the app's progress reports (once a second). */
+void report_progress(const Session &s)
+{
+    const int audio = s.st.audio_active >= 0 && s.st.audio_active < (int)s.st.audio.size()
+                          ? s.st.audio[s.st.audio_active].stream
+                          : -1;
+    nuvio_control_report(s.req.id.c_str(), s.st.position, s.st.duration, s.st.paused ? 1 : 0, audio,
+                         nuvio_subs_selected());
+}
+
 /* The viewer's subtitle preference: their language, else a forced track in
  * the audio's language when subtitles are off. Re-run as addon tracks arrive
  * until the viewer picks one themselves. */
@@ -640,13 +658,98 @@ nuvio_rect video_rect(const pp_video_frame &f)
     return r;
 }
 
+/* The request's subtitle files for the source that plays. One tied to a source (a
+ * transcode's embedded track served as a file) comes only with that source: another
+ * version has its own tracks, timed for it. */
+void add_request_subtitles(const NuvioRequest &req, const std::string &source_id)
+{
+    for (const NuvioSubtitleRef &r : req.subtitles)
+        if (r.source.empty() || r.source == source_id)
+            nuvio_subs_add_external(r.url.c_str(), r.lang.c_str(), r.label.c_str(), r.headers.c_str());
+}
+
+/* The id of the source the request plays now. */
+std::string playing_source(const NuvioRequest &req)
+{
+    return req.source_index >= 0 && req.source_index < (int)req.sources.size() ? req.sources[req.source_index].id
+                                                                                : std::string();
+}
+
+/* Before a reopen: the subtitles start over, keeping what the viewer had - the
+ * request's files for the source that opens (add_request_subtitles, in the
+ * request's order, which the progress reports count on), then the external tracks
+ * an addon or a search added, the delay, and which track was on (found again by
+ * restore_subtitles; an embedded one only when the same file opens again). Indices
+ * change: embedded tracks come after the externals once the stream is open. */
+static void reset_subtitles(Session &s, bool same_file, const std::string &source_id)
+{
+    std::vector<NuvioSubtitleRef> ext;
+    const int sel = nuvio_subs_selected(), n = nuvio_subs_count();
+    if (!s.resub_pending) {   /* not still waiting from a reopen that never opened */
+        s.resub_url.clear();
+        s.resub_stream = -1;
+    }
+    for (int i = 0; i < n; i++) {
+        nuvio_sub_track t;
+        char *url = nullptr, *headers = nullptr;
+        int stream = -1;
+        if (nuvio_subs_track(i, &t) == 0 && nuvio_subs_track_source(i, &url, &headers, &stream) == 0) {
+            if (url)
+                ext.push_back({url, t.lang, t.title, headers ? headers : ""});
+            if (i == sel && !s.resub_pending) {
+                if (url)
+                    s.resub_url = url;
+                else if (same_file)
+                    s.resub_stream = stream;
+            }
+        }
+        std::free(url);
+        std::free(headers);
+    }
+    if (!same_file)
+        s.resub_stream = -1;   /* another file: its stream indices are other tracks */
+    s.resub_pending = !s.resub_url.empty() || s.resub_stream >= 0;
+    const int delay = nuvio_subs_delay_ms();
+    nuvio_subs_close();
+    nuvio_subs_set_delay_ms(delay);
+    add_request_subtitles(s.req, source_id);
+    for (const NuvioSubtitleRef &r : ext) {
+        bool requested = false;   /* the request's own: added above, or another version's */
+        for (const NuvioSubtitleRef &q : s.req.subtitles)
+            requested = requested || q.url == r.url;
+        if (!requested)
+            nuvio_subs_add_external(r.url.c_str(), r.lang.c_str(), r.label.c_str(), r.headers.c_str());
+    }
+}
+
+/* After a reopen: the track that was on, on again. */
+static void restore_subtitles(Session &s)
+{
+    if (!s.resub_pending)
+        return;
+    s.resub_pending = false;
+    const int n = nuvio_subs_count();
+    for (int i = 0; i < n; i++) {
+        char *url = nullptr, *headers = nullptr;
+        int stream = -1;
+        if (nuvio_subs_track_source(i, &url, &headers, &stream) != 0)
+            continue;
+        const bool same = url ? s.resub_url == url : s.resub_stream >= 0 && s.resub_stream == stream;
+        std::free(url);
+        std::free(headers);
+        if (same) {
+            nuvio_subs_select(i);
+            s_osd.note_subtitle_choice();
+            return;
+        }
+    }
+}
+
 /* Open source `index` of the request at `at` seconds, on the worker thread. */
 void open_source(Session &s, int index, double at)
 {
     const NuvioSource src = s.req.sources[index];
-    nuvio_subs_close();
-    for (const NuvioSubtitleRef &r : s.req.subtitles)
-        nuvio_subs_add_external(r.url.c_str(), r.lang.c_str(), r.label.c_str(), r.headers.c_str());
+    reset_subtitles(s, false, src.id);
     s.req.url = src.url;
     s.req.headers = src.headers;
     s.req.user_agent = src.user_agent;
@@ -689,10 +792,15 @@ void apply(Session &s, const OsdCommand &c)
         break;
     case OsdCmd::PlayNext:
         s.done = true;
-        s.res.state = "ended";
+        /* "ended" only when the title played to its end (the end detector set it);
+         * a skip (R1, Next, a phone's Next) is not an end: repeat-one replays an
+         * ended track, a skipped one moves on. */
+        if (s.res.state != "ended")
+            s.res.state = "stopped";
         s.res.action = "next";
         s.res.season = s.req.next.season;
         s.res.episode = s.req.next.episode;
+        s.res.video_id = s.req.next.video_id;
         break;
     case OsdCmd::PlayEpisode:
         s.done = true;
@@ -700,6 +808,7 @@ void apply(Session &s, const OsdCommand &c)
         s.res.action = "episode";
         s.res.season = c.season;
         s.res.episode = c.episode;
+        s.res.video_id = c.video_id;
         break;
     case OsdCmd::SelectAudio:
         if (c.index >= 0 && c.index < (int)s.audio_streams.size() && !s.job.running) {
@@ -726,6 +835,7 @@ void apply(Session &s, const OsdCommand &c)
             const double at = s.started ? s_pb->getPositionSeconds() : s.req.start_position;
             s_pb->stopPlayback();
             open_source(s, c.index, at);
+            nuvio_bridge_source(c.index);
         }
         break;
     }
@@ -736,6 +846,12 @@ void apply(Session &s, const OsdCommand &c)
 /* ---- public -------------------------------------------------------------------------- */
 
 extern "C" void nuvio_player_set_headless(int headless) { s_headless = headless != 0; }
+void nuvio_player_set_stop(const std::atomic<bool> *stop) { s_stop = stop; }
+bool nuvio_player_stop_requested(void)
+{
+    const std::atomic<bool> *stop = s_stop;
+    return stop && *stop;
+}
 
 static bool s_left_in_player;   /* music: the last run kept player mode on */
 
@@ -789,9 +905,7 @@ extern "C" void nuvio_player_init(int user_id)
 static void reopen_at(Session &s, double at)
 {
     s_pb->stopPlayback();
-    nuvio_subs_close();
-    for (const NuvioSubtitleRef &r : s.req.subtitles)
-        nuvio_subs_add_external(r.url.c_str(), r.lang.c_str(), r.label.c_str(), r.headers.c_str());
+    reset_subtitles(s, true, playing_source(s.req));
     s.req.start_position = at;
     s.opened = s.started = s.failed = false;
     s.error.clear();
@@ -804,7 +918,7 @@ static void reopen_at(Session &s, double at)
     s.job.at = at;
     s.open_started = now_s();
     s.wd_frames = -1;
-    s_osd.begin(&s.req, s.open_started);
+    s_osd.begin(&s.req, s.open_started, true);
     start_job(s.job);
 }
 
@@ -841,6 +955,9 @@ static bool connection_dropped(Session &s, double now, bool keep_pos = false)
 
 extern "C" void nuvio_player_run(const char *json)
 {
+    const std::atomic<bool> *const stop = s_stop;
+    if (stop && *stop)
+        return;   /* stopped before it opened */
     static Session s_storage;
     Session &s = s_storage;
     s.~Session();
@@ -870,8 +987,7 @@ extern "C" void nuvio_player_run(const char *json)
     nuvio_subs_close();
     nuvio_subs_set_style(&s.req.prefs.style);
     nuvio_subs_set_delay_ms(0);
-    for (const NuvioSubtitleRef &r : s.req.subtitles)
-        nuvio_subs_add_external(r.url.c_str(), r.lang.c_str(), r.label.c_str(), r.headers.c_str());
+    add_request_subtitles(s.req, playing_source(s.req));
     if (!s.req.subtitle_requests.empty()) {
         SubFetch *f = new SubFetch{s.req.subtitle_requests, s.req.prefs.subtitle_langs, session};
         pthread_t t;
@@ -909,6 +1025,7 @@ extern "C" void nuvio_player_run(const char *json)
     start_job(s.job);
 
     double last_report = 0, last_diag = 0, last_auto = 0;
+    unsigned overlay_frames = 0;
     bool seen_active = false;
     std::vector<OsdCommand> cmds;
 
@@ -936,6 +1053,7 @@ extern "C" void nuvio_player_run(const char *json)
                     s.opened = true;
                     nuvio_subs_open(play_fmt, video_stream_index);
                     refresh_audio(s);
+                    restore_subtitles(s);
                     auto_select_subtitles(s);
                     s.st.quality_line = quality_line();
                     seen_active = false;
@@ -970,7 +1088,7 @@ extern "C" void nuvio_player_run(const char *json)
             std::memset(&in, 0, sizeof in);   /* the app has the controller */
         else
             nuvio_input_poll(&in);
-        if (nuvio_control_take_stop() || nuvio_control_quit_requested()) {
+        if (nuvio_control_take_stop() || nuvio_control_quit_requested() || (stop && *stop)) {
             if (s.job.running && !s.opened) {
                 s.cancel = true;
             } else {
@@ -1144,7 +1262,7 @@ extern "C" void nuvio_player_run(const char *json)
             usleep(10000);
             if (now - last_report >= 1.0 && s.started) {
                 last_report = now;
-                nuvio_control_report(s.req.id.c_str(), s.st.position, s.st.duration);
+                report_progress(s);
             }
             continue;
         }
@@ -1172,7 +1290,9 @@ extern "C" void nuvio_player_run(const char *json)
                 evo_agc_composite_overlay(0, s_sub_canvas.px, CW, CH, sub_changed ? 1 : 0, 1.0f);
             gfx::begin_overlay();
             s_osd.draw(s.st);
-            evo_agc_runtime_present();
+            gfx::end_overlay();   /* also frees what art::tick evicted, the OSD's old text */
+            if ((++overlay_frames % 120) == 0)
+                gfx::collect();   /* the text cache, as main's loop does */
 #ifdef JELLY5_LOG_HOST
             {   /* development builds: frame timing, split by whether the interface (glass) is up */
                 static perf::Frames video_perf("video");
@@ -1186,7 +1306,7 @@ extern "C" void nuvio_player_run(const char *json)
 
         if (now - last_report >= 1.0 && s.started) {
             last_report = now;
-            nuvio_control_report(s.req.id.c_str(), s.st.position, s.st.duration);
+            report_progress(s);
         }
 #ifdef JELLY5_LOG_HOST   /* dev builds: the engine's state every 5 s */
         if (now - last_diag >= 5.0 && engine_ready) {
@@ -1209,12 +1329,15 @@ extern "C" void nuvio_player_run(const char *json)
     /* ---- leave ---- */
     s_session++;
     finish_job(s.job);
-    s.res.position = s.started ? s_pb->getPositionSeconds() : s.req.start_position;
+    /* Left while a dropped stream waits to retry: the engine was stopped (its
+     * position is 0), so the resume point is where the stream broke off. */
+    s.res.position = s.retry_at > 0 ? s.drop_pos : s.started ? s_pb->getPositionSeconds() : s.req.start_position;
     s.res.duration = s_pb->getDurationSeconds();
     if (s.failed && s.res.error.empty())
         s.res.error = s.error;
     if (s.res.state.empty())
         s.res.state = s.failed ? "error" : "stopped";
+    s.res.group_end = s_osd.group_end();
     if (!s.st.audio.empty() && s.st.audio_active >= 0)
         s.res.audio_lang = s.st.audio[s.st.audio_active].lang;
     {

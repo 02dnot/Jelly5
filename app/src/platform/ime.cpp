@@ -207,6 +207,12 @@ void poll()
             done(text);
         }
         sceImeDialogTerm();
+    } else {
+        /* Not up after a second, or an error: closed for good, or a dialog that came
+         * up late would have no one listening and every later Init would fail. */
+        if (status >= 0)
+            sceImeDialogAbort();
+        sceImeDialogTerm();
     }
     wipe();
     s_done = nullptr;

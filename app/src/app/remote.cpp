@@ -4,8 +4,10 @@
  */
 #include "app/remote.h"
 
+#include "app/spawn.h"
 #include "app/syncplay.h"
 #include "jf/jf_ws.h"
+#include "jf/json_num.h"
 
 #include "evo_boot_trace.h"
 
@@ -36,7 +38,7 @@ std::string str(const cJSON *o, const char *k)
 int64_t num(const cJSON *o, const char *k)
 {
     const cJSON *v = cJSON_GetObjectItemCaseSensitive(o, k);
-    return cJSON_IsNumber(v) ? (int64_t)v->valuedouble : 0;
+    return cJSON_IsNumber(v) ? jf::to_int<int64_t>(v->valuedouble) : 0;
 }
 
 void push(const Command &c)
@@ -59,15 +61,25 @@ void handle(const std::string &text)
     if (type == "Play") {
         c.kind = Command::Play;
         const cJSON *id;
-        cJSON_ArrayForEach(id, cJSON_GetObjectItemCaseSensitive(d, "ItemIds"))
+        cJSON_ArrayForEach(id, cJSON_GetObjectItemCaseSensitive(d, "ItemIds")) {
+            if (c.item_ids.size() >= 200)   /* each is a request of its own: a queue's worth */
+                break;
             if (cJSON_IsString(id))
                 c.item_ids.push_back(id->valuestring);
             else if (cJSON_IsNumber(id))   /* Emby's ids are numbers ("ItemIds":[11]) */
-                c.item_ids.push_back(std::to_string((long long)id->valuedouble));
+                c.item_ids.push_back(std::to_string(jf::to_int<long long>(id->valuedouble)));
+        }
         c.start_index = (int)num(d, "StartIndex");
         c.start_ticks = num(d, "StartPositionTicks");
         c.play_command = str(d, "PlayCommand");
         have = !c.item_ids.empty();
+        /* StartIndex counts in the whole list: one odd id drops the command. */
+        for (const std::string &item : c.item_ids)
+            if (!is_item_id(item)) {
+                evo_bt("remote: Play with an odd item id \"%s\", ignored", item.c_str());
+                have = false;
+                break;
+            }
     } else if (type == "Playstate") {
         const std::string cmd = str(d, "Command");
         have = true;
@@ -154,7 +166,22 @@ void start(jf::Client *client, std::function<bool()> alive)
         std::lock_guard<std::mutex> g(s_lock);
         s_queue.clear();
     }
-    std::thread([client, alive, gen] { run(client, alive, gen); }).detach();
+    if (!jelly5::spawn([client, alive, gen] { run(client, alive, gen); }))
+        evo_bt("remote: no thread for the socket");
+}
+
+bool is_item_id(const std::string &id)
+{
+    if (!id.empty() && id.size() <= 20 && id.find_first_not_of("0123456789") == std::string::npos)
+        return true;
+    int hex = 0;
+    for (const char ch : id) {
+        if ((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F'))
+            hex++;
+        else if (ch != '-')
+            return false;
+    }
+    return hex == 32;
 }
 
 void send(const Command &c) { push(c); }

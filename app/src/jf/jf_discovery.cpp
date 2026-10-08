@@ -9,6 +9,7 @@
 #include <arpa/inet.h>
 #include <cstring>
 #include <ctime>
+#include <string>
 #include <netinet/in.h>
 #include <poll.h>
 #include <sys/socket.h>
@@ -29,6 +30,37 @@ std::string str(const cJSON *o, const char *key)
     const cJSON *v = cJSON_GetObjectItemCaseSensitive(o, key);
     return cJSON_IsString(v) && v->valuestring ? v->valuestring : "";
 }
+
+/* The host of an address ("http://192.168.0.10:8096" -> "192.168.0.10"). */
+std::string host_of(const std::string &address)
+{
+    size_t b = address.find("://");
+    b = b == std::string::npos ? 0 : b + 3;
+    if (b < address.size() && address[b] == '[')   /* IPv6: [::1]:8096 */
+        return address.substr(b, address.find(']', b) - b + 1);
+    const size_t e = address.find_first_of(":/?#", b);
+    return address.substr(b, e == std::string::npos ? std::string::npos : e - b);
+}
+
+/* A reply names its server's address. An IP there must be the one it came from:
+ * otherwise anyone on the network could send the PS5 to any address. A name
+ * (a server's PublishedServerUrl, say) cannot be checked here and is taken; the
+ * login offers only those that answer at their address anyway. */
+bool plausible(const std::string &address, const struct in_addr &from)
+{
+    const std::string host = host_of(address);
+    if (host.empty())
+        return false;
+    struct in_addr a;
+    if (inet_pton(AF_INET, host.c_str(), &a) == 1)
+        return a.s_addr == from.s_addr;
+    if (host[0] == '[')
+        return false;   /* (the broadcast is IPv4: an IPv6 address did not answer it) */
+    return true;
+}
+
+/* A busy network has a few servers, not hundreds: each one found is probed. */
+constexpr size_t kMaxServers = 16;
 
 } // namespace
 
@@ -63,8 +95,11 @@ std::vector<FoundServer> discover(int timeout_ms)
         if (poll(&p, 1, left) <= 0)
             break;
         char buf[2048];
-        const ssize_t n = recvfrom(fd, buf, sizeof buf - 1, 0, nullptr, nullptr);
-        if (n <= 0)
+        struct sockaddr_in from;
+        socklen_t from_len = sizeof from;
+        memset(&from, 0, sizeof from);
+        const ssize_t n = recvfrom(fd, buf, sizeof buf - 1, 0, (struct sockaddr *)&from, &from_len);
+        if (n <= 0 || from.sin_family != AF_INET)
             continue;
         buf[n] = 0;
         cJSON *j = cJSON_Parse(buf);
@@ -72,13 +107,15 @@ std::vector<FoundServer> discover(int timeout_ms)
             continue;
         FoundServer s{str(j, "Id"), str(j, "Name"), str(j, "Address")};
         cJSON_Delete(j);
-        if (s.address.empty())
+        if (s.address.empty() || !plausible(s.address, from.sin_addr))
             continue;
         bool seen = false;
         for (const FoundServer &o : out)
             seen = seen || (!s.id.empty() ? o.id == s.id : o.address == s.address);
         if (!seen)
             out.push_back(s);
+        if (out.size() >= kMaxServers)
+            break;
     }
     close(fd);
     return out;

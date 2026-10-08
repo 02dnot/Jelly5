@@ -50,6 +50,9 @@ std::atomic<unsigned> s_gen{0};
 bool s_seen_ready = false;              /* signed in once since the account or settings changed */
 double s_last_lost = -1e9;              /* now_ms() of the last lost session (session_lost) */
 double s_lost_retry_at = 0;             /* signed out by a second loss: sign in again from then (0: no) */
+constexpr double kLostWait = 60000, kLostWaitMax = 30 * 60000;
+double s_lost_wait = kLostWait;         /* a loss sooner than this after the last is "again"; doubles each time */
+unsigned s_lost_epoch = 0;              /* the epoch that signs in again after a lost session (its cookies are gone) */
 std::map<int, std::string> s_movie_genres, s_tv_genres;
 std::string s_genres_lang;              /* the language they are in */
 
@@ -166,7 +169,7 @@ void put_bool(cJSON *o, const char *k, bool v)
 /* What is kept for the account in use (call with s_lock held). */
 struct Stored {
     Config config;
-    std::string cookies;
+    std::string cookies;                /* always the session at config.url (or none) */
     bool signed_out = false;            /* the viewer signed out: no automatic sign-in */
     std::string quick_connect_url;      /* the Seerr address the viewer approved Quick Connect for */
 };
@@ -195,7 +198,11 @@ Stored load_stored(const std::string &server, const std::string &account)
     for (int i = 0; i < (int)Auth::Count; i++)
         if (auth == kAuthNames[i])
             s.config.auth = (Auth)i;
-    s.cookies = str(acc, "cookies");
+    /* A session is Seerr's at the address it came from: never sent to another
+     * (the address changed since, by this account or another on the server).
+     * Kept before the address was (no "cookiesUrl"): whose is not known, dropped. */
+    if (str(acc, "cookiesUrl") == s.config.url)
+        s.cookies = str(acc, "cookies");
     s.signed_out = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(acc, "signedOut"));
     s.quick_connect_url = str(acc, "quickConnectUrl");
     cJSON_Delete(root);
@@ -212,10 +219,11 @@ void write_session(const std::string &cookies, bool signed_out)
         return;
     s_stored.cookies = cookies;
     s_stored.signed_out = signed_out;
-    const std::string account = s_account;
-    persist([account, cookies, signed_out](cJSON *root) {
+    const std::string account = s_account, url = s_stored.config.url;
+    persist([account, cookies, url, signed_out](cJSON *root) {
         cJSON *acc = child(child(root, "accounts"), account.c_str());
         put_str(acc, "cookies", cookies);
+        put_str(acc, "cookiesUrl", url);   /* whose session it is (load_stored) */
         put_bool(acc, "signedOut", signed_out);
     });
 }
@@ -320,10 +328,12 @@ void connect_worker(unsigned epoch)
     while (current(epoch)) {
         Stored st;
         jf::Client *jf;
+        bool lost;
         {
             std::lock_guard<std::mutex> g(s_lock);
             st = read_stored();
             jf = s_jf;
+            lost = epoch == s_lost_epoch;
         }
         if (!st.config.enabled || st.config.url.empty()) {
             publish(epoch, [](Snapshot &s) { s = Snapshot(); });
@@ -347,7 +357,7 @@ void connect_worker(unsigned epoch)
             continue;
         }
         seerr::PublicSettings ps;
-        cl->public_settings(&ps);
+        const bool have_settings = cl->public_settings(&ps);
         seerr::User u;
         const bool had_session = cl->has_session();
         bool ok = had_session && cl->me(&u);
@@ -365,6 +375,22 @@ void connect_worker(unsigned epoch)
             error = "signed out";
         } else if (!ok && st.config.auth == Auth::QuickConnect && jf && !jf->features().quick_connect) {
             /* No Quick Connect on this server (Emby; Seerr has it for Jellyfin only): its password */
+        } else if (!ok && st.config.auth == Auth::QuickConnect && !have_settings) {
+            /* Its media server not known (a 5xx, a page that is not Seerr's): asked again later */
+            const std::string err = "Seerr's public settings: " + cl->last_error();
+            evo_bt("seerr: %s", err.c_str());
+            publish(epoch, [&](Snapshot &s) {
+                s.state = State::Unreachable;
+                s.error = err;
+            });
+            if (!wait_retry(epoch))
+                return;
+            continue;
+        } else if (!ok && st.config.auth == Auth::QuickConnect && ps.media_server != 2) {
+            /* Seerr's media server is not Jellyfin (or did not say): its Quick Connect
+             * is not this account's, so no code of ours is approved for it. */
+            why = Why::MethodOff;
+            error = "Seerr's media server is not Jellyfin";
         } else if (!ok && st.config.auth == Auth::QuickConnect && st.quick_connect_url != st.config.url) {
             /* Approving a code hands whoever answers at this address a Jellyfin
              * session: only for an address the viewer approved themselves. */
@@ -375,12 +401,14 @@ void connect_worker(unsigned epoch)
             error = "Seerr's Jellyfin sign-in is off";
         } else if (!ok && st.config.auth == Auth::QuickConnect && jf) {
             evo_bt("seerr: no session, signing in by Quick Connect");
-            ok = cl->sign_in_quick_connect([jf](const std::string &code) { return jf->quick_connect_authorize(code); },
-                                           &u);
+            /* Checked again right before approving: no approval after Seerr was turned
+             * off, the address changed or the account went (a slow initiate). */
+            ok = cl->sign_in_quick_connect(
+                [jf, epoch](const std::string &code) { return current(epoch) && jf->quick_connect_authorize(code); }, &u);
             why = cl->last_status() == 403 ? Why::NotInSeerr : Why::AutoFailed;
             error = "Quick Connect: " + cl->last_error();
         }
-        finish(epoch, cl, ok, u, version, ps, why, error, had_session);
+        finish(epoch, cl, ok, u, version, ps, why, error, had_session || lost);
         return;
     }
 }
@@ -454,6 +482,7 @@ void attach(jf::Client *client)
     s_seen_ready = false;
     s_last_lost = -1e9;
     s_lost_retry_at = 0;
+    s_lost_wait = kLostWait;
     forget_noted();   /* another account's requests */
     const Stored st = s_stored;
     if (st.config.enabled && !st.config.url.empty()) {
@@ -480,6 +509,7 @@ void detach()
     s_seen_ready = false;
     s_last_lost = -1e9;
     s_lost_retry_at = 0;
+    s_lost_wait = kLostWait;
     forget_noted();
     s_client.reset();
     s_snap = Snapshot();
@@ -509,10 +539,14 @@ void set_config(const Config &c)
         put_str(srv, "url", n.url);
         put_str(child(child(root, "accounts"), account.c_str()), "auth", kAuthNames[(int)n.auth]);
     });
+    if (n.url != old.url && !s_stored.cookies.empty())
+        write_session("", s_stored.signed_out);   /* the old address's session: never sent to the new one */
     if (c.enabled == old.enabled && seerr::Client::normalize(c.url) == old.url && c.auth == old.auth)
         return;
     evo_bt("seerr: %s, %s", c.enabled ? "on" : "off", seerr::Client::normalize(c.url).c_str());
     s_seen_ready = false;
+    s_last_lost = -1e9;   /* the viewer's doing: a later loss is not "again" */
+    s_lost_wait = kLostWait;
     if (c.enabled && !c.url.empty()) {
         restart_locked();
     } else {
@@ -548,6 +582,12 @@ void move_server(const std::string &from, const std::string &to)
             rename(accounts, k, to + "|" + k.substr(prefix.size()));
     });
     evo_bt("seerr: settings moved with the Jellyfin server to its new address");
+}
+
+void forget_account(const std::string &server, const std::string &user_id)
+{
+    const std::string account = server + "|" + user_id;
+    persist([account](cJSON *root) { cJSON_DeleteItemFromObjectCaseSensitive(child(root, "accounts"), account.c_str()); });
 }
 
 Snapshot snapshot()
@@ -626,6 +666,8 @@ void reconnect()
     if (s_account.empty())
         return;
     write_session(read_stored().cookies, false);   /* asked for: sign in automatically again */
+    s_last_lost = -1e9;   /* the viewer's doing: a later loss is not "again" */
+    s_lost_wait = kLostWait;
     restart_locked();
 }
 
@@ -684,21 +726,27 @@ void approve_quick_connect()
     const std::string account = s_account;
     persist([account, url](cJSON *root) { put_str(child(child(root, "accounts"), account.c_str()), "quickConnectUrl", url); });
     evo_bt("seerr: Quick Connect approved for %s", url.c_str());
+    s_last_lost = -1e9;   /* the viewer's doing: a later loss is not "again" */
+    s_lost_wait = kLostWait;
     write_session(read_stored().cookies, false);
     restart_locked();
 }
 
-void session_lost()
+void session_lost(const seerr::Client *c)
 {
     std::lock_guard<std::mutex> g(s_lock);
     if (s_account.empty() || s_snap.state != State::Ready)
         return;   /* already on it */
-    /* At most once a minute: a session that keeps ending must not sign in (and
-     * approve a Quick Connect code) on every search. */
+    if (c != s_client.get())
+        return;   /* a late answer to an earlier session's client: this one may be fine */
+    /* A session that keeps ending must not sign in (and approve a Quick Connect
+     * code) on every search: after a minute, then twice as long each time it
+     * ends again that soon (to half an hour); one that lasts starts over. */
     const double t = now_ms();
-    if (t - s_last_lost < 60000) {
-        evo_bt("seerr: the session ended again within a minute; signing in again in a minute");
-        s_lost_retry_at = s_last_lost + 60000;   /* poll() then */
+    if (t - s_last_lost < s_lost_wait) {
+        evo_bt("seerr: the session ended again soon; signing in again in %.0f s", s_lost_wait / 1000);
+        s_lost_retry_at = s_last_lost + s_lost_wait;   /* poll() then */
+        s_lost_wait = std::min(s_lost_wait * 2, kLostWaitMax);
         s_snap.state = State::SignedOut;
         s_snap.why = Why::SignedOut;   /* "Ikke pålogget – ✕": whatever the way of signing in */
         s_client.reset();
@@ -706,9 +754,11 @@ void session_lost()
         return;
     }
     s_last_lost = t;
+    s_lost_wait = kLostWait;
     evo_bt("seerr: the session ended, signing in again");
     write_session("", false);
     restart_locked();
+    s_lost_epoch = s_epoch;   /* (no cookies now: finish still says the session was lost) */
 }
 
 void poll()
@@ -723,6 +773,7 @@ void poll()
     evo_bt("seerr: signing in again after the lost sessions");
     write_session("", false);
     restart_locked();
+    s_lost_epoch = s_epoch;
 }
 
 void sign_in(const std::string &user, const std::string &password)
@@ -732,6 +783,8 @@ void sign_in(const std::string &user, const std::string &password)
         return;
     const Stored st = read_stored();
     const std::string name = !user.empty() ? user : s_jf ? s_jf->user_name() : std::string();
+    s_last_lost = -1e9;   /* the viewer's doing: a later loss is not "again" */
+    s_lost_wait = kLostWait;
     s_epoch++;
     s_snap.testing = false;   /* a test of the last epoch never answers now */
     s_client.reset();

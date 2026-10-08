@@ -4,6 +4,7 @@
  */
 #include "ui/album.h"
 #include "app/i18n.h"
+#include "app/spawn.h"
 
 #include "gfx/art.h"
 #include "nuvio_input.h"
@@ -86,28 +87,29 @@ void Album::activate()
     jf::Client *c = &m_client;
     const std::string id = m_album.id;
     const bool playlist = m_playlist;
-    std::thread([d, c, id, playlist] {
+    jelly5::spawn([d, c, id, playlist] {   /* no thread: the page loads when it is opened again */
         jf::Item album;
         bool got = false;
         std::vector<jf::Item> tracks;
-        std::thread a([&] { got = c->item(id, &album); });
-        if (playlist) {
-            for (jf::Item &t : c->playlist_items(id))
-                if (t.type == "Audio" || t.type == "Movie" || t.type == "Episode" || t.type == "Video" ||
-                    t.type == "MusicVideo")
-                    tracks.push_back(std::move(t));
-        } else {
-            for (jf::Item &t : c->children(id, "ParentIndexNumber,IndexNumber,SortName", 1000))
-                if (t.type == "Audio")
-                    tracks.push_back(std::move(t));
-        }
-        a.join();
+        jelly5::run_all({[&] { got = c->item(id, &album); },
+                         [&] {
+                             if (playlist) {
+                                 for (jf::Item &t : c->playlist_items(id))
+                                     if (t.type == "Audio" || t.type == "Movie" || t.type == "Episode" ||
+                                         t.type == "Video" || t.type == "MusicVideo")
+                                         tracks.push_back(std::move(t));
+                             } else {
+                                 for (jf::Item &t : c->children(id, "ParentIndexNumber,IndexNumber,SortName", 1000))
+                                     if (t.type == "Audio")
+                                         tracks.push_back(std::move(t));
+                             }
+                         }});
         std::lock_guard<std::mutex> g(d->lock);
         if (got)
             d->album = album;
         d->tracks = std::move(tracks);
         d->loaded = true;
-    }).detach();
+    });
 }
 
 Action Album::input(uint32_t p)
@@ -196,9 +198,9 @@ void Album::draw(double now, float dt)
         for (const jf::Item &t : m_tracks)
             total += t.runtime_ticks;
         const int min = (int)(total / jf::kTicksPerSecond / 60);
-        char b[64];
-        std::snprintf(b, sizeof b, "%zu %s \xC2\xB7 %d min", m_tracks.size(), m_playlist ? T("titler") : T("spor"), min);
-        meta += (meta.empty() ? "" : " \xC2\xB7 ") + std::string(b);
+        const int n = (int)m_tracks.size();
+        meta += (meta.empty() ? "" : " \xC2\xB7 ") + (m_playlist ? TN(n, "%d tittel", "%d titler") : TN(n, "%d spor", "%d spor")) +
+                " \xC2\xB7 " + TN(min, "%d min", "%d min");
     }
     gfx::text(x, kTop + 168, meta, {gfx::Medium, 24}, alpha(kText3, m_content.value));
 
@@ -218,7 +220,8 @@ void Album::draw(double now, float dt)
                                       : bs[i] == Shuffle ? T("Bland")
                                       : bs[i] == Mix     ? T("Miks")
                                                          : m_album.album_artist + " \xE2\x80\xBA";
-            const float bw = std::min(520.f, gfx::text_width(label, st)) + 80;
+            /* The artist's button takes what is left of the row (a long language, a long name). */
+            const float bw = std::min({520.f, gfx::text_width(label, st), std::max(160.f, gfx::W - kPad - bx - 80)}) + 80;
             const gfx::Rect r{bx, kTop + 230, bw, 76};
             bx += bw + 20;
             if (pass == 0) {
@@ -227,7 +230,7 @@ void Album::draw(double now, float dt)
                     m_btn_drop.to(r, (int)bs[i]);
                 continue;
             }
-            gfx::text(r.x + r.w / 2, r.y + r.h / 2 + 9, label, {focus ? gfx::Bold : gfx::SemiBold, 26, 520}, kText, 1);
+            gfx::text(r.x + r.w / 2, r.y + r.h / 2 + 9, label, {focus ? gfx::Bold : gfx::SemiBold, 26, r.w - 80}, kText, 1);
         }
     }
 
@@ -239,7 +242,8 @@ void Album::draw(double now, float dt)
         m_animating = true;
     gfx::push_opacity(m_content.value);
     gfx::push_scissor({0, kListTop - 8, gfx::W, gfx::H - kListTop + 8});
-    const bool discs = n > 0 && m_tracks.back().parent_index > 1;
+    /* A playlist numbers its own order: its items' track and disc numbers are their albums'. */
+    const bool discs = !m_playlist && n > 0 && m_tracks.back().parent_index > 1;
     if (m_in_tracks && m_track < n)
         m_track_drop.to({x - 20, kListTop + m_track * kRowH - m_scroll.value, w + 20, kRowH - 6}, m_track, 0,
                         -m_scroll.value);
@@ -257,7 +261,7 @@ void Album::draw(double now, float dt)
         if (discs)
             std::snprintf(num, sizeof num, "%d.%d", std::max(1, t.parent_index), std::max(0, t.index));
         else
-            std::snprintf(num, sizeof num, "%d", t.index > 0 ? t.index : i + 1);
+            std::snprintf(num, sizeof num, "%d", t.index > 0 && !m_playlist ? t.index : i + 1);
         gfx::text(x + 30, y + 40, num, {gfx::SemiBold, 22}, dim, 2);
         gfx::text(x + 60, y + 40, t.name, {focus ? gfx::Bold : gfx::Medium, 25, w - 200}, fg);
         gfx::text(x + w - 20, y + 40, duration(t.runtime_ticks), {gfx::Medium, 22}, dim, 2);

@@ -43,6 +43,7 @@ typedef struct nuvio_sub_track {
     int  is_default;
     int  hearing_impaired;
     int  state;           /* external: 0 loading, 1 ready, -1 failed; embedded: 1 */
+    int  stream;          /* embedded: the container's stream index; external: -1 */
 } nuvio_sub_track;
 
 /* Nuvio's subtitle appearance for text tracks (ignored by styled ASS). */
@@ -69,6 +70,10 @@ void nuvio_subs_close(void);
 int  nuvio_subs_count(void);
 /* Copies track i's description; 0 on success. */
 int  nuvio_subs_track(int i, nuvio_sub_track *out);
+/* Jelly5: where track i comes from, to find it again after a reopen: an external
+ * one's url and headers (malloc'd copies, NULL for an embedded track, for the
+ * caller to free) and an embedded one's stream index (-1 external). 0 on success. */
+int  nuvio_subs_track_source(int i, char **url, char **headers, int *stream);
 int  nuvio_subs_selected(void);              /* -1 = off */
 void nuvio_subs_select(int id);
 void nuvio_subs_set_delay_ms(int ms);

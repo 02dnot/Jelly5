@@ -28,8 +28,11 @@ int nuvio_control_quit_requested(void);
 
 /* Latest playback position for the next progress report (sent every 5 s).
  * The final state is posted by the player itself, synchronously, so it is
- * at the payload before Nuvio's page reopens and asks for it. */
-void nuvio_control_report(const char *id, double position, double duration);
+ * at the payload before Nuvio's page reopens and asks for it.
+ * Jelly5: also whether it is paused, the audio's stream index in the container
+ * (-1 none) and the subtitle track (nuvio_subs' id, -1 off). */
+void nuvio_control_report(const char *id, double position, double duration, int paused, int audio_stream,
+                          int subtitle_track);
 
 #ifdef __cplusplus
 }

@@ -91,7 +91,7 @@ void Nav::draw(float a, int active, int focus, float dt, bool *animating)
      * Jellyfin has no BlurHash for users. */
     const gfx::Rect av{gfx::W - kPad - 60, cy - 30, 60, 60};
     glass_panel(av, 30, a, false);
-    const std::string initial = m_user.empty() ? "?" : m_user.substr(0, 1);
+    const std::string initial = m_user.empty() ? "?" : first_letter(m_user);
     gfx::text(gfx::W - kPad - 30, cy + 10, initial, {gfx::Bold, 28}, alpha(kText, a), 1);
     if (!m_avatar.empty()) {
         art::draw(av, m_avatar, "", 440, 440, 30, a, 0);

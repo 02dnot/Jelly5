@@ -79,24 +79,19 @@ static int load_font(int idx, const uint8_t *data, size_t size)
  * ("/<word>/common/font/..."), not at /preinst. */
 const char *sceKernelGetFsSandboxRandomWord(void) __attribute__((weak));   /* NULL where the firmware lacks it */
 
-static void load_system_font(int idx)
+uint8_t *ui_text_read_system_font(const char *sys_path, size_t *size)
 {
-    font *f = &s_fonts[idx];
     struct stat st;
     int fd = -1;
-    if (f->tried)
-        return;
-    f->tried = 1;
-    if (!k_sys_paths[idx])
-        return;
+    *size = 0;
     /* As the system has it, else through the sandbox's own view of it. */
     char path[256];
-    snprintf(path, sizeof path, "%s", k_sys_paths[idx]);
+    snprintf(path, sizeof path, "%s", sys_path);
     int err = 0;
     if (stat(path, &st) != 0 || st.st_size <= 0 || (fd = open(path, O_RDONLY)) < 0) {
         err = errno;
         const char *word = sceKernelGetFsSandboxRandomWord ? sceKernelGetFsSandboxRandomWord() : NULL;
-        const char *rest = strstr(k_sys_paths[idx], "/common/");
+        const char *rest = strstr(sys_path, "/common/");
         if (word && *word && rest) {
             snprintf(path, sizeof path, "/%s%s", word, rest);
             if (stat(path, &st) != 0 || st.st_size <= 0 || (fd = open(path, O_RDONLY)) < 0)
@@ -105,9 +100,9 @@ static void load_system_font(int idx)
     }
     if (fd < 0) {
         /* Said once: without it, Japanese, Korean, Chinese or Thai text has no glyphs. */
-        evo_bt("text: system font %s not readable (errno %d; sandbox %s: errno %d)", k_sys_paths[idx], err, path,
+        evo_bt("text: system font %s not readable (errno %d; sandbox %s: errno %d)", sys_path, err, path,
                errno);
-        return;
+        return NULL;
     }
     uint8_t *buf = (uint8_t *)malloc((size_t)st.st_size);
     size_t got = 0;
@@ -118,13 +113,34 @@ static void load_system_font(int idx)
         got += (size_t)n;
     }
     close(fd);
-    if (!buf || got != (size_t)st.st_size || load_font(idx, buf, got) != 0) {
+    if (!buf || got != (size_t)st.st_size) {
+        free(buf);
+        evo_bt("text: system font %s unavailable", sys_path);
+        return NULL;
+    }
+    evo_bt("text: loaded %s", path);
+    *size = got;
+    return buf;
+}
+
+static void load_system_font(int idx)
+{
+    font *f = &s_fonts[idx];
+    if (f->tried)
+        return;
+    f->tried = 1;
+    if (!k_sys_paths[idx])
+        return;
+    size_t got = 0;
+    uint8_t *buf = ui_text_read_system_font(k_sys_paths[idx], &got);
+    if (!buf)
+        return;
+    if (load_font(idx, buf, got) != 0) {
         free(buf);
         evo_bt("text: system font %s unavailable", k_sys_paths[idx]);
         return;
     }
     f->owned = buf;
-    evo_bt("text: loaded %s", path);
 }
 
 int ui_text_init(void)
@@ -244,6 +260,26 @@ static layout s_lay;   /* the render thread's scratch (one layout at a time) */
 static int is_space_like(uint32_t cp)
 {
     return cp == ' ' || cp == 0xa0 || (cp >= 0x2000 && cp <= 0x200b) || cp == 0x3000;
+}
+
+/* What a line may not start with: combining marks (Latin accents, Arabic vowel
+ * signs, Thai vowels and tone marks above and below), Thai's following vowels,
+ * joiners and variation selectors. Cutting there would split one letter. */
+static int no_break_before(uint32_t cp)
+{
+    return (cp >= 0x0300 && cp <= 0x036f) || (cp >= 0x0483 && cp <= 0x0489) ||
+           (cp >= 0x0610 && cp <= 0x061a) || (cp >= 0x064b && cp <= 0x065f) || cp == 0x0670 ||
+           (cp >= 0x06d6 && cp <= 0x06ed) || cp == 0x0e30 || (cp >= 0x0e31 && cp <= 0x0e3a) ||
+           cp == 0x0e45 || (cp >= 0x0e47 && cp <= 0x0e4e) || (cp >= 0x1ab0 && cp <= 0x1aff) ||
+           (cp >= 0x1dc0 && cp <= 0x1dff) || cp == 0x200c || cp == 0x200d || (cp >= 0x20d0 && cp <= 0x20ff) ||
+           (cp >= 0xfe00 && cp <= 0xfe0f) || (cp >= 0xfe20 && cp <= 0xfe2f);
+}
+
+/* Whether text may be cut between cps[i - 1] and cps[i]: not inside a letter,
+ * and not after a Thai leading vowel (it is written before its consonant). */
+static int can_cut(const uint32_t *cps, int i)
+{
+    return !no_break_before(cps[i]) && !(cps[i - 1] >= 0x0e40 && cps[i - 1] <= 0x0e44);
 }
 
 static int needs_bidi(const uint32_t *cps, int n)
@@ -535,6 +571,8 @@ float ui_text_draw(ui_canvas *c, ui_weight w, float size, float x, float baselin
             if (s_lay.width <= max_w) lo = mid; else hi = mid - 1;
         }
         int m = lo;
+        while (m > 0 && m < n && !can_cut(cps, m))
+            m--;
         while (m > 0 && is_space_like(cps[m - 1]))
             m--;
         memcpy(trial, cps, (size_t)m * sizeof trial[0]);
@@ -560,6 +598,45 @@ static int is_cjk(uint32_t cp)
 {
     return (cp >= 0x2e80 && cp <= 0x9fff) || (cp >= 0xf900 && cp <= 0xfaff) ||
            (cp >= 0xff00 && cp <= 0xffef) || (cp >= 0x20000 && cp <= 0x2fa1f);
+}
+
+/* Japanese and Chinese line rules (kinsoku): what may not start a line (closing
+ * brackets, stops, small kana, the long-vowel mark) and what may not end one
+ * (opening brackets). */
+static int cjk_no_start(uint32_t cp)
+{
+    switch (cp) {
+    case 0x3001: case 0x3002: case 0xff0c: case 0xff0e: case 0x30fb: case 0xff1a: case 0xff1b:
+    case 0xff1f: case 0xff01: case 0xff09: case 0x300d: case 0x300f: case 0x3011: case 0x3015:
+    case 0x3009: case 0x300b: case 0x30fc: case 0x3005: case 0x309d: case 0x309e: case 0x30fd:
+    case 0x30fe: case 0x2026: case 0x00b7:
+    case 0x3041: case 0x3043: case 0x3045: case 0x3047: case 0x3049: case 0x3063: case 0x3083:
+    case 0x3085: case 0x3087: case 0x308e: case 0x3095: case 0x3096:   /* small hiragana */
+    case 0x30a1: case 0x30a3: case 0x30a5: case 0x30a7: case 0x30a9: case 0x30c3: case 0x30e3:
+    case 0x30e5: case 0x30e7: case 0x30ee: case 0x30f5: case 0x30f6:   /* small katakana */
+        return 1;
+    }
+    return 0;
+}
+
+static int cjk_no_end(uint32_t cp)
+{
+    return cp == 0xff08 || cp == 0x300c || cp == 0x300e || cp == 0x3010 || cp == 0x3014 || cp == 0x3008 ||
+           cp == 0x300a;
+}
+
+/* A break between cps[i - 1] and cps[i] where the line may end. */
+static int break_at(const uint32_t *cps, int i, int n)
+{
+    if (i == n)
+        return 1;
+    if (!can_cut(cps, i))
+        return 0;
+    if (is_space_like(cps[i]))
+        return 1;
+    if (!is_cjk(cps[i]) && !is_cjk(cps[i - 1]))
+        return 0;
+    return !cjk_no_start(cps[i]) && !cjk_no_end(cps[i - 1]);
 }
 
 /* UTF-8 of cps[a..b) into out. */
@@ -599,8 +676,7 @@ int ui_text_draw_wrapped(ui_canvas *c, ui_weight w, float size, float x, float b
         /* Greedy: the furthest break whose text fits. */
         int best = -1;
         for (int i = start + 1; i <= n; i++) {
-            const int brk = i == n || is_space_like(all[i]) || is_cjk(all[i]) || is_cjk(all[i - 1]);
-            if (!brk)
+            if (!break_at(all, i, n))
                 continue;
             layout_cps(w, size, all + start, i - start);
             if (s_lay.width <= max_w)
@@ -609,9 +685,14 @@ int ui_text_draw_wrapped(ui_canvas *c, ui_weight w, float size, float x, float b
                 break;
         }
         if (best < 0) {
-            /* One word wider than the line: cut it by characters. */
+            /* One word wider than the line (or a Thai phrase, which has no
+             * spaces between its words): cut it by letters. */
             best = start + 1;
-            for (int i = start + 1; i <= n; i++) {
+            while (best < n && !can_cut(all, best))
+                best++;
+            for (int i = best + 1; i <= n; i++) {
+                if (i < n && !can_cut(all, i))
+                    continue;
                 layout_cps(w, size, all + start, i - start);
                 if (s_lay.width > max_w)
                     break;

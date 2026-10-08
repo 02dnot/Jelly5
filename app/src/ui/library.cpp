@@ -4,14 +4,19 @@
  */
 #include "ui/library.h"
 #include "app/i18n.h"
+#include "app/spawn.h"
 
+#include "app/spawn.h"
 #include "gfx/art.h"
+#include "jelly5_playback.h"
 #include "nuvio_input.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <cstdio>
 #include <thread>
+#include <unistd.h>
 
 namespace ui {
 namespace {
@@ -130,6 +135,7 @@ std::string Library::types_for(const std::string &collection_type)
 void Library::activate()
 {
     m_nav.to(1.f);
+    refresh_if_stale();
     bool need;
     {
         std::lock_guard<std::mutex> g(m_data->lock);
@@ -183,6 +189,81 @@ void Library::reload()
     load_more();
 }
 
+void Library::apply(const UserDataChange &c)
+{
+    std::lock_guard<std::mutex> g(m_data->lock);
+    Data &d = *m_data;
+    auto gone = [&](const jf::Item &it) {
+        return it.id == c.id && ((m_filters.unplayed && c.played_set && c.played) ||
+                                 (m_filters.favorites && c.favorite_set && !c.favorite));
+    };
+    for (jf::Item &it : d.items)
+        apply_change(it, c);
+    const size_t before = d.items.size();
+    d.items.erase(std::remove_if(d.items.begin(), d.items.end(), gone), d.items.end());
+    if (d.total > 0)
+        d.total = std::max((int)d.items.size(), d.total - (int)(before - d.items.size()));
+    /* One that now passes them is not in the grid yet: it comes with the next refresh. */
+    if ((m_filters.unplayed && c.played_set && !c.played) || (m_filters.favorites && c.favorite_set && c.favorite))
+        m_stale = true;
+}
+
+void Library::refresh_if_stale()
+{
+    if (m_stale && refresh())
+        m_stale = false;   /* (a page on its way: the next time it is shown) */
+}
+
+/* A mark being written to the server (main's Action::Changed): a refresh waits
+ * for it, or it could bring back the mark from before. */
+static std::atomic<int> s_writes{0};
+void Library::write_started() { s_writes++; }
+void Library::write_done() { s_writes--; }
+
+/* The titles loaded so far asked again in one request, and swapped in where they
+ * are: played marks and progress follow, the focus and the scroll stay. */
+bool Library::refresh()
+{
+    std::shared_ptr<Data> d = m_data;
+    int count;
+    unsigned gen;
+    {
+        std::lock_guard<std::mutex> g(d->lock);
+        if (d->total < 0)
+            return true;    /* nothing loaded yet: activate loads it */
+        if (d->loading)
+            return false;   /* a page on its way */
+        d->loading = true;
+        count = std::max(kPage, (int)d->items.size());
+        gen = d->generation;
+    }
+    const Sort s = kSorts[m_sort];
+    jf::Client *c = &m_client;
+    const Source src = source();
+    const std::string fq = filter_query();
+    const bool started = jelly5::spawn([d, c, src, s, count, gen, fq] {
+        jelly5_wait_reports(4000);   /* back from playing: the stop report first */
+        for (int waited = 0; s_writes > 0 && waited < 4000; waited += 20)
+            usleep(20 * 1000);
+        jf::Page page = src.types == "MusicArtist" ? c->album_artists(src.view, s.by, s.desc, 0, count)
+                                                   : c->library(src.view, src.types, s.by, s.desc, 0, count, src.filter + fq);
+        std::lock_guard<std::mutex> g(d->lock);
+        if (gen != d->generation)
+            return;   /* reloaded meanwhile */
+        d->loading = false;
+        if (!page.ok)
+            return;   /* the grid keeps what it had */
+        d->items = std::move(page.items);
+        d->total = d->items.empty() ? 0 : std::max(page.total, (int)d->items.size());
+    });
+    if (!started) {
+        std::lock_guard<std::mutex> g(d->lock);
+        if (gen == d->generation)
+            d->loading = false;
+    }
+    return started;
+}
+
 void Library::load_more()
 {
     std::shared_ptr<Data> d = m_data;
@@ -200,22 +281,27 @@ void Library::load_more()
     jf::Client *c = &m_client;
     const Source src = source();
     const std::string fq = filter_query();
-    std::thread([d, c, src, s, start, gen, fq] {
+    const bool started = jelly5::spawn([d, c, src, s, start, gen, fq] {
         /* Artists are Jellyfin's album artists, as its own music tab shows them. */
         jf::Page page = src.types == "MusicArtist" ? c->album_artists(src.view, s.by, s.desc, start, kPage)
                                                    : c->library(src.view, src.types, s.by, s.desc, start, kPage, src.filter + fq);
         std::lock_guard<std::mutex> g(d->lock);
         if (gen != d->generation)
             return;   /* the sort changed meanwhile */
-        if (!page.ok && start == 0) {   /* failed (not empty): asked again when wanted */
-            d->total = -1;
+        if (!page.ok) {   /* failed (not empty): asked again when wanted, a later page on the next scroll */
+            if (start == 0)
+                d->total = -1;
             d->loading = false;
             return;
         }
         d->items.insert(d->items.end(), page.items.begin(), page.items.end());
         d->total = page.items.empty() && start == 0 ? 0 : std::max(page.total, (int)d->items.size());
         d->loading = false;
-    }).detach();
+    });
+    if (!started) {   /* no thread: not loading, asked again when wanted */
+        std::lock_guard<std::mutex> g(d->lock);
+        d->loading = false;
+    }
 }
 
 Action Library::input(uint32_t p)
@@ -346,6 +432,7 @@ void Library::switch_source(int i)
         std::lock_guard<std::mutex> g(m_data->lock);
         m_data->genres.clear();
         m_data->genres_loaded = false;
+        m_data->genres_gen++;
     }
     reload();
 }
@@ -357,19 +444,27 @@ void Library::open_sheet()
     m_filter_a.to(1.f);
     std::shared_ptr<Data> d = m_data;
     bool need;
+    unsigned gen;
     {
         std::lock_guard<std::mutex> g(d->lock);
         need = !d->genres_loaded;
         d->genres_loaded = true;
+        gen = d->genres_gen;
     }
     if (need) {
         jf::Client *c = &m_client;
         const Source src = source();
-        std::thread([d, c, src] {
+        const bool started = jelly5::spawn([d, c, src, gen] {
             std::vector<std::string> gs = c->genres_in(src.view, src.types);
             std::lock_guard<std::mutex> g(d->lock);
+            if (gen != d->genres_gen)
+                return;   /* another library meanwhile: these genres are not its own */
             d->genres = std::move(gs);
-        }).detach();
+        });
+        if (!started) {   /* no thread: the next opening asks again */
+            std::lock_guard<std::mutex> g(d->lock);
+            d->genres_loaded = false;
+        }
     }
 }
 
@@ -521,7 +616,7 @@ void Library::jump_letter(int dir)
         gen = d->generation;
         d->loading = true;
     }
-    std::thread([d, c, src, s, fq, dir, cur, at, total, gen] {
+    const bool started = jelly5::spawn([d, c, src, s, fq, dir, cur, at, total, gen] {
         auto letter = [](int i) { return std::string(1, (char)('A' + i)); };
         int target = -1;
         std::string shown;
@@ -556,15 +651,19 @@ void Library::jump_letter(int dir)
         if (target >= 0 && have < target + kPage)
             page = c->library(src.view, src.types, s.by, s.desc, have, target + kPage - have, fq);
         std::lock_guard<std::mutex> g(d->lock);
-        d->loading = false;
         if (gen != d->generation)
-            return;
+            return;   /* reloaded meanwhile: the loading flag is the new load's */
+        d->loading = false;
         d->items.insert(d->items.end(), page.items.begin(), page.items.end());
         if (target >= 0 && target < (int)d->items.size()) {
             d->jump_to = target;
             d->jump_letter = shown;
         }
-    }).detach();
+    });
+    if (!started) {   /* no thread: no jump, and not loading */
+        std::lock_guard<std::mutex> g(d->lock);
+        d->loading = false;
+    }
 }
 
 void Library::draw(double now, float dt)
@@ -634,9 +733,7 @@ void Library::draw(double now, float dt)
                           0, hy) - 2 * 6;
         }
         if (total >= 0) {
-            char cnt[32];
-            std::snprintf(cnt, sizeof cnt, T("%d titler"), total);
-            gfx::text(kPad + tw + 20, hy, cnt, {gfx::Medium, 24}, alpha(kText3, ha));
+            gfx::text(kPad + tw + 20, hy, TN(total, "%d tittel", "%d titler"), {gfx::Medium, 24}, alpha(kText3, ha));
         }
         /* Sorting and filters behind one round glass button on the right (an icon:
          * tapering lines), what is in force written small beside it. */
@@ -662,7 +759,7 @@ void Library::draw(double now, float dt)
         }
         std::string state = T(kSorts[m_sort].label);
         if (nf > 0)
-            state += std::string("  \xC2\xB7  ") + (nf == 1 ? T("1 filter") : std::to_string(nf) + T(" filtre"));
+            state += std::string("  \xC2\xB7  ") + TN(nf, "%d filter", "%d filtre");
         gfx::text(bx - 18, hy, state, {gfx::Medium, 22, 520}, alpha(here ? kText2 : kText3, ha), 2);
         const float sw = gfx::text_width(state, {gfx::Medium, 22, 520});
         if (by_name() && !m_in_pills) {   /* A-Å: the letter jump, shown where it works */

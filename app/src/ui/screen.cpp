@@ -407,11 +407,11 @@ void draw_poster(jf::Client &c, const jf::Item &it, const gfx::Rect &base, float
     /* Where it stands in Seerr (a library item on Seerr's tab too). */
     using RS = seerr::RequestStatus;
     if (it.ext.request == (int)RS::Declined)   /* "Mine forespørsler": the request's own fate */
-        draw_label_chip(r.x + 10, r.y + 10, T("Avslått"), 0xffff453au, opacity);
+        draw_label_chip(r.x + 10, r.y + 10, T("Avslått"), 0xffff453au, opacity, 15.f, r.w - 20);
     else if (it.ext.request == (int)RS::Failed)
-        draw_label_chip(r.x + 10, r.y + 10, T("Feilet"), 0xffff453au, opacity);
+        draw_label_chip(r.x + 10, r.y + 10, T("Feilet"), 0xffff453au, opacity, 15.f, r.w - 20);
     else if (it.external() || it.ext.tmdb_ref)
-        draw_status_chip(r.x + 10, r.y + 10, seerr_service::status_of(it), opacity);
+        draw_status_chip(r.x + 10, r.y + 10, seerr_service::status_of(it), opacity, 15.f, r.w - 20);
     /* Watched: a check; a series with episodes left: how many. Both on a small piece
      * of glass (tint, sheen, lit rim - no blur: there are dozens on screen). */
     auto chip = [&](const gfx::Rect &b) {
@@ -472,19 +472,20 @@ uint32_t seerr_status_color(int status)
     }
 }
 
-float draw_status_chip(float x, float y, int status, float a, float size)
+float draw_status_chip(float x, float y, int status, float a, float size, float max_w)
 {
     const char *label = seerr_status_label(status);
     if (!*label)
         return 0;
-    return draw_label_chip(x, y, label, seerr_status_color(status), a, size);
+    return draw_label_chip(x, y, label, seerr_status_color(status), a, size, max_w);
 }
 
-float draw_label_chip(float x, float y, const char *label, uint32_t color, float a, float size)
+float draw_label_chip(float x, float y, const char *label, uint32_t color, float a, float size, float max_w)
 {
-    /* The poster chips' glass (a tint, a sheen, a lit rim; no blur), a dot of its colour. */
-    const gfx::TextStyle ts{gfx::SemiBold, size};
+    /* The poster chips' glass (a tint, a sheen, a lit rim; no blur), a dot of its colour;
+     * max_w: the poster's room (the label ends in an ellipsis past it). */
     const float h = size * 2.f, d = size * 0.6f, pad = h * 0.42f;
+    const gfx::TextStyle ts{gfx::SemiBold, size, max_w > 0 ? max_w - (pad + d + 8 + pad) : 0};
     const float w = pad + d + 8 + gfx::text_width(label, ts) + pad;
     const gfx::Rect b{x, y, w, h};
     gfx::fill(b, alpha(0x99101014u, a), h / 2);
@@ -545,15 +546,21 @@ void Ambient::set(const std::string &blurhash, double now)
 
 void Ambient::draw(float dt, float dim, bool *animating)
 {
-    /* Settled on a new colour: start (or redirect) the fade. */
-    const bool waiting = !m_pending.empty() && m_pending != m_cur && m_pending != m_next;
+    /* Settled on a new colour: start (or redirect) the fade. Back on the one a
+     * fade is leaving: it turns round from where it is. */
+    const bool waiting = !m_pending.empty() && (m_pending != m_cur || !m_next.empty()) && m_pending != m_next;
     if (waiting && animating)
         *animating = true;
     if (waiting && m_now - m_pending_since > 0.35) {
-        if (!m_next.empty() && m_mix.value > 0.5f)
-            m_cur = m_next;       /* mostly there already: that becomes the base */
-        m_next = m_pending;
-        m_mix.snap(0.f);
+        if (m_pending == m_cur) {
+            std::swap(m_cur, m_next);
+            m_mix.snap(1.f - m_mix.value);
+        } else {
+            if (!m_next.empty() && m_mix.value > 0.5f)
+                m_cur = m_next;       /* mostly there already: that becomes the base */
+            m_next = m_pending;
+            m_mix.snap(0.f);
+        }
         m_mix.to(1.f);
     }
     const gfx::Rect full{0, 0, gfx::W, gfx::H};

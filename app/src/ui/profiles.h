@@ -22,6 +22,7 @@ public:
     struct Choice {
         bool add = false;            /* "Legg til": another user on account.server */
         bool add_server = false;     /* "+ Server" */
+        bool removed = false;        /* Triangle twice: account was removed from the console */
         accounts::Account account;
     };
 

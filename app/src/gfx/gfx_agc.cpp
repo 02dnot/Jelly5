@@ -350,7 +350,9 @@ void begin_overlay()
 void end_frame()
 {
     evo_agc_runtime_present();
-    /* Free what the GPU can no longer be reading (3 frames in flight). */
+    /* Free what the GPU can no longer be reading (3 frames in flight). s_frame counts
+     * the frames of both loops (begin_frame, begin_overlay), so the delay holds
+     * however the menus' and the player's frames alternate. */
     auto it = std::remove_if(s_graveyard.begin(), s_graveyard.end(), [](const Pending &p) {
         if (s_frame - p.frame < 4)
             return false;
@@ -359,6 +361,8 @@ void end_frame()
     });
     s_graveyard.erase(it, s_graveyard.end());
 }
+
+void end_overlay() { end_frame(); }
 
 Texture *texture_from_pixels(const uint32_t *rgba, int w, int h, int stride_px)
 {
@@ -731,7 +735,10 @@ int backdrop_blur(const Rect &r, float radius, float sigma, float opacity, float
                      evo_agc_runtime_pipeline_valid(EVO_AGC_PIPE_UI_GLASS));
     }
 #endif
-    if (opacity <= 0.f || !evo_agc_has_layers() || !evo_agc_runtime_pipeline_valid(EVO_AGC_PIPE_UI_BLUR))
+    /* The shader's pane is not drawn through premul, so push_opacity reaches it here;
+     * the blur's own quads below take premul's (opacity stays the caller's for them). */
+    const float shown = opacity * s_opacity;
+    if (shown <= 0.f || !evo_agc_has_layers() || !evo_agc_runtime_pipeline_valid(EVO_AGC_PIPE_UI_BLUR))
         return 0;
     /* Panel pixels: the rect, and the rect grown by the blur's reach for the first pass. */
     /* The real glass shows the picture behind it, only softened, so the bending at
@@ -745,6 +752,20 @@ int backdrop_blur(const Rect &r, float radius, float sigma, float opacity, float
         glass_why("empty rect");
         return 0;
     }
+    /* The pane as the current clip (push_scissor) leaves it: the glass pass sets its
+     * own scissor, which must not reach past the clip (a scrolled list's pane drew
+     * over the header above it). */
+    int cx0 = x0, cy0 = y0, cx1 = x1, cy1 = y1;
+    if (!s_scissors.empty()) {
+        const Rect &c = s_scissors.back();
+        const int sx = (int)std::floor(c.x * s_scale), sy = (int)std::floor(c.y * s_scale);
+        cx0 = std::max(cx0, sx);
+        cy0 = std::max(cy0, sy);
+        cx1 = std::min(cx1, sx + (int)std::ceil(c.w * s_scale));
+        cy1 = std::min(cy1, sy + (int)std::ceil(c.h * s_scale));
+    }
+    if (cx1 <= cx0 || cy1 <= cy0)
+        return 0;   /* clipped away: nothing to blur */
     /* The blurred area: the pane, grown for the shader's refraction, which samples
      * from just outside the rim. */
     const int m = shader ? (int)std::ceil(30.f * s_scale) : 0;
@@ -757,8 +778,8 @@ int backdrop_blur(const Rect &r, float radius, float sigma, float opacity, float
         return 0;
     int result = ok ? 1 : 0;
     if (ok && shader) {   /* the real glass */
-        evo_agc_runtime_set_scissor(x0, y0, x1 - x0, y1 - y0);
-        if (glass_pass(out_v, r, radius, opacity, lift))
+        evo_agc_runtime_set_scissor(cx0, cy0, cx1 - cx0, cy1 - cy0);
+        if (glass_pass(out_v, r, radius, shown, lift))
             result = 2;
         else
             glass_why("glass pass failed");
@@ -881,17 +902,18 @@ namespace {
 
 struct TextKey {
     std::string s;
-    int weight, size10, maxw, lines;
+    int weight, size10, maxw, lines, line_h10;
     bool operator==(const TextKey &o) const
     {
-        return weight == o.weight && size10 == o.size10 && maxw == o.maxw && lines == o.lines && s == o.s;
+        return weight == o.weight && size10 == o.size10 && maxw == o.maxw && lines == o.lines &&
+               line_h10 == o.line_h10 && s == o.s;
     }
 };
 struct TextKeyHash {
     size_t operator()(const TextKey &k) const
     {
         return std::hash<std::string>()(k.s) ^ ((size_t)k.weight << 1) ^ ((size_t)k.size10 << 4) ^
-               ((size_t)k.maxw << 12) ^ ((size_t)k.lines << 24);
+               ((size_t)k.maxw << 12) ^ ((size_t)k.lines << 24) ^ ((size_t)k.line_h10 << 32);
     }
 };
 struct TextEntry {
@@ -900,6 +922,7 @@ struct TextEntry {
     float ascent = 0;          /* logical px from top to the first baseline */
     float advance = 0;         /* logical width of the text */
     uint64_t used = 0;
+    uint64_t made = 0;         /* the frame it was rasterised */
 };
 std::unordered_map<TextKey, TextEntry, TextKeyHash> s_text;
 
@@ -915,14 +938,18 @@ ui_weight to_ui(Weight w)
 
 TextEntry &text_entry(const std::string &s, const TextStyle &st)
 {
-    TextKey key{s, (int)st.weight, (int)(st.size * 10), (int)st.max_w, st.max_lines};
+    TextKey key{s, (int)st.weight, (int)(st.size * 10), (int)st.max_w, st.max_lines, (int)(st.line_h * 10)};
     auto it = s_text.find(key);
     if (it != s_text.end()) {
-        it->second.used = s_frame;
-        return it->second;
+        /* No texture (the pool was full): rasterised again now and then, not every frame. */
+        if (it->second.tex || s_frame - it->second.made < 30) {
+            it->second.used = s_frame;
+            return it->second;
+        }
+        s_text.erase(it);
     }
     TextEntry e;
-    e.used = s_frame;
+    e.used = e.made = s_frame;
     /* Rasterised at panel resolution: 2x on a 4K panel. */
     const float k = s_scale;
     const ui_weight w = to_ui(st.weight);
@@ -931,16 +958,22 @@ TextEntry &text_entry(const std::string &s, const TextStyle &st)
     ui_text_metrics(w, size, &asc, &desc);
     const float pad = 2 * k;
     int cw, ch, lines = 1;
+    float clip = 0;   /* one line: the width it is shortened to (0: as it is) */
     const float line_h = (st.line_h > 0 ? st.line_h : st.size * 1.4f) * k;
+    /* A texture is at most 8192 px wide (texture_from_pixels): a longer line ends
+     * in an ellipsis there, as at max_w, rather than vanishing. */
+    const float cap = 8192 - 2 * pad - 1;
+    const float max_w = st.max_w > 0 ? std::min(st.max_w * k, cap) : 0;
     if (st.max_lines > 1 && st.max_w > 0) {
-        lines = ui_text_draw_wrapped(nullptr, w, size, 0, asc, st.max_w * k, line_h, st.max_lines, 0, s.c_str());
-        cw = (int)std::ceil(st.max_w * k + 2 * pad);
+        lines = ui_text_draw_wrapped(nullptr, w, size, 0, asc, max_w, line_h, st.max_lines, 0, s.c_str());
+        cw = (int)std::ceil(max_w + 2 * pad);
         ch = (int)std::ceil(asc + desc + (lines - 1) * line_h + 2 * pad);
-        e.advance = st.max_w;
+        e.advance = max_w / k;
     } else {
         float tw = ui_text_width(w, size, s.c_str());
-        if (st.max_w > 0)
-            tw = std::min(tw, st.max_w * k);
+        clip = max_w > 0 ? max_w : tw > cap ? cap : 0;
+        if (clip > 0)
+            tw = std::min(tw, clip);
         cw = (int)std::ceil(tw + 2 * pad);
         ch = (int)std::ceil(asc + desc + 2 * pad);
         e.advance = tw / k;
@@ -949,10 +982,9 @@ TextEntry &text_entry(const std::string &s, const TextStyle &st)
     if (cw > 0 && ch > 0 && ui_canvas_init(&c, cw, ch) == 0) {
         ui_canvas_clear(&c);
         if (st.max_lines > 1 && st.max_w > 0)
-            ui_text_draw_wrapped(&c, w, size, pad, pad + asc, st.max_w * k, line_h, st.max_lines, UI_WHITE,
-                                 s.c_str());
+            ui_text_draw_wrapped(&c, w, size, pad, pad + asc, max_w, line_h, st.max_lines, UI_WHITE, s.c_str());
         else
-            ui_text_draw(&c, w, size, pad, pad + asc, UI_WHITE, s.c_str(), st.max_w > 0 ? st.max_w * k : 0);
+            ui_text_draw(&c, w, size, pad, pad + asc, UI_WHITE, s.c_str(), clip);
         e.tex = texture_from_pixels(c.px, cw, ch, cw);
         ui_canvas_free(&c);
     }
@@ -988,14 +1020,28 @@ size_t text_cache_size() { return s_text.size(); }
 
 void collect()
 {
-    /* Text not drawn for ~10 s goes; the cache never holds more than 1500. */
+    /* Text not drawn for ~10 s goes; past 1500 the least recently drawn go too,
+     * never what this frame drew. */
     for (auto it = s_text.begin(); it != s_text.end();) {
-        if (s_frame - it->second.used > 600 || s_text.size() > 1500) {
+        if (s_frame - it->second.used > 600) {
             texture_release(it->second.tex);
             it = s_text.erase(it);
         } else {
             ++it;
         }
+    }
+    if (s_text.size() <= 1500)
+        return;
+    std::vector<std::pair<uint64_t, decltype(s_text)::iterator>> old;
+    for (auto it = s_text.begin(); it != s_text.end(); ++it)
+        if (it->second.used != s_frame)
+            old.emplace_back(it->second.used, it);
+    std::sort(old.begin(), old.end(), [](const auto &a, const auto &b) { return a.first < b.first; });
+    for (auto &o : old) {
+        if (s_text.size() <= 1500)
+            break;
+        texture_release(o.second->second.tex);
+        s_text.erase(o.second);
     }
 }
 

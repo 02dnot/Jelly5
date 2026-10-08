@@ -11,7 +11,10 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
+#include <mutex>
 #include <sys/stat.h>
+#include <unistd.h>
 
 extern "C" {
 #include "cJSON.h"
@@ -64,6 +67,9 @@ struct Store {
 };
 
 int s_ps5_user = -1;
+/* remember, forget and set_last read, change and write the file: one at a time
+ * (sign-in runs on its own thread), or one could undo the other's change. */
+std::mutex s_write_lock;
 std::string ps5_key() { return std::to_string(s_ps5_user); }
 
 Store read_store()
@@ -82,6 +88,13 @@ Store read_store()
                 s.by_ps5[m->string] = {str(m, "server"), str(m, "user")};
         cJSON_Delete(j);
         return s;
+    }
+    struct stat st;
+    if (stat(kFile, &st) == 0 && st.st_size > 0) {
+        /* There, but unreadable: kept aside, never written over by the next sign-in. */
+        const std::string bad = std::string(kFile) + ".bad";
+        std::rename(kFile, bad.c_str());
+        evo_bt("accounts: %s did not parse (%lld bytes): moved to .bad", kFile, (long long)st.st_size);
     }
     /* First run after phase 1: take over its session. */
     if (cJSON *old = cJSON_Parse(read_file(kLegacy).c_str())) {
@@ -127,15 +140,25 @@ void write_store(const Store &s)
     cJSON_AddItemToObject(j, "lastByPs5User", by);
     char *text = cJSON_PrintUnformatted(j);
     cJSON_Delete(j);
-    /* Write beside, then rename: a crash mid-write never loses the accounts. */
-    const std::string tmp = std::string(kFile) + ".tmp";
-    if (FILE *f = std::fopen(tmp.c_str(), "wb")) {
-        std::fputs(text, f);
-        std::fclose(f);
-        std::rename(tmp.c_str(), kFile);
-    } else {
-        evo_bt("accounts: cannot write %s", kFile);
+    if (!text) {
+        evo_bt("accounts: out of memory, %s not written", kFile);
+        return;
     }
+    /* Write beside, on disk, then rename: a crash or a full disk mid-write never
+     * loses the accounts (the old file stays until the new one is whole). */
+    const std::string tmp = std::string(kFile) + ".tmp";
+    const size_t n = std::strlen(text);
+    bool ok = false;
+    if (FILE *f = std::fopen(tmp.c_str(), "wb")) {
+        ok = std::fwrite(text, 1, n, f) == n && std::fflush(f) == 0 && fsync(fileno(f)) == 0;
+        ok = std::fclose(f) == 0 && ok;
+    }
+    if (ok && std::rename(tmp.c_str(), kFile) == 0) {
+        std::free(text);
+        return;
+    }
+    std::remove(tmp.c_str());
+    evo_bt("accounts: cannot write %s", kFile);
     std::free(text);
 }
 
@@ -179,6 +202,7 @@ bool last(Account *out)
 
 std::vector<std::string> remember(const Account &a)
 {
+    std::lock_guard<std::mutex> g(s_write_lock);
     Store s = read_store();
     /* The server answered at a.server: everything saved for it at another address
      * moves there, and the user's own old entry gives way to this one. */
@@ -228,6 +252,7 @@ std::vector<std::string> remember(const Account &a)
 
 void forget(const std::string &server, const std::string &user_id)
 {
+    std::lock_guard<std::mutex> g(s_write_lock);
     Store s = read_store();
     std::vector<Account> keep;
     for (const Account &x : s.list)
@@ -243,6 +268,7 @@ void forget(const std::string &server, const std::string &user_id)
 
 void set_last(const std::string &server, const std::string &user_id)
 {
+    std::lock_guard<std::mutex> g(s_write_lock);
     Store s = read_store();
     s.last_server = server;
     s.last_user = user_id;

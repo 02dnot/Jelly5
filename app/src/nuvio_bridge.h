@@ -40,6 +40,9 @@ void nuvio_bridge_state(const char *id, const char *state, double position,
 /* The final result, as built by nuvio_result_json (state, action, tracks). */
 void nuvio_bridge_state_json(const char *json);
 
+/* The viewer switched to the request's source `index` (Jelly5: the version). */
+void nuvio_bridge_source(int index);
+
 /* A command queued for the app (GET /api/player/control): from the page, or
  * from a test machine while the console has /data/nuvio/lan-debug.
  *   key   button = cross|circle|square|triangle|up|down|left|right|options|

@@ -13,6 +13,7 @@
 
 #include "jf/jf_client.h"
 
+#include <functional>
 #include <string>
 
 namespace settings {
@@ -47,9 +48,11 @@ void load_local();
 void set_local(const Local &l);
 /* The server signed in to (its Id, else its address): its quality cap from now on. */
 void use_server(const std::string &key);
-/* Reads the account's preferences (after sign-in). */
-void load_server(jf::Client &c);
-/* Changes the account's preferences (written in the background). */
+/* Reads the account's preferences (after sign-in); dropped unless current() still
+ * says this account is the one in use. */
+void load_server(jf::Client &c, const std::function<bool()> &current);
+/* Changes the account's preferences (written in the background, once they were
+ * read from this account: before that, on the console only). */
 void set_server(jf::Client &c, const jf::UserPrefs &p);
 
 } // namespace settings

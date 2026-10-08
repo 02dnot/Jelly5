@@ -28,7 +28,7 @@ public:
     void activate() override;
     Action input(uint32_t pressed) override;
     void draw(double now, float dt) override;
-    bool animating() const override { return true; }   /* the caret blinks */
+    bool animating() const override { return m_animating; }   /* (the caret blinks while the keyboard has the focus) */
     float nav_alpha() const override { return 1.f; }
 
 private:
@@ -37,6 +37,7 @@ private:
         std::vector<jf::Item> items;
         std::string for_query;       /* the query these results answer */
         unsigned seq = 0;
+        bool pending = false;        /* the library's search is under way */
         /* Seerr: its results, and those of them shown (the library's left out). */
         std::vector<jf::Item> seerr, seerr_shown;
         std::string for_seerr;       /* the query Seerr's results answer */
@@ -66,8 +67,10 @@ private:
     jf::Client &m_client;
     std::shared_ptr<Data> m_data = std::make_shared<Data>();
     std::string m_query;
+    std::string m_shown, m_shown_for;   /* the query line as drawn (its end, when it is long), for m_query */
     double m_changed = 0, m_now = 0;
     bool m_pending = false, m_suggested = false;
+    bool m_animating = true;
     std::string m_seerr_retried;        /* the query Seerr was asked again for, once it came up */
 
     bool m_in_results = false;

@@ -35,6 +35,7 @@ struct NuvioEpisode {
 
 struct NuvioSubtitleRef {
     std::string url, lang, label, headers;
+    std::string source;           /* Jelly5: only with this source (id); empty: with every one */
 };
 
 struct NuvioSkip {
@@ -124,6 +125,7 @@ struct NuvioRequest {
     NuvioPrefs prefs;
     std::map<std::string, std::string> strings;
     int autoplay_count = 0;       /* episodes played back to back so far */
+    bool not_group = false;       /* Jelly5: never a SyncPlay group's item (a theme song) */
 
     /* A UI string in the viewer's language (Nuvio's translation), else fallback. */
     const char *str(const char *key, const char *fallback) const;
@@ -145,10 +147,12 @@ struct NuvioResult {
     std::string error;
     std::string action;           /* "", next, episode, source */
     int season = 0, episode = 0;  /* action episode */
+    std::string video_id;         /* Jelly5: action next/episode: the item, when known */
     int source_index = -1;        /* action source */
     std::string audio_lang, subtitle_lang;
     bool subtitles_on = false;
     int subtitle_delay_ms = 0;
+    bool group_end = false;       /* Jelly5: ended as a SyncPlay group's item: the group plays on */
 };
 
 std::string nuvio_result_json(const NuvioRequest &req, const NuvioResult &res);

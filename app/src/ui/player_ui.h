@@ -38,9 +38,11 @@ namespace ui {
 
 class PlayerUi {
 public:
-    void begin(const NuvioRequest *req, double now);
-    void end() { m_req = nullptr; }
+    void begin(const NuvioRequest *req, double now, bool reopen = false);
+    void end();
+    bool group_end() const { return m_group_end; }   /* ended as a SyncPlay group's item */
     bool stats_shown() const { return m_stats; }   /* L3: the playback info panel */
+    bool seeking() const { return m_seeking; }     /* a scrub waits to be committed (○ cancels it) */
 
     /* The controller. In a SyncPlay group, pause, seek and next go to the group
      * (which then tells everyone, this player included). */
@@ -72,6 +74,7 @@ private:
     double m_trig_at = 0, m_trig_down_at = 0;
     int current_skip(const NuvioStatus &st) const;
     bool next_card(const NuvioStatus &st) const;
+    bool has_next() const;   /* music: the queue's play order, not the request's next track */
     std::vector<Button> buttons() const;
     std::vector<int> seasons() const;
     std::vector<int> episodes_in(int season) const;   /* indices into m_req->episodes */
@@ -94,8 +97,16 @@ private:
     void remote_poll(const NuvioStatus &st, std::vector<OsdCommand> &out);
     void remote_do(const remote::Command &c, const NuvioStatus &st, std::vector<OsdCommand> &out);
     void input_local(const nuvio_input_state &in, const NuvioStatus &st, std::vector<OsdCommand> &out);
+    void to_group(const NuvioStatus &st, std::vector<OsdCommand> &out, size_t first);
+    bool in_group() const;
     std::vector<remote::Command> m_scheduled;   /* SyncPlay: commands for a set moment */
     bool m_group_ready = false;                  /* SyncPlay: Ready sent for this playback */
+    bool m_group_handoff = false;                /* SyncPlay: stopping for the group's next entry */
+    bool m_group_end = false;                    /* SyncPlay: ended in a group: its queue goes on */
+    bool m_group_stalled = false;                /* SyncPlay: Buffering sent, Ready not yet */
+    double m_group_seek = -1;                    /* SyncPlay: a group seek's target, until Ready */
+    double m_group_seek_since = 0, m_group_seek_from = 0, m_group_seek_landed = -1;
+    bool m_group_seek_owed = false;              /* SyncPlay: a seek cut short still owes Ready */
     void draw_music(const NuvioStatus &st);
     void draw_lyrics(const NuvioStatus &st, float x, float w, float top, float bottom);
 
@@ -106,6 +117,8 @@ private:
 
     bool m_controls = false, m_shown_once = false;
     double m_hide_at = 0;
+    double m_input_at = -1e9;   /* the viewer's last press */
+    int m_skip_seen = -1;       /* the skip segment last shown (its focus on arrival) */
     Zone m_zone = Zone::Buttons;
     int m_button = 0;
     Anim a_controls, a_loading, a_overlay, a_skip, a_next, a_spinner, a_toast, a_error, a_flash, a_stats;
@@ -129,6 +142,8 @@ private:
     int m_rows[3] = {0, 0, 0};
     bool m_style_open = false;
     bool m_find_open = false;           /* column 2 is "Søk etter undertekster" */
+    int m_subs_seen = 0;                /* the subtitle count the focus was placed for */
+    void keep_sub_rows();
     std::vector<std::string> m_find_langs;
     int m_find_lang = 0;
     /* Episodes: 0 seasons, 1 episodes. */
@@ -137,6 +152,7 @@ private:
     int m_chap = 0;                     /* the chapter menu: the focused chapter */
     Anim m_chap_scroll;
     Drop m_chap_drop;
+    Drop m_skip_drop;   /* the skip button's focus */
     void draw_chapters(const NuvioStatus &st, float a, float dt);
     /* A trickplay thumbnail of the moment `pos` into r; false without trickplay. */
     bool trick_thumb(const gfx::Rect &r, double pos, float a, float radius);

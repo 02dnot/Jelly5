@@ -10,6 +10,7 @@
 #include "nuvio_subs.h"
 #include "app/settings.h"
 #include "app/i18n.h"
+#include "app/spawn.h"
 
 #include "evo_boot_trace.h"
 
@@ -42,6 +43,10 @@ struct Session {
     jf::Playback pb;
     std::mutex lock;
     double position = 0, duration = 0;
+    bool heard = false;                /* the player has reported (it has started) */
+    bool paused = false;
+    int audio_stream = -1;             /* the player's audio: the container's stream index */
+    int subtitle_track = -1;           /* the player's subtitle: nuvio_subs' id, -1 off */
     double reported = -1;              /* position of the last progress report */
     std::string result;                /* the player's final result JSON */
     std::atomic<bool> active{false};
@@ -50,13 +55,76 @@ Session s_session;
 
 int64_t ticks(double seconds) { return (int64_t)std::llround(seconds * jf::kTicksPerSecond); }
 
+/* The server's index of each subtitle file the player was given, in the player's
+ * order: request_json lists the real external files (the first version's, which
+ * the player keeps through a version switch), then each version's served
+ * subtitles tagged with it, and the player adds only the playing version's of
+ * those (add_request_subtitles). The k-th external track is the k-th entry here;
+ * -2 (not told) for a file of another version than the one playing. */
+std::vector<int> request_subtitle_indices(const jf::Playback &pb)
+{
+    std::vector<int> out;
+    const jf::Version *first = pb.versions.empty() ? nullptr : &pb.versions.front();
+    const bool first_plays = !first || first->id == pb.media_source_id;
+    for (const jf::MediaStream &m : first ? first->streams : pb.streams)
+        if (m.type == "Subtitle" && m.is_external && !m.delivery_url.empty())
+            out.push_back(first_plays ? m.index : -2);
+    for (const jf::Version &v : pb.versions)
+        if (v.id == pb.media_source_id)
+            for (const jf::MediaStream &m : v.served_subtitles)
+                out.push_back(m.index);
+    return out;
+}
+
+/* The player's tracks as the server's stream indices (PlaybackProgressInfo's
+ * AudioStreamIndex and SubtitleStreamIndex): *audio -1 and *subtitle -2 where
+ * they cannot be told. Playing the file itself, its streams are the server's
+ * (MediaStream.Index is the container's); an encoded stream carries the audio
+ * the server picked. External subtitles were added first, in pb's order. */
+void server_tracks(const jf::Playback &pb, int audio_stream, int subtitle_track, int *audio, int *subtitle)
+{
+    const bool direct = pb.play_method == "DirectPlay";
+    auto embedded = [&pb](const char *type, int stream) {
+        for (const jf::MediaStream &m : pb.streams)
+            if (m.type == type && !m.is_external && m.index == stream)
+                return stream >= 0;
+        return false;
+    };
+    *audio = -1;
+    if (direct) {
+        if (embedded("Audio", audio_stream))
+            *audio = audio_stream;
+    } else {
+        const size_t at = pb.url.find("AudioStreamIndex=");
+        *audio = at != std::string::npos ? std::atoi(pb.url.c_str() + at + 17) : pb.default_audio;
+    }
+    *subtitle = -2;
+    nuvio_sub_track t;
+    if (subtitle_track < 0) {
+        *subtitle = -1;   /* off */
+    } else if (nuvio_subs_track(subtitle_track, &t) == 0 && t.external) {
+        int k = 0;   /* its place among the external tracks */
+        for (int i = 0; i < subtitle_track; i++) {
+            nuvio_sub_track o;
+            if (nuvio_subs_track(i, &o) == 0 && o.external)
+                k++;
+        }
+        const std::vector<int> files = request_subtitle_indices(pb);
+        if (k < (int)files.size())   /* (one downloaded during playback comes after them: not told) */
+            *subtitle = files[k];
+    } else if (direct && nuvio_subs_track(subtitle_track, &t) == 0 && embedded("Subtitle", t.stream)) {
+        *subtitle = t.stream;
+    }
+}
+
 /* Progress every 10 s, as Jellyfin's own clients do, and at once when playback
- * pauses or resumes (a phone controlling the PS5 shows the state it is in).
- * Paused: the position (posted once a second) has not moved for 1.5 s. */
+ * pauses or resumes (a phone controlling the PS5 shows the state it is in) or
+ * another audio or subtitle track is chosen (the server remembers the choice). */
 void *reporter_thread(void *)
 {
-    double last_pos = -1, still_since = 0, t = 0, last_report = 0;
+    double t = 0, last_report = 0;
     bool reported_paused = false;
+    int reported_audio = -1, reported_subtitle = -2;
     while (s_session.active) {
         for (int i = 0; i < 10 && s_session.active; i++)   /* 250 ms, but gone at once when playback ends */
             usleep(25 * 1000);
@@ -64,19 +132,28 @@ void *reporter_thread(void *)
         if (!s_session.active)
             break;
         double pos;
+        bool heard, paused;
+        int audio_stream, subtitle_track;
+        jf::Playback pb;   /* the version playing (Versjon may switch it) */
         {
             std::lock_guard<std::mutex> g(s_session.lock);
+            pb = s_session.pb;
             pos = s_session.position;
+            heard = s_session.heard;
+            paused = s_session.paused;
+            audio_stream = s_session.audio_stream;
+            subtitle_track = s_session.subtitle_track;
         }
-        if (std::fabs(pos - last_pos) > 0.05) {
-            last_pos = pos;
-            still_since = t;
-        }
-        const bool paused = t - still_since >= 1.5;
-        if (paused != reported_paused || t - last_report >= 10.0) {
+        int audio = -1, subtitle = -2;   /* (not known before the player has started) */
+        if (heard)
+            server_tracks(pb, audio_stream, subtitle_track, &audio, &subtitle);
+        if (paused != reported_paused || audio != reported_audio || subtitle != reported_subtitle ||
+            t - last_report >= 10.0) {
             reported_paused = paused;
+            reported_audio = audio;
+            reported_subtitle = subtitle;
             last_report = t;
-            s_session.client->report_progress(s_session.pb, ticks(pos), paused);
+            s_session.client->report_progress(pb, ticks(pos), paused, audio, subtitle);
         }
     }
     return nullptr;
@@ -93,7 +170,9 @@ std::string runtime_label(int64_t runtime_ticks)
 {
     const int min = (int)(runtime_ticks / jf::kTicksPerSecond / 60);
     char b[32];
-    if (min >= 60)
+    if (min >= 60 && min % 60 == 0)
+        std::snprintf(b, sizeof b, T("%d t"), min / 60);
+    else if (min >= 60)
         std::snprintf(b, sizeof b, T("%d t %d min"), min / 60, min % 60);
     else
         std::snprintf(b, sizeof b, "%d min", min);
@@ -179,6 +258,7 @@ struct Extras {
     std::vector<jf::Chapter> chapters;
     jf::Trickplay trickplay;
     std::vector<jf::LyricLine> lyrics;
+    bool not_group = false;   /* not a SyncPlay group's item (a theme song) */
 };
 
 std::string request_json(jf::Client &c, const jf::Item &it, const jf::Playback &pb,
@@ -261,17 +341,25 @@ std::string request_json(jf::Client &c, const jf::Item &it, const jf::Playback &
     }
     cJSON_AddItemToObject(o, "sources", sources);
 
-    /* Embedded tracks come out of the container; external text subtitles are fetched. */
+    /* Embedded tracks come out of the container; external text subtitles are fetched,
+     * and so is an embedded one a transcoded version's server serves as a file: that
+     * one only with its own version ("source"). */
     cJSON *subs = cJSON_CreateArray();
-    for (const auto &s : pb.streams) {
-        if (s.type != "Subtitle" || !s.is_external || s.delivery_url.empty())
-            continue;
+    auto add_sub = [subs](const jf::MediaStream &s, const std::string &source) {
         cJSON *e = cJSON_CreateObject();
         cJSON_AddStringToObject(e, "url", s.delivery_url.c_str());
         cJSON_AddStringToObject(e, "lang", s.language.c_str());
         cJSON_AddStringToObject(e, "label", s.display_title.c_str());
+        if (!source.empty())
+            cJSON_AddStringToObject(e, "source", source.c_str());
         cJSON_AddItemToArray(subs, e);
-    }
+    };
+    for (const auto &s : pb.streams)
+        if (s.type == "Subtitle" && s.is_external && !s.delivery_url.empty())
+            add_sub(s, std::string());
+    for (const jf::Version &v : pb.versions)
+        for (const auto &s : v.served_subtitles)
+            add_sub(s, v.id);
     cJSON_AddItemToObject(o, "subtitles", subs);
 
     if (!episodes.empty()) {   /* a series' episodes, an album, or a queue */
@@ -435,6 +523,8 @@ std::string request_json(jf::Client &c, const jf::Item &it, const jf::Playback &
         cJSON_AddStringToObject(strings, kv[0], kv[1]);
     cJSON_AddItemToObject(o, "strings", strings);
 
+    if (ex.not_group)
+        cJSON_AddBoolToObject(o, "notGroup", 1);
     char *s = cJSON_PrintUnformatted(o);
     std::string out = s ? s : "{}";
     std::free(s);
@@ -442,8 +532,17 @@ std::string request_json(jf::Client &c, const jf::Item &it, const jf::Playback &
     return out;
 }
 
+/* Ended as a SyncPlay group's item (PlayerUi::playback_ended): the group's queue goes on. */
+bool group_end_of(const std::string &result)
+{
+    cJSON *j = cJSON_Parse(result.c_str());
+    const bool out = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(j, "groupEnd"));
+    cJSON_Delete(j);
+    return out;
+}
+
 /* What the viewer asked for at the end: another episode by number, or nothing. */
-bool next_from_result(const std::string &result, int *season, int *episode)
+bool next_from_result(const std::string &result, int *season, int *episode, std::string *id)
 {
     cJSON *j = cJSON_Parse(result.c_str());
     const cJSON *a = cJSON_GetObjectItemCaseSensitive(j, "action");
@@ -453,10 +552,19 @@ bool next_from_result(const std::string &result, int *season, int *episode)
                                  std::string(type->valuestring) == "episode")) {
         *season = (int)cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(a, "season"));
         *episode = (int)cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(a, "episode"));
+        const cJSON *v = cJSON_GetObjectItemCaseSensitive(a, "videoId");
+        *id = cJSON_IsString(v) && v->valuestring ? v->valuestring : "";
         want = true;
     }
     cJSON_Delete(j);
     return want;
+}
+
+/* The item the player asked for: by its id when the result carries one (season and
+ * episode numbers can be missing - all 0 - or repeat), else by the numbers. */
+bool is_pick(const jf::Item &e, int season, int number, const std::string &id)
+{
+    return !id.empty() ? e.id == id : e.parent_index == season && e.index == number;
 }
 
 double position_from_result(const std::string &result, double fallback)
@@ -480,6 +588,18 @@ std::vector<jf::RemoteSubtitle> s_found;
 std::string s_lang;
 int s_track = -1;
 unsigned s_gen = 0;              /* a new search or title drops older answers */
+unsigned s_title = 0;            /* a new title drops downloads for the last one */
+
+/* A new title starts: what was searched or fetched for the last one is dropped. */
+void new_title()
+{
+    std::lock_guard<std::mutex> g(s_lock);
+    s_gen++;
+    s_title++;
+    s_search = s_download = Idle;
+    s_found.clear();
+    s_track = -1;
+}
 }
 
 bool available()
@@ -501,7 +621,7 @@ void search(const std::string &language)
         s_found.clear();
         s_lang = language;
     }
-    std::thread([c, id, language, gen] {
+    const bool started = jelly5::spawn([c, id, language, gen] {
         std::vector<jf::RemoteSubtitle> found = c->search_subtitles(id, language);
         /* Best first: a match for this very file, then the most downloaded. */
         std::stable_sort(found.begin(), found.end(), [](const jf::RemoteSubtitle &a, const jf::RemoteSubtitle &b) {
@@ -512,7 +632,12 @@ void search(const std::string &language)
             return;
         s_found = std::move(found);
         s_search = Done;
-    }).detach();
+    });
+    if (!started) {   /* nothing found, as when the search finds nothing */
+        std::lock_guard<std::mutex> g(s_lock);
+        if (gen == s_gen)
+            s_search = Done;
+    }
 }
 
 State results(std::vector<jf::RemoteSubtitle> *out, std::string *language)
@@ -528,14 +653,19 @@ void download(const jf::RemoteSubtitle &sub)
     if (!available())
         return;
     jf::Client *c = s_session.client;
-    const jf::Playback pb = s_session.pb;
+    jf::Playback pb;
+    {
+        std::lock_guard<std::mutex> g(s_session.lock);
+        pb = s_session.pb;
+    }
+    unsigned title;
     {
         std::lock_guard<std::mutex> g(s_lock);
         s_download = Busy;
         s_track = -1;
+        title = s_title;
     }
-    const unsigned gen = s_gen;
-    std::thread([c, pb, sub, gen] {
+    const bool started = jelly5::spawn([c, pb, sub, title] {
         /* The new file shows as an external subtitle stream the next time the server
          * is asked how to play the title: the one that was not there before. */
         std::set<std::string> known;
@@ -543,29 +673,46 @@ void download(const jf::RemoteSubtitle &sub)
             if (m.type == "Subtitle" && m.is_external)
                 known.insert(m.delivery_url.substr(0, m.delivery_url.find('?')));
         int track = -1;
+        bool gone = false;   /* the title it was for has ended */
         if (c->download_subtitle(pb.item_id, sub.id)) {
-            for (int attempt = 0; attempt < 5 && track < 0; attempt++) {
+            for (int attempt = 0; attempt < 5 && track < 0 && !gone; attempt++) {
                 if (attempt)
                     usleep(1000 * 1000);   /* the server may still be writing it */
                 jf::Playback now;
                 if (!c->playback_info(pb.item_id, 0, -1, -1, &now))
                     continue;
-                for (const jf::MediaStream &m : now.streams)
+                const std::vector<jf::MediaStream> *streams = &now.streams;   /* the version playing */
+                for (const jf::Version &v : now.versions)
+                    if (v.id == pb.media_source_id)
+                        streams = &v.streams;
+                for (const jf::MediaStream &m : *streams)
+                    /* A downloaded subtitle is a file beside the media (IsExternal); a
+                     * transcode's served embedded tracks are not new ones. */
                     if (m.type == "Subtitle" && m.is_external && !m.delivery_url.empty() &&
                         !known.count(m.delivery_url.substr(0, m.delivery_url.find('?')))) {
-                        track = nuvio_subs_add_external(m.delivery_url.c_str(), m.language.c_str(),
-                                                        sub.name.c_str(), "");
+                        /* Under the lock: a new title (new_title) cannot start in between
+                         * and get this one's subtitle (adding only queues it). */
+                        std::lock_guard<std::mutex> g(s_lock);
+                        if (title == s_title)
+                            track = nuvio_subs_add_external(m.delivery_url.c_str(), m.language.c_str(),
+                                                            sub.name.c_str(), "");
+                        else
+                            gone = true;
                         break;
                     }
             }
         }
         evo_bt("jelly5: subtitle download %s -> track %d", track >= 0 ? "ok" : "failed", track);
         std::lock_guard<std::mutex> g(s_lock);
-        if (gen != s_gen && track < 0)
+        if (title != s_title)
             return;
         s_track = track;
         s_download = track >= 0 ? Done : Failed;
-    }).detach();
+    });
+    if (!started) {
+        std::lock_guard<std::mutex> g(s_lock);
+        s_download = Failed;
+    }
 }
 
 State download_state(int *track)
@@ -579,11 +726,44 @@ State download_state(int *track)
 }
 } // namespace jelly5_subs
 
-extern "C" void jelly5_playback_progress(double position, double duration)
+extern "C" void jelly5_playback_progress(double position, double duration, bool paused, int audio_stream,
+                                         int subtitle_track)
 {
     std::lock_guard<std::mutex> g(s_session.lock);
     s_session.position = position;
     s_session.duration = duration;
+    s_session.heard = true;
+    s_session.paused = paused;
+    s_session.audio_stream = audio_stream;
+    s_session.subtitle_track = subtitle_track;
+}
+
+/* The player switched to version `index` (Versjon): the reports name the one playing
+ * now. All versions share the play session, and stopping its encodings stops them all:
+ * a transcode left behind is stopped here only when the new version plays directly,
+ * else by the stop at the end (which now sees a transcoded version, not the first). */
+extern "C" void jelly5_playback_source(int index)
+{
+    jf::Playback left;
+    {
+        std::lock_guard<std::mutex> g(s_session.lock);
+        if (!s_session.active || index < 0 || index >= (int)s_session.pb.versions.size())
+            return;
+        const jf::Version &v = s_session.pb.versions[index];
+        if (v.id == s_session.pb.media_source_id)
+            return;
+        left = s_session.pb;
+        s_session.pb.media_source_id = v.id;
+        s_session.pb.play_method = v.play_method;
+        s_session.pb.url = v.url;
+        s_session.pb.streams = v.streams;   /* its tracks, not the first version's */
+        s_session.pb.default_audio = v.default_audio;
+        s_session.pb.default_subtitle = v.default_subtitle;
+        if (v.play_method != "DirectPlay" || left.play_method == "DirectPlay")
+            return;
+    }
+    jf::Client *c = s_session.client;
+    jelly5::spawn([c, left] { c->stop_encoding(left); });
 }
 
 extern "C" void jelly5_playback_finished(const char *result_json)
@@ -628,11 +808,13 @@ std::vector<jf::Item> album_queue(jf::Client &client, jf::Item *item, bool shuff
 }
 
 static bool play_chain_tracks(jf::Client &client, jf::Item item, std::vector<jf::Item> episodes, std::string *error);
+static void music_queue_end();
 
 /* The chain, then out of player mode (music keeps it on between tracks). */
 static bool play_chain(jf::Client &client, jf::Item item, std::vector<jf::Item> episodes, std::string *error)
 {
     const bool ok = play_chain_tracks(client, std::move(item), std::move(episodes), error);
+    music_queue_end();
     nuvio_player_leave();
     return ok;
 }
@@ -677,6 +859,8 @@ struct MusicQueue {
     bool shuffle = false;
     int repeat = 0;           /* 0 off, 1 all, 2 one */
     int jump = -1;            /* a queue index to play next, picked on the sheet */
+    bool active = false;      /* music plays through this queue now */
+    unsigned generation = 0;  /* which playback the queue belongs to */
 } s_music;
 
 void reorder_locked(int current)
@@ -702,6 +886,16 @@ std::string state_from_result(const std::string &result)
     cJSON *j = cJSON_Parse(result.c_str());
     const cJSON *s = cJSON_GetObjectItemCaseSensitive(j, "state");
     const std::string out = cJSON_IsString(s) && s->valuestring ? s->valuestring : "";
+    cJSON_Delete(j);
+    return out;
+}
+
+/* The player's action: "next" (a skip), "episode" (a pick or Previous), or "". */
+std::string action_from_result(const std::string &result)
+{
+    cJSON *j = cJSON_Parse(result.c_str());
+    const cJSON *t = cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(j, "action"), "type");
+    const std::string out = cJSON_IsString(t) && t->valuestring ? t->valuestring : "";
     cJSON_Delete(j);
     return out;
 }
@@ -744,14 +938,75 @@ void jelly5_music_jump(int queue_index)
     s_music.jump = queue_index;
 }
 
+static void music_queue_end()
+{
+    std::lock_guard<std::mutex> g(s_music.lock);
+    s_music.active = false;
+}
+
+bool jelly5_music_has_next(bool fallback)
+{
+    std::lock_guard<std::mutex> g(s_music.lock);
+    if (!s_music.active)
+        return fallback;
+    return s_music.repeat == 1 || (s_music.jump >= 0 && s_music.jump < (int)s_music.queue.size()) ||
+           s_music.pos + 1 < (int)s_music.order.size();
+}
+
+bool jelly5_music_has_previous(bool fallback)
+{
+    std::lock_guard<std::mutex> g(s_music.lock);
+    return s_music.active ? s_music.pos > 0 : fallback;
+}
+
+bool jelly5_music_enqueue(const std::vector<std::string> &ids, bool next)
+{
+    jf::Client *client;
+    unsigned gen;
+    {
+        std::lock_guard<std::mutex> g(s_music.lock);
+        if (!s_music.active || ids.empty())
+            return false;
+        client = s_session.client;
+        gen = s_music.generation;
+    }
+    if (!client)
+        return false;
+    /* The items come from the server, off the player's thread. */
+    return jelly5::spawn([client, ids, next, gen] {
+        std::vector<jf::Item> items;
+        for (const std::string &id : ids) {
+            jf::Item it;
+            if (client->item(id, &it) && it.type == "Audio") {
+                it.parent_index = -1;   /* never one of the player's own picks (Previous) */
+                it.index = -1;
+                it.position_ticks = 0;
+                items.push_back(std::move(it));
+            }
+        }
+        std::lock_guard<std::mutex> g(s_music.lock);
+        if (!s_music.active || s_music.generation != gen || items.empty())
+            return;
+        size_t at = next ? std::min(s_music.order.size(), (size_t)s_music.pos + 1) : s_music.order.size();
+        for (jf::Item &it : items) {
+            s_music.order.insert(s_music.order.begin() + at++, (int)s_music.queue.size());
+            s_music.queue.push_back(std::move(it));
+        }
+        evo_bt("jelly5: remote %s: %zu track(s) queued", next ? "PlayNext" : "PlayLast", items.size());
+    });
+}
+
 /* A title's theme song on its page: the player headless (the caller set that),
  * quiet, and never reported to Jellyfin - it is background, not listening. */
 bool jelly5_play_theme(jf::Client &client, const jf::Item &song)
 {
     jf::Playback pb;
-    if (!client.playback_info(song.id, 0, -1, -2, &pb, 0))
+    if (nuvio_player_stop_requested() || !client.playback_info(song.id, 0, -1, -2, &pb, 0))
         return false;
+    if (nuvio_player_stop_requested())
+        return true;   /* nothing opened yet */
     Extras ex;
+    ex.not_group = true;   /* the page's theme, never the group's: the group's commands pass it by */
     const std::string req = request_json(client, song, pb, {}, ex);
     evo_audio_set_night(0);
     evo_audio_set_gain(0.28f);
@@ -768,6 +1023,8 @@ static bool play_chain_tracks(jf::Client &client, jf::Item item, std::vector<jf:
         std::lock_guard<std::mutex> g(s_music.lock);
         s_music.queue = episodes;
         s_music.jump = -1;
+        s_music.active = true;
+        s_music.generation++;
         int cur = 0;
         for (size_t i = 0; i < episodes.size(); i++)
             if (episodes[i].id == item.id)
@@ -782,7 +1039,12 @@ static bool play_chain_tracks(jf::Client &client, jf::Item item, std::vector<jf:
                               ? JELLY5_BS_AC3 | JELLY5_BS_EAC3 | JELLY5_BS_DTS
                               : 0);
 
-    for (int chain = 0; chain < 50; chain++) {
+    /* No cap on the chain: a playlist, an album on repeat or a binge plays on as
+     * long as the viewer lets it. It cannot spin: a title that fails or is
+     * stopped ends it, and only one that started can end by itself. */
+    for (int chain = 0;; chain++) {
+        if (nuvio_player_stop_requested())
+            return true;   /* the music stopped between tracks (a film's chain has no such stop) */
         jf::Playback pb;
         const int mbps = settings::get().local.max_mbps;
         if (!client.playback_info(item.id, item.position_ticks, -1, -2, &pb, (int64_t)mbps * 1000000)) {
@@ -792,32 +1054,45 @@ static bool play_chain_tracks(jf::Client &client, jf::Item item, std::vector<jf:
         }
         evo_bt("jelly5: play %s (%s) %s %s", item.name.c_str(), item.id.c_str(), pb.play_method.c_str(),
                pb.transcode_reasons.c_str());
+        if (nuvio_player_stop_requested())
+            return true;
         Extras ex;
         if (item.type == "Audio") {
             ex.lyrics = client.lyrics(item.id);
         } else {   /* music has no intros, chapters or previews */
-            std::thread chapters([&] { client.media_extras(item.id, pb.media_source_id, &ex.chapters, &ex.trickplay); });
-            ex.segments = client.segments(item.id);
-            chapters.join();
+            jelly5::run_all({
+                [&] { client.media_extras(item.id, pb.media_source_id, &ex.chapters, &ex.trickplay); },
+                [&] { ex.segments = client.segments(item.id); },
+            });
         }
+        if (nuvio_player_stop_requested())
+            return true;   /* stopped while the server answered: nothing reported, nothing opened */
         if (ex.trickplay.valid())
             evo_bt("jelly5: trickplay %dx%d, %d thumbnails", ex.trickplay.width, ex.trickplay.height, ex.trickplay.count);
         const std::string req = request_json(client, item, pb, episodes, ex);
 
+        jelly5_subs::new_title();
         s_session.client = &client;
         s_session.pb = pb;
         s_session.position = (double)item.position_ticks / jf::kTicksPerSecond;
         s_session.reported = -1;
+        s_session.heard = false;
+        s_session.paused = false;
+        s_session.audio_stream = -1;
+        s_session.subtitle_track = -1;
         s_session.result.clear();
         s_session.active = true;
         client.report_start(pb, item.position_ticks);
         pthread_t reporter;
-        pthread_create(&reporter, nullptr, reporter_thread, nullptr);
+        const bool reporting = pthread_create(&reporter, nullptr, reporter_thread, nullptr) == 0;
+        if (!reporting)
+            evo_bt("jelly5: no thread for progress reports");
 
         nuvio_player_run(req.c_str());
 
         s_session.active = false;
-        pthread_join(reporter, nullptr);
+        if (reporting)
+            pthread_join(reporter, nullptr);
         std::string result;
         double pos;
         {
@@ -829,21 +1104,36 @@ static bool play_chain_tracks(jf::Client &client, jf::Item item, std::vector<jf:
          * (jelly5_wait_reports lets the home refresh wait for the position). */
         {
             jf::Client *c = &client;
-            const jf::Playback stopped = pb;
+            jf::Playback stopped;
+            {
+                std::lock_guard<std::mutex> g(s_session.lock);
+                stopped = s_session.pb;   /* the version playing last */
+            }
             const int64_t at = ticks(pos);
             s_reports++;
-            std::thread([c, stopped, at] {
+            auto report = [c, stopped, at] {
                 c->report_stopped(stopped, at);
                 c->stop_encoding(stopped);
                 s_reports--;
-            }).detach();
+            };
+            if (!jelly5::spawn(report))
+                report();   /* no thread: tell the server here, the menus wait a moment */
         }
         evo_bt("jelly5: playback done at %.1f s: %s", pos, result.c_str());
 
         int season = 0, number = 0;
+        std::string pick;
         if (item.type == "Audio" && !episodes.empty()) {   /* music: the queue decides */
+            if (group_end_of(result)) {   /* a SyncPlay group's: its queue plays on, not this one */
+                std::lock_guard<std::mutex> g(s_music.lock);
+                s_music.jump = -1;
+                return true;
+            }
             const bool natural = state_from_result(result) == "ended";
-            const bool asked = next_from_result(result, &season, &number);
+            const bool asked = next_from_result(result, &season, &number, &pick);
+            /* Next: on through the play order (not the player's pick by numbers,
+             * which can repeat in a playlist), whatever repeat-one says. */
+            const bool skip = !natural && action_from_result(result) == "next";
             std::lock_guard<std::mutex> g(s_music.lock);
             const int n = (int)s_music.queue.size();
             int next_index = -1;
@@ -857,27 +1147,14 @@ static bool play_chain_tracks(jf::Client &client, jf::Item item, std::vector<jf:
                 return true;   /* stopped */
             } else if (natural && s_music.repeat == 2) {
                 next_index = current_locked();   /* repeat one */
-            } else if (asked && !natural && !s_music.shuffle) {   /* Next / Previous: the player's pick */
-                for (int i = 0; i < n; i++)
-                    if (s_music.queue[i].parent_index == season && s_music.queue[i].index == number)
-                        next_index = i;
-                for (int i = 0; i < (int)s_music.order.size(); i++)
-                    if (s_music.order[i] == next_index)
-                        s_music.pos = i;
+            } else if (asked && !natural && !skip) {
+                /* Previous: one back in the play order (shuffled, or with tracks a phone
+                 * queued, the player's album numbers name another track or none). */
+                s_music.pos = std::max(0, std::min(s_music.pos - 1, (int)s_music.order.size() - 1));
+                next_index = current_locked();
             }
             if (next_index < 0) {   /* on through the play order */
-                /* Previous while shuffled: the player asked for the track before
-                 * in the queue's own order; step back in the play order instead. */
-                bool back = false;
-                if (asked && !natural && s_music.shuffle) {
-                    const int was = current_locked();
-                    for (int i = 0; i < n; i++)
-                        if (s_music.queue[i].parent_index == season && s_music.queue[i].index == number)
-                            back = i < was;
-                }
-                if (back) {
-                    s_music.pos = std::max(0, s_music.pos - 1);
-                } else if (++s_music.pos >= (int)s_music.order.size()) {
+                if (++s_music.pos >= (int)s_music.order.size()) {
                     if (s_music.repeat != 1)
                         return true;   /* the end of the queue */
                     reorder_locked(s_music.shuffle ? std::rand() % std::max(1, n) : 0);
@@ -890,18 +1167,17 @@ static bool play_chain_tracks(jf::Client &client, jf::Item item, std::vector<jf:
             item.position_ticks = 0;
             continue;
         }
-        if (!next_from_result(result, &season, &number))
+        if (!next_from_result(result, &season, &number, &pick))
             return true;
         const jf::Item *next = nullptr;
         for (const auto &e : episodes)
-            if (e.parent_index == season && e.index == number)
+            if (!next && is_pick(e, season, number, pick))
                 next = &e;
         if (!next)
             return true;
         item = *next;
         item.position_ticks = 0;
     }
-    return true;
 }
 
 void jelly5_wait_reports(int max_ms)
