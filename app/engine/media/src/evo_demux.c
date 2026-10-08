@@ -818,9 +818,14 @@ static void demux_recover_reset(void)
  * Only a seekable network file: a local file's error is the disc's, an HLS
  * or DASH playlist reconnects per segment inside its own demuxer, and a
  * stream that cannot seek (a progressive transcode, a live channel) cannot
- * go back to where it broke. A live source that should reconnect at EOF
- * instead gets its own rule here when it comes.
+ * go back to where it broke. A Live TV channel played directly is seekable
+ * http too, but has no past to go back to: its http layer reconnects at EOF
+ * and the player joins it again where it airs (evo_stream_io.c).
  */
+#ifdef NUVIO_APP
+extern int nuvio_stream_live;   /* evo_stream_io.c: the player opened a Live TV channel */
+#endif
+
 static int demux_recover_allowed_for(const AVFormatContext *fmt)
 {
     if (!fmt || !fmt->pb || !fmt->url)
@@ -830,6 +835,12 @@ static int demux_recover_allowed_for(const AVFormatContext *fmt)
         return 0;
     if (evo_stream_io_url_is_playlist(u))
         return 0;
+    if (strstr(u, "liveStreamId=") || strstr(u, "LiveStreamId="))
+        return 0;
+#ifdef NUVIO_APP
+    if (nuvio_stream_live)
+        return 0;
+#endif
     if (fmt->iformat && (strcmp(fmt->iformat->name, "hls") == 0 ||
                          strcmp(fmt->iformat->name, "dash") == 0))
         return 0;
