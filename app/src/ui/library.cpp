@@ -10,11 +10,13 @@
 #include "gfx/art.h"
 #include "jelly5_playback.h"
 #include "nuvio_input.h"
+#include "ui/letters.h"
 
 #include <algorithm>
 #include <atomic>
 #include <cctype>
 #include <cstdio>
+#include <map>
 #include <thread>
 #include <unistd.h>
 
@@ -585,26 +587,28 @@ void Library::draw_filters(float dt)
                    a);
 }
 
-/* A-Å (sorted by name): L1/R1 to the start of the previous / next letter. Jellyfin
- * counts what sorts before a letter (NameLessThan, case-blind); that count is the
- * first title of the letter. The pages up to it load in one request. */
+/* A-Å (sorted by name): L2/R2 to the start of the previous / next letter, in the
+ * server's own order (ui/letters.h). The server counts what sorts before a letter
+ * (NameLessThan); that count is the letter's first title, and the counts grow
+ * along the table, so the jump is a search over them, starting where the current
+ * title's SortName says: about three counts a press, ten at most, and the counts
+ * are kept until the list reloads (tests/host/letters.sh). The pages up to the
+ * target load in one request. */
 void Library::jump_letter(int dir)
 {
     std::shared_ptr<Data> d = m_data;
-    std::string name;
+    std::string sort_name;
     int total;
     {
         std::lock_guard<std::mutex> g(d->lock);
         if (m_index >= (int)d->items.size() || d->loading)
             return;
-        name = d->items[m_index].name;
+        const jf::Item &it = d->items[m_index];
+        sort_name = it.sort_name.empty() ? it.name : it.sort_name;
         total = d->total;
     }
-    size_t k = 0;
-    while (k < name.size() && !std::isalnum((unsigned char)name[k]))
-        k++;   /* past quotes and the like, as SortName does */
-    const char c0 = k < name.size() ? (char)std::toupper((unsigned char)name[k]) : '#';
-    const int cur = c0 >= 'A' && c0 <= 'Z' ? c0 - 'A' : -1;   /* -1: a digit or other, before A */
+    const bool latin = m_client.features().latin_sort_names;
+    const int hint = letters::index_of(sort_name, latin);
     const int at = m_index;
     jf::Client *c = &m_client;
     const Source src = source();
@@ -616,32 +620,22 @@ void Library::jump_letter(int dir)
         gen = d->generation;
         d->loading = true;
     }
-    const bool started = jelly5::spawn([d, c, src, s, fq, dir, cur, at, total, gen] {
-        auto letter = [](int i) { return std::string(1, (char)('A' + i)); };
-        int target = -1;
-        std::string shown;
-        if (dir > 0) {
-            for (int i = cur + 1; i < 26 && target < 0; i++) {
-                const int n = c->count_before(src.view, src.types, fq, letter(i));
-                if (n < 0)
-                    break;
-                if (n > at && n < total)
-                    target = n, shown = letter(i);
-            }
-        } else {
-            const int here = cur >= 0 ? c->count_before(src.view, src.types, fq, letter(cur)) : 0;
-            if (here >= 0 && here < at)
-                target = here, shown = cur >= 0 ? letter(cur) : "#";
-            for (int i = cur - 1; i >= 0 && target < 0; i--) {
-                const int n = c->count_before(src.view, src.types, fq, letter(i));
-                if (n < 0)
-                    break;
-                if (n < at)
-                    target = n, shown = letter(i);
-            }
-            if (target < 0 && at > 0)
-                target = 0, shown = "#";
+    const bool started = jelly5::spawn([d, c, src, s, fq, dir, hint, at, total, gen, latin] {
+        const std::vector<letters::Letter> &tab = letters::table(latin);
+        std::map<int, int> counted;   /* the list's counts so far: they hold until it reloads */
+        {
+            std::lock_guard<std::mutex> g(d->lock);
+            if (d->letters_gen == gen)
+                counted = d->letter_counts;
         }
+        auto before = [&](int i) {
+            auto f = counted.find(i);
+            return f != counted.end() ? f->second
+                                      : counted[i] = c->count_before(src.view, src.types, fq, tab[i].query);
+        };
+        int letter = -1;
+        const int target = letters::jump(dir, at, total, hint, (int)tab.size(), before, &letter);
+        const std::string shown = letter >= 0 ? tab[letter].label : "#";
         int have;
         {
             std::lock_guard<std::mutex> g(d->lock);
@@ -654,10 +648,18 @@ void Library::jump_letter(int dir)
         if (gen != d->generation)
             return;   /* reloaded meanwhile: the loading flag is the new load's */
         d->loading = false;
+        for (auto i = counted.begin(); i != counted.end();)   /* a failed count is asked again */
+            i = i->second < 0 ? counted.erase(i) : std::next(i);
+        d->letter_counts = std::move(counted);
+        d->letters_gen = gen;
         d->items.insert(d->items.end(), page.items.begin(), page.items.end());
         if (target >= 0 && target < (int)d->items.size()) {
+            /* The title it lands on names the letter: an empty letter in the table
+             * has the same count as the next one. */
+            const jf::Item &it = d->items[target];
+            const std::string own = letters::label_of(it.sort_name.empty() ? it.name : it.sort_name, latin);
             d->jump_to = target;
-            d->jump_letter = shown;
+            d->jump_letter = own.empty() ? shown : own;
         }
     });
     if (!started) {   /* no thread: no jump, and not loading */

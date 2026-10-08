@@ -1,0 +1,231 @@
+latin
+1 14 32 41 54 58 65 80 96 105 111 114 127 145 151 153 163 164 175 201 216 218 219 226 227 227
+0000002001: space odyssey
+ace ventura: pet detective
+aladdin
+alien
+aliens
+american beauty
+anchorman: legend of ron burgundy
+apocalypse now
+armageddon
+arrival
+avatar
+avengers
+avengers: endgame
+avengers: infinity war
+baby driver
+back to future
+back to future part ii
+back to future part iii
+barbie
+batman begins
+beauty and beast
+big lebowski
+birdman or (the unexpected virtue of ignorance)
+black panther
+black swan
+blade runner
+blade runner 0000002049
+bourne identity
+bourne ultimatum
+breakfast club
+bridesmaids
+bridget joness diary
+casablanca
+casino
+casino royale
+cast away
+catch me if you can
+citizen kane
+clockwork orange
+close encounters of third kind
+coco
+dark knight
+dark knight rises
+dead poets society
+deadpool
+departed
+despicable me
+devil wears prada
+die hard
+django unchained
+dumb and dumber
+dune
+dune: part two
+dunkirk
+e t  extraterrestrial
+elf
+empire strikes back
+everything everywhere all at once
+fargo
+ferris buellers day off
+fifth element
+fight club
+finding nemo
+forrest gump
+frozen
+get out
+ghostbusters
+gladiator
+gladiator ii
+godfather
+godfather part ii
+gone girl
+gone with wind
+good will hunting
+goodfellas
+grand budapest hotel
+gravity
+green mile
+groundhog day
+guardians of galaxy
+hangover
+harry potter and chamber of secrets
+harry potter and deathly hallows: part 0000000001
+harry potter and deathly hallows: part 0000000002
+harry potter and goblet of fire
+harry potter and halfblood prince
+harry potter and order of phoenix
+harry potter and philosophers stone
+harry potter and prisoner of azkaban
+heat
+hercules
+hobbit: unexpected journey
+home alone
+home alone 0000000002: lost in new york
+hot fuzz
+how to train your dragon
+inception
+incredibles
+independence day
+indiana jones and last crusade
+inglourious basterds
+inside out
+interstellar
+iron man
+it
+jaws
+john wick
+john wick: chapter 0000000002
+joker
+jurassic park
+jurassic world
+kill bill: vol  0000000001
+knives out
+kung fu panda
+la la land
+lawrence of arabia
+legally blonde
+lego movie
+lion king
+lion king
+little mermaid
+little women
+logan
+lord of rings: fellowship of ring
+lord of rings: return of king
+lord of rings: two towers
+love actually
+mad max: fury road
+man of steel
+martian
+mary poppins
+mask
+matrix
+matrix reloaded
+matrix resurrections
+matrix revolutions
+mean girls
+memento
+men in black
+mission: impossible
+mission: impossible  fallout
+moana
+monsters inc 
+mrs  doubtfire
+mulan
+night at museum
+no country for old men
+no time to die
+north by northwest
+notebook
+notting hill
+once upon time    in hollywood
+oppenheimer
+paddington
+paddington 0000000002
+pirates of caribbean: curse of black pearl
+polar express
+predator
+prestige
+pretty woman
+princess bride
+psycho
+pulp fiction
+quiet place
+raging bull
+raiders of lost ark
+ratatouille
+rear window
+reservoir dogs
+return of jedi
+revenant
+robocop
+rock
+rocky
+rogue one: star wars story
+saving private ryan
+scarface
+schindlers list
+school of rock
+se0000000007en
+shape of water
+shaun of dead
+shawshank redemption
+shining
+shrek
+shrek 0000000002
+silence of lambs
+singin in rain
+sixth sense
+skyfall
+sleepless in seattle
+social network
+some like it hot
+sound of music
+speed
+spiderman
+spiderman: into spiderverse
+stand by me
+star wars
+star wars: force awakens
+superbad
+tarzan
+taxi driver
+tenet
+terminator
+terminator 0000000002: judgment day
+there will be blood
+titanic
+top gun
+top gun: maverick
+total recall
+toy story
+toy story 0000000002
+toy story 0000000003
+toy story 0000000004
+truman show
+up
+up in air
+vertigo
+walle
+when harry met sally   
+whiplash
+wizard of oz
+wolf of wall street
+wonder woman
+wonka
+xmen
+zoolander
+zootopia
