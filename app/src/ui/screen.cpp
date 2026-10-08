@@ -677,11 +677,9 @@ bool draw_logo_fit(const std::string &url, const gfx::Rect &box, float a)
 
 namespace {
 
-constexpr double kMarqueeWait = 1.2;    /* s on the cut label before it moves */
+constexpr double kMarqueeWait = 1.2;    /* s on the cut label before it first moves */
 constexpr float kMarqueeSpeed = 70.f;   /* logical px a second */
-constexpr double kMarqueeRest = 1.5;    /* s at the end */
-constexpr double kMarqueeFade = 0.3;    /* s out at the end, and in at the start */
-constexpr int kMarqueeLoops = 3;
+constexpr double kMarqueeRest = 1.5;    /* s with the start back in place, between rounds */
 
 struct MarqueeState {
     double start = 0;
@@ -725,34 +723,26 @@ float marquee_text(float x, float baseline, const std::string &s, const gfx::Tex
         for (auto it = s_marquee.begin(); it != s_marquee.end();)
             it = it->second.frame + 1 < frame ? s_marquee.erase(it) : std::next(it);
 
-    const float excess = full - room;
-    const double glide = excess / kMarqueeSpeed;
-    const double loop = kMarqueeWait + glide + kMarqueeRest + kMarqueeFade;
-    const double t = now - m.start;
-    if (t >= loop * kMarqueeLoops)
-        return gfx::text(x, baseline, s, st, color, align);   /* done: it rests, cut */
+    /* A ticker: the label runs out to the left and a copy follows a gap behind,
+     * so the start comes back in place from the right, with no jump. */
     s_marquee_moving = true;
-    const int n = (int)(t / loop);
-    const double p = t - n * loop;
-    if (p < kMarqueeWait) {   /* the cut label (after the first round, fading back in) */
-        const float a = n > 0 ? (float)std::min(1.0, p / kMarqueeFade) : 1.f;
-        gfx::push_opacity(a);
-        const float w = gfx::text(x, baseline, s, st, color, align);
-        gfx::pop_opacity();
-        return w;
-    }
-    const float off = (float)std::min<double>(excess, (p - kMarqueeWait) * kMarqueeSpeed);
-    const double out = p - (kMarqueeWait + glide + kMarqueeRest);
-    const float a = out > 0 ? (float)std::max(0.0, 1.0 - out / kMarqueeFade) : 1.f;
+    const float gap = std::max(48.f, st.size * 2.5f);
+    const float lap = full + gap;
+    const double glide = lap / kMarqueeSpeed;
+    const double t = now - m.start;
+    if (t < kMarqueeWait)
+        return gfx::text(x, baseline, s, st, color, align);   /* first the cut label, as unfocused */
+    const double p = std::fmod(t - kMarqueeWait, glide + kMarqueeRest);
+    const float off = p < glide ? (float)(p * kMarqueeSpeed) : 0.f;
     const float left = align == 1 ? x - room / 2 : align == 2 ? x - room : x;
     const gfx::Rect clip{left - 2, baseline - st.size * 1.4f, room + 4, st.size * 2.2f};
     gfx::push_scissor(clip);
     const bool soft = !gfx::fade_mask_active();   /* inside a list's own fade: hard edges */
     if (soft)
-        gfx::push_fade_mask(clip, 0, 0, off > 1.f ? 18.f : 0.f, off < excess - 1.f ? 18.f : 0.f);
-    gfx::push_opacity(a);
+        gfx::push_fade_mask(clip, 0, 0, off > 1.f ? 18.f : 0.f, 18.f);
     gfx::text(left - off, baseline, s, whole, color, 0);
-    gfx::pop_opacity();
+    if (off > lap - room)   /* the copy that brings the start back */
+        gfx::text(left - off + lap, baseline, s, whole, color, 0);
     if (soft)
         gfx::pop_fade_mask();
     gfx::pop_scissor();
