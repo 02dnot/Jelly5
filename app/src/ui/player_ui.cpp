@@ -91,6 +91,7 @@ void PlayerUi::begin(const NuvioRequest *req, double now, bool reopen)
     if (reopen) {
         kept.m_card_dismissed = m_card_dismissed;
         std::copy(std::begin(m_skip_done), std::end(m_skip_done), kept.m_skip_done);
+        std::copy(std::begin(m_skip_since), std::end(m_skip_since), kept.m_skip_since);   /* no button again for 8 s */
         kept.m_scheduled.swap(m_scheduled);
         kept.m_still = m_still;
         kept.m_asking = m_asking;   /* the question stays up across the gap */
@@ -199,8 +200,14 @@ void PlayerUi::segment_tick(const NuvioStatus &st, std::vector<OsdCommand> &out)
     const double pos = st.position;
     double prev = m_prev_pos;
     if (prev < 0)   /* the first tick: from the very start, playback runs into a segment at 0 */
-        prev = pos < 1.0 && m_req->start_position < 1.0 ? -1.0 : pos;
+        prev = segments::first_prev(pos, m_req->start_position);
     m_prev_pos = pos;
+    /* Our own skip (automatic or ✕) jumps: where it lands still counts as played
+     * into (a recap right before the intro). Forgotten once there, or after 10 s
+     * (a group's seek takes a moment). */
+    const double target = m_auto_target;
+    if (m_auto_target >= 0 && (std::fabs(pos - m_auto_target) <= segments::kLandSlack || st.now - m_auto_at > 10.0))
+        m_auto_target = -1;
     for (size_t i = 0; i < m_req->skips.size() && i < 16; i++) {
         const NuvioSkip &k = m_req->skips[i];
         const int t = segments::type_of(k.type);
@@ -211,8 +218,8 @@ void PlayerUi::segment_tick(const NuvioStatus &st, std::vector<OsdCommand> &out)
         }
         if (m_skip_since[i] < 0)
             m_skip_since[i] = st.now;
-        if (m_skip_done[i] || m_seeking || !segments::entered_naturally(prev, pos, k.start) ||
-            segments::decide(action_of(t), k.end - k.start, true) != segments::Skip)
+        const bool natural = segments::entered_naturally(prev, pos, k.start) || segments::landed_into(target, pos, k.start);
+        if (m_skip_done[i] || m_seeking || !natural || segments::decide(action_of(t), k.end - k.start, true) != segments::Skip)
             continue;
         if (t != segments::Outro && next_card(st) && k.start >= card_start(st))
             continue;   /* a preview after the credits: the card has the spot */
@@ -223,6 +230,8 @@ void PlayerUi::segment_tick(const NuvioStatus &st, std::vector<OsdCommand> &out)
             autoplay_next(st, out, false);
         } else {
             out.push_back({OsdCmd::SeekTo, skip_target(st, (int)i)});
+            m_auto_target = skip_target(st, (int)i);
+            m_auto_at = st.now;
         }
     }
 }
@@ -853,6 +862,8 @@ void PlayerUi::input_local(const nuvio_input_state &in, const NuvioStatus &st, s
         } else if (on_bar && skip >= 0) {
             m_skip_done[skip] = true;
             out.push_back({OsdCmd::SeekTo, skip_target(st, skip)});
+            m_auto_target = skip_target(st, skip);   /* a segment right after it is played into */
+            m_auto_at = now;
         } else if (on_bar && next_card(st)) {
             m_card_dismissed = true;
             out.push_back({OsdCmd::PlayNext});

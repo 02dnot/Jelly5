@@ -159,6 +159,7 @@ private:
     bool m_skip_done[16] = {};          /* skipped (or asked to): until the position leaves it */
     double m_skip_since[16] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};   /* in it since */
     double m_prev_pos = -1;             /* the position last tick: did playback run into a segment */
+    double m_auto_target = -1, m_auto_at = 0;   /* where the app's own last skip lands, and when it was asked */
     bool m_card_dismissed = false;
     bool m_card_seen = false;           /* the card was up last tick (its focus on arrival) */
     double m_card_since = -1;           /* the next-episode countdown */

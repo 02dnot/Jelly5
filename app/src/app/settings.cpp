@@ -77,14 +77,14 @@ void load_local()
     auto at = s_quality.find(s_server);
     s_all.local.max_mbps = at != s_quality.end() ? at->second : s_quality_default;
     s_all.local.max_mbps_for = s_server;
-    /* Each segment type's choice; missing (older settings): the default, and the
-     * intro from the old "autoSkipIntro" switch (on: skip, off: ask). */
+    /* Each segment type's choice; missing (older settings): the default, or what
+     * the old "autoSkipIntro" switch did (on: every segment with a skip button,
+     * intro, recap and preview, was skipped). */
     {
         const cJSON *seg = cJSON_GetObjectItemCaseSensitive(j, "segments");
+        const bool old_auto = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(j, "autoSkipIntro"));
         for (int t = 0; t < segments::TypeCount; t++) {
-            int a = segments::default_action(t);
-            if (t == segments::Intro && cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(j, "autoSkipIntro")))
-                a = segments::Skip;
+            int a = segments::migrated_action(t, old_auto);
             const cJSON *v = cJSON_GetObjectItemCaseSensitive(seg, segments::key_of(t));
             if (cJSON_IsString(v))
                 a = segments::action_of(v->valuestring, a);

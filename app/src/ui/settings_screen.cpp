@@ -49,13 +49,15 @@ static_assert(SettingsScreen::SkipOutro - SettingsScreen::SkipIntro == segments:
                   SettingsScreen::SkipCommercial - SettingsScreen::SkipIntro == segments::Commercial,
               "the segment rows follow segments::Type");
 
-const char *kHeaders[] = {"Konto", "Avspilling", "Seerr", "Generelt"};
+/* (4, about, has none; 5 is what to do at intros, credits ...) */
+const char *kHeaders[] = {"Konto", "Avspilling", "Seerr", "Generelt", "", "Hopp over"};
 
-/* Its card: 0 account, 1 playback, 2 Seerr, 3 general, 4 about (no header). */
+/* Its card: 0 account, 1 playback, 5 skipping, 2 Seerr, 3 general, 4 about (no header). */
 int section_of(int row)
 {
-    return row <= SettingsScreen::SignOut      ? 0
-           : row <= SettingsScreen::ThemeMusic ? 1
+    return row <= SettingsScreen::SignOut          ? 0
+           : row <= SettingsScreen::ThemeMusic     ? 1
+           : row <= SettingsScreen::SkipCommercial ? 5
            : row <= SettingsScreen::SeerrTest  ? 2
            : row == SettingsScreen::About      ? 4
                                                : 3;
@@ -64,7 +66,7 @@ int section_of(int row)
 /* Left/Right changes it (the rest act on Cross). */
 bool adjustable(int r)
 {
-    return (r >= SettingsScreen::Quality && r <= SettingsScreen::ThemeMusic) || r == SettingsScreen::SeerrOn ||
+    return (r >= SettingsScreen::Quality && r <= SettingsScreen::SkipCommercial) || r == SettingsScreen::SeerrOn ||
            r == SettingsScreen::SeerrAuth ||
            (r >= SettingsScreen::AppLanguage && r <= SettingsScreen::Updates);
 }
@@ -99,15 +101,15 @@ const char *label_of(int row)
                                          T("Undertekstbakgrunn"),
                                          T("Spill neste episode automatisk"),
                                          T("Spør om du fortsatt ser på"),
+                                         T("Lydforsinkelse"),
+                                         T("Nattmodus"),
+                                         T("HDMI-bitstr\xC3\xB8m"),
+                                         T("Temamusikk"),
                                          T("Intro"),
                                          T("Rulletekst"),
                                          T("Oppsummering"),
                                          T("Forhåndsvisning"),
                                          T("Reklame"),
-                                         T("Lydforsinkelse"),
-                                         T("Nattmodus"),
-                                         T("HDMI-bitstr\xC3\xB8m"),
-                                         T("Temamusikk"),
                                          "Seerr",
                                          T("Adresse"),
                                          T("P\xC3\xA5logging"),
@@ -119,6 +121,7 @@ const char *label_of(int row)
                                          T("Se sammen"),
                                          "Server",
                                          T("Om Jelly5")};
+    static_assert(sizeof labels / sizeof *labels == SettingsScreen::RowCount, "a label per row");
     return labels[row];
 }
 
@@ -532,7 +535,7 @@ void SettingsScreen::draw(double, float dt)
         const int sec = section_of(r);
         if (sec != last_section) {
             last_section = sec;
-            if (sec < 4)
+            if (sec != 4)
                 gfx::text(left + 8, ys[r] - 22 - off, sec == 2 ? kHeaders[sec] : T(kHeaders[sec]), {gfx::Bold, 22}, kText3);
         }
         const bool focus = r == m_row;

@@ -22,10 +22,9 @@ class SettingsScreen : public Screen {
 public:
     enum Row {
         SwitchUser, SignOut,
-        Quality, AudioLang, SubMode, SubLang, SubSize, SubBackground, Autoplay, StillWatching,
-        SkipIntro, SkipOutro, SkipRecap, SkipPreview, SkipCommercial,   /* in segments::Type order */
-        AudioDelay, NightMode, Bitstream,
+        Quality, AudioLang, SubMode, SubLang, SubSize, SubBackground, Autoplay, StillWatching, AudioDelay, NightMode, Bitstream,
         ThemeMusic,
+        SkipIntro, SkipOutro, SkipRecap, SkipPreview, SkipCommercial,   /* "Hopp over": in segments::Type order */
         SeerrOn, SeerrUrl, SeerrAuth, SeerrAccount, SeerrTest,
         AppLanguage, Refresh, Updates, Together, ServerInfo, About, RowCount
     };

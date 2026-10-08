@@ -25,9 +25,19 @@ constexpr double kAskMin = 3.0;     /* AskToSkipMinDuration */
 constexpr double kAskHide = 8.0;    /* AskToSkipAutoHideDuration */
 constexpr double kEndMargin = 1.0;  /* the button goes 1 s before the end (SkipOverlayView) */
 constexpr double kMaxStep = 3.0;    /* more between two ticks than this is a jump (a seek), not playback */
+constexpr double kLandSlack = 1.0;  /* where the app's own skip lands: "played into" within this */
 
 /* The defaults: ask, except commercials (skipped). */
 inline Action default_action(int t) { return t == Commercial ? Skip : Ask; }
+
+/* From settings without "segments": the old switch "autoSkipIntro" skipped every
+ * segment that had a button then (intro, recap, preview). */
+inline Action migrated_action(int t, bool auto_skip_intro)
+{
+    if (auto_skip_intro && (t == Intro || t == Recap || t == Preview))
+        return Skip;
+    return default_action(t);
+}
 
 /* Its settings.json / request key, and back (Jellyfin's type names, any case;
  * the player's "credits" is the credits too). -1: a type the app has no choice for. */
@@ -70,6 +80,23 @@ inline Action effective(Action a, double len)
 inline bool entered_naturally(double prev, double pos, double start)
 {
     return prev < start && pos >= start && pos - prev <= kMaxStep;
+}
+
+/* The app's own skip landed at `target` and the position is there: a segment that
+ * starts where it landed (a recap right before the intro, commercials back to back)
+ * counts as played into, though the position jumped. */
+inline bool landed_into(double target, double pos, double start)
+{
+    return target >= 0 && pos >= target - kLandSlack && pos <= target + kLandSlack && start >= target - kLandSlack &&
+           start <= pos;
+}
+
+/* The first tick of a playback that starts at the beginning: the previous
+ * position counts as before 0 (a segment at 0 is played into). The engine can
+ * report its first position a little late. */
+inline double first_prev(double pos, double start_position)
+{
+    return pos < kMaxStep && start_position < 1.0 ? -0.001 : pos;
 }
 
 /* Skipped now (Skip), a button (Ask), or nothing, for a segment the position is
