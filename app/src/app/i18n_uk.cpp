@@ -524,6 +524,7 @@ const std::unordered_map<std::string, const char *> &ukrainian_table()
         {"Velg et program som kommer i guiden, og trykk ✕ for å ta det opp.", "Виберіть майбутню передачу в телегіді й натисніть ✕, щоб записати її."},
         {"Tas opp nå", "Триває запис"},
         {"Favoritt", "Вибране"},
+        {"Dag", "День"},
         {"Oppskalering", "Масштабування"},
         {"Skarp", "Чітке"},
         {"AI (Anime4K)", "ШІ (Anime4K)"},

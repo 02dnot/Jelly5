@@ -524,6 +524,7 @@ const std::unordered_map<std::string, const char *> &romanian_table()
         {"Velg et program som kommer i guiden, og trykk ✕ for å ta det opp.", "Alege un program viitor din ghid și apasă ✕ pentru a-l înregistra."},
         {"Tas opp nå", "Se înregistrează acum"},
         {"Favoritt", "Favorit"},
+        {"Dag", "Zi"},
         {"Oppskalering", "Scalare"},
         {"Skarp", "Clar"},
         {"AI (Anime4K)", "IA (Anime4K)"},

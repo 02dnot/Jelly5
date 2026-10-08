@@ -524,6 +524,7 @@ const std::unordered_map<std::string, const char *> &indonesian_table()
         {"Velg et program som kommer i guiden, og trykk ✕ for å ta det opp.", "Pilih acara mendatang di panduan dan tekan ✕ untuk merekamnya."},
         {"Tas opp nå", "Sedang direkam"},
         {"Favoritt", "Favorit"},
+        {"Dag", "Hari"},
         {"Oppskalering", "Peningkatan resolusi"},
         {"Skarp", "Tajam"},
         {"AI (Anime4K)", "AI (Anime4K)"},

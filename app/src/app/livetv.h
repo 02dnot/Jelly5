@@ -29,7 +29,10 @@ struct Guide {
     std::vector<jf::Item> channels;                            /* the server's order, favourites first */
     /* By channel id, by start. A list is never changed once published: snapshots share them. */
     std::map<std::string, std::shared_ptr<const std::vector<jf::Item>>> programs;
-    int64_t from = 0, to = 0;                                  /* the programmes cover [from, to) */
+    int64_t from = 0;                                          /* where it starts: the half hour it was loaded in */
+    int64_t horizon = 0;                                       /* how far ahead it may go */
+    std::vector<std::pair<int64_t, int64_t>> covered;          /* the spans loaded, sorted */
+    bool covers(int64_t t) const;                              /* t lies in a span loaded */
     std::vector<jf::Item> recordings;                          /* made, newest first */
     std::vector<jf::Item> timers;                              /* set for later, soonest first */
     bool loaded = false;                                       /* the channels came (an empty list too) */
@@ -62,8 +65,9 @@ bool loading();
 /* Loads the channels and the next hours in the background, when what is held is
  * older than a few minutes (or force). */
 void refresh(bool force = false);
-/* The guide was scrolled on: programmes up to `to` (in the background). */
-void extend(int64_t to);
+/* The guide was scrolled or jumped to [from, to): what of it is not loaded yet
+ * loads in the background (a day picked far ahead lets go of the days between). */
+void ensure(int64_t from, int64_t to);
 
 /* Favourite channels: shown at once, written to the server behind. */
 void set_favorite(const std::string &channel_id, bool on);

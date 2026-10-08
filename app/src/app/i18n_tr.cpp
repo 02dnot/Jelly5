@@ -524,6 +524,7 @@ const std::unordered_map<std::string, const char *> &turkish_table()
         {"Velg et program som kommer i guiden, og trykk ✕ for å ta det opp.", "Rehberde yaklaşan bir program seç ve kaydetmek için ✕ tuşuna bas."},
         {"Tas opp nå", "Şu anda kaydediliyor"},
         {"Favoritt", "Favori"},
+        {"Dag", "Gün"},
         {"Oppskalering", "Ölçekleme"},
         {"Skarp", "Keskin"},
         {"AI (Anime4K)", "YZ (Anime4K)"},

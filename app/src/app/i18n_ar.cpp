@@ -524,6 +524,7 @@ const std::unordered_map<std::string, const char *> &arabic_table()
         {"Velg et program som kommer i guiden, og trykk ✕ for å ta det opp.", "اختر برنامجًا قادمًا في الدليل واضغط ✕ لتسجيله."},
         {"Tas opp nå", "يتم التسجيل الآن"},
         {"Favoritt", "مفضلة"},
+        {"Dag", "اليوم"},
         {"Oppskalering", "رفع الدقة"},
         {"Skarp", "حاد"},
         {"AI (Anime4K)", "ذكاء اصطناعي (Anime4K)"},

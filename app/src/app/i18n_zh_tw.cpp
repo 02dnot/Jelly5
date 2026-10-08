@@ -524,6 +524,7 @@ const std::unordered_map<std::string, const char *> &chinese_traditional_table()
         {"Velg et program som kommer i guiden, og trykk ✕ for å ta det opp.", "在節目表中選擇即將播出的節目，按 ✕ 即可錄影。"},
         {"Tas opp nå", "正在錄影"},
         {"Favoritt", "我的最愛"},
+        {"Dag", "日期"},
         {"Oppskalering", "超解析度"},
         {"Skarp", "銳利"},
         {"AI (Anime4K)", "AI (Anime4K)"},

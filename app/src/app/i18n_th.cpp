@@ -524,6 +524,7 @@ const std::unordered_map<std::string, const char *> &thai_table()
         {"Velg et program som kommer i guiden, og trykk ✕ for å ta det opp.", "เลือกรายการที่กำลังจะมาในผังรายการแล้วกด ✕ เพื่อบันทึก"},
         {"Tas opp nå", "กำลังบันทึก"},
         {"Favoritt", "รายการโปรด"},
+        {"Dag", "วัน"},
         {"Oppskalering", "การขยายภาพ"},
         {"Skarp", "คมชัด"},
         {"AI (Anime4K)", "AI (Anime4K)"},

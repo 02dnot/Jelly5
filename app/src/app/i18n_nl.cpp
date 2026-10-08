@@ -524,6 +524,7 @@ const std::unordered_map<std::string, const char *> &dutch_table()
         {"Velg et program som kommer i guiden, og trykk ✕ for å ta det opp.", "Kies een komend programma in de gids en druk op ✕ om het op te nemen."},
         {"Tas opp nå", "Wordt nu opgenomen"},
         {"Favoritt", "Favoriet"},
+        {"Dag", "Dag"},
         {"Oppskalering", "Opschalen"},
         {"Skarp", "Scherp"},
         {"AI (Anime4K)", "AI (Anime4K)"},

@@ -524,6 +524,7 @@ const std::unordered_map<std::string, const char *> &czech_table()
         {"Velg et program som kommer i guiden, og trykk ✕ for å ta det opp.", "Vyberte v průvodci nadcházející pořad a stiskněte ✕ pro jeho nahrání."},
         {"Tas opp nå", "Právě se nahrává"},
         {"Favoritt", "Oblíbený"},
+        {"Dag", "Den"},
         {"Oppskalering", "Škálování"},
         {"Skarp", "Ostré"},
         {"AI (Anime4K)", "AI (Anime4K)"},

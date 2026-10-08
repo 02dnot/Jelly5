@@ -524,6 +524,7 @@ const std::unordered_map<std::string, const char *> &vietnamese_table()
         {"Velg et program som kommer i guiden, og trykk ✕ for å ta det opp.", "Chọn một chương trình sắp phát trong lịch và nhấn ✕ để ghi."},
         {"Tas opp nå", "Đang ghi"},
         {"Favoritt", "Yêu thích"},
+        {"Dag", "Ngày"},
         {"Oppskalering", "Nâng cấp độ phân giải"},
         {"Skarp", "Sắc nét"},
         {"AI (Anime4K)", "AI (Anime4K)"},
