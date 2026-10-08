@@ -688,6 +688,30 @@ struct MarqueeState {
 std::unordered_map<std::string, MarqueeState> s_marquee;
 bool s_marquee_moving = false;
 
+/* Whether the label's first strong letter is Arabic or Hebrew (the paragraph
+ * direction ui_text's bidi pass gives it). */
+bool starts_rtl(const std::string &s)
+{
+    const unsigned char *p = (const unsigned char *)s.data();
+    for (size_t i = 0, n = s.size(); i < n;) {
+        uint32_t cp = p[i];
+        size_t len = cp < 0x80 ? 1 : (cp & 0xe0) == 0xc0 ? 2 : (cp & 0xf0) == 0xe0 ? 3 : (cp & 0xf8) == 0xf0 ? 4 : 1;
+        if (len > 1) {
+            if (i + len > n)
+                break;
+            cp &= 0x3fu >> (len - 1);
+            for (size_t k = 1; k < len; k++)
+                cp = (cp << 6) | (p[i + k] & 0x3f);
+        }
+        i += len;
+        if ((cp >= 0x0590 && cp <= 0x08ff) || (cp >= 0xfb1d && cp <= 0xfdff) || (cp >= 0xfe70 && cp <= 0xfeff))
+            return true;
+        if ((cp >= 'A' && cp <= 'Z') || (cp >= 'a' && cp <= 'z') || (cp >= 0x00c0 && cp < 0x0590) || cp >= 0x0900)
+            return false;
+    }
+    return false;
+}
+
 double marquee_now()
 {
     using namespace std::chrono;
@@ -715,8 +739,9 @@ float marquee_text(float x, float baseline, const std::string &s, const gfx::Tex
     const std::string key = s + key_tail;
     const uint64_t frame = gfx::frame_index();
     const double now = marquee_now();
-    MarqueeState &m = s_marquee[key];
-    if (m.frame + 1 < frame)
+    auto [it, fresh] = s_marquee.try_emplace(key);
+    MarqueeState &m = it->second;
+    if (fresh || m.frame + 1 < frame)
         m.start = now;
     m.frame = frame;
     if (s_marquee.size() > 64)   /* labels no longer focused */
@@ -738,11 +763,16 @@ float marquee_text(float x, float baseline, const std::string &s, const gfx::Tex
     const gfx::Rect clip{left - 2, baseline - st.size * 1.4f, room + 4, st.size * 2.2f};
     gfx::push_scissor(clip);
     const bool soft = !gfx::fade_mask_active();   /* inside a list's own fade: hard edges */
+    /* Right to left (Arabic, Hebrew): the start is on the right, so the label
+     * rests right-aligned and runs out to the right. */
+    const bool rtl = starts_rtl(s);
+    const float lead = off > 1.f ? 18.f : 0.f;
     if (soft)
-        gfx::push_fade_mask(clip, 0, 0, off > 1.f ? 18.f : 0.f, 18.f);
-    gfx::text(left - off, baseline, s, whole, color, 0);
+        gfx::push_fade_mask(clip, 0, 0, rtl ? 18.f : lead, rtl ? lead : 18.f);
+    const float at = rtl ? left - (full - room) + off : left - off;
+    gfx::text(at, baseline, s, whole, color, 0);
     if (off > lap - room)   /* the copy that brings the start back */
-        gfx::text(left - off + lap, baseline, s, whole, color, 0);
+        gfx::text(rtl ? at - lap : at + lap, baseline, s, whole, color, 0);
     if (soft)
         gfx::pop_fade_mask();
     gfx::pop_scissor();

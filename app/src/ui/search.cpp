@@ -135,6 +135,8 @@ void Search::type(const std::string &key)
     } else {
         if (m_query.size() > 60)
             return;
+        if (key == " " && (m_query.empty() || m_query.back() == ' '))
+            return;   /* no leading or doubled space */
         m_query += key;
     }
     m_changed = m_now;
