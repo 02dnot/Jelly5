@@ -304,6 +304,7 @@ const std::unordered_map<std::string, const char *> &japanese_table()
         {"Undertekststørrelse", "字幕のサイズ"},
         {"Undertekstbakgrunn", "字幕の背景"},
         {"Spill neste episode automatisk", "次のエピソードを自動再生"},
+        {"Spør om du fortsatt ser på", "視聴を続けているか確認"}, {"Etter 3 episoder", "3エピソード後"}, {"Etter 2 timer", "2時間後"}, {"Ser du fortsatt på?", "まだ視聴していますか？"},
         {"Hopp over intro automatisk", "イントロを自動でスキップ"},
         {"Om Jelly5", "Jelly5について"},
         {"Automatisk (maks)", "自動（最高）"},

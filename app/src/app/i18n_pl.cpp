@@ -304,6 +304,7 @@ const std::unordered_map<std::string, const char *> &polish_table()
         {"Undertekststørrelse", "Rozmiar napisów"},
         {"Undertekstbakgrunn", "Tło napisów"},
         {"Spill neste episode automatisk", "Automatycznie odtwarzaj następny odcinek"},
+        {"Spør om du fortsatt ser på", "Pytaj, czy nadal oglądasz"}, {"Etter 3 episoder", "Po 3 odcinkach"}, {"Etter 2 timer", "Po 2 godzinach"}, {"Ser du fortsatt på?", "Czy nadal oglądasz?"},
         {"Hopp over intro automatisk", "Automatycznie pomijaj czołówki"},
         {"Om Jelly5", "O Jelly5"},
         {"Automatisk (maks)", "Automatyczna (maksymalna)"},

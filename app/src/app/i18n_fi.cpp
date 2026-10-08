@@ -304,6 +304,7 @@ const std::unordered_map<std::string, const char *> &finnish_table()
         {"Undertekststørrelse", "Tekstityksen koko"},
         {"Undertekstbakgrunn", "Tekstityksen tausta"},
         {"Spill neste episode automatisk", "Toista seuraava jakso automaattisesti"},
+        {"Spør om du fortsatt ser på", "Kysy, katsotko vielä"}, {"Etter 3 episoder", "3 jakson jälkeen"}, {"Etter 2 timer", "2 tunnin jälkeen"}, {"Ser du fortsatt på?", "Katsotko vielä?"},
         {"Hopp over intro automatisk", "Ohita alkutunnukset automaattisesti"},
         {"Om Jelly5", "Tietoja Jelly5:stä"},
         {"Automatisk (maks)", "Automaattinen (maksimi)"},

@@ -304,6 +304,7 @@ const std::unordered_map<std::string, const char *> &greek_table()
         {"Undertekststørrelse", "Μέγεθος υποτίτλων"},
         {"Undertekstbakgrunn", "Φόντο υποτίτλων"},
         {"Spill neste episode automatisk", "Αυτόματη αναπαραγωγή επόμενου επεισοδίου"},
+        {"Spør om du fortsatt ser på", "Ερώτηση αν παρακολουθείτε ακόμα"}, {"Etter 3 episoder", "Μετά από 3 επεισόδια"}, {"Etter 2 timer", "Μετά από 2 ώρες"}, {"Ser du fortsatt på?", "Παρακολουθείτε ακόμα;"},
         {"Hopp over intro automatisk", "Αυτόματη παράλειψη εισαγωγής"},
         {"Om Jelly5", "Σχετικά με το Jelly5"},
         {"Automatisk (maks)", "Αυτόματα (μέγιστη)"},

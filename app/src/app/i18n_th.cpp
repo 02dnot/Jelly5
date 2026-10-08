@@ -304,6 +304,7 @@ const std::unordered_map<std::string, const char *> &thai_table()
         {"Undertekststørrelse", "ขนาดคำบรรยาย"},
         {"Undertekstbakgrunn", "พื้นหลังคำบรรยาย"},
         {"Spill neste episode automatisk", "เล่นตอนถัดไปอัตโนมัติ"},
+        {"Spør om du fortsatt ser på", "ถามว่ายังดูอยู่หรือไม่"}, {"Etter 3 episoder", "หลังจาก 3 ตอน"}, {"Etter 2 timer", "หลังจาก 2 ชั่วโมง"}, {"Ser du fortsatt på?", "คุณยังดูอยู่ไหม?"},
         {"Hopp over intro automatisk", "ข้ามอินโทรอัตโนมัติ"},
         {"Om Jelly5", "เกี่ยวกับ Jelly5"},
         {"Automatisk (maks)", "อัตโนมัติ (สูงสุด)"},

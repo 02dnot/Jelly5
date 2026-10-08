@@ -304,6 +304,7 @@ const std::unordered_map<std::string, const char *> &turkish_table()
         {"Undertekststørrelse", "Altyazı boyutu"},
         {"Undertekstbakgrunn", "Altyazı arka planı"},
         {"Spill neste episode automatisk", "Sonraki bölümü otomatik oynat"},
+        {"Spør om du fortsatt ser på", "Hâlâ izleyip izlemediğini sor"}, {"Etter 3 episoder", "3 bölümden sonra"}, {"Etter 2 timer", "2 saat sonra"}, {"Ser du fortsatt på?", "Hâlâ izliyor musun?"},
         {"Hopp over intro automatisk", "Girişleri otomatik atla"},
         {"Om Jelly5", "Jelly5 Hakkında"},
         {"Automatisk (maks)", "Otomatik (en yüksek)"},

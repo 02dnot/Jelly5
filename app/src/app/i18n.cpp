@@ -179,6 +179,7 @@ const std::unordered_map<std::string, const char *> &english_table()
         {"Maks kvalitet", "Maximum quality"}, {"Foretrukket lydspråk", "Preferred audio language"},
         {"Undertekstspråk", "Subtitle language"}, {"Undertekststørrelse", "Subtitle size"},
         {"Undertekstbakgrunn", "Subtitle background"}, {"Spill neste episode automatisk", "Play next episode automatically"},
+        {"Spør om du fortsatt ser på", "Ask if you're still watching"}, {"Etter 3 episoder", "After 3 episodes"}, {"Etter 2 timer", "After 2 hours"}, {"Ser du fortsatt på?", "Are you still watching?"},
         {"Hopp over intro automatisk", "Skip intros automatically"}, {"Om Jelly5", "About Jelly5"},
         {"Automatisk (maks)", "Automatic (maximum)"}, {"Versjon ", "Version "}, {"Automatisk", "Automatic"},
         {"Lyd, undertekster og autoavspilling lagres på kontoen din på serveren og gjelder i alle appene du bruker med den.", "Audio, subtitles and autoplay are saved on your account on the server and apply in every app you use with it."},

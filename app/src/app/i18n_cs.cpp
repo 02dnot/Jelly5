@@ -304,6 +304,7 @@ const std::unordered_map<std::string, const char *> &czech_table()
         {"Undertekststørrelse", "Velikost titulků"},
         {"Undertekstbakgrunn", "Pozadí titulků"},
         {"Spill neste episode automatisk", "Automaticky přehrát další epizodu"},
+        {"Spør om du fortsatt ser på", "Ptát se, zda se stále díváte"}, {"Etter 3 episoder", "Po 3 epizodách"}, {"Etter 2 timer", "Po 2 hodinách"}, {"Ser du fortsatt på?", "Stále se díváte?"},
         {"Hopp over intro automatisk", "Automaticky přeskakovat úvody"},
         {"Om Jelly5", "O aplikaci Jelly5"},
         {"Automatisk (maks)", "Automaticky (maximum)"},
