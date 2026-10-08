@@ -180,6 +180,53 @@ static int      video_sw420_index = 0;
 static int      video_sw420_w = 0, video_sw420_h = 0, video_sw420_fmt = -1;
 static struct SwsContext *video_sw420_sws = NULL;
 
+/*
+ * Jelly5: sets the ring outgrew (a stream that changes resolution mid-way, as
+ * MPEG-2 4:2:2 broadcast recordings do SD <-> HD). pp_playback borrows the
+ * planes and the render thread copies them after it lets go of the lock, so a
+ * set is freed only once a newer one has taken over and the published frame
+ * is not in it; the rest go when the file closes (evo_playback_release_sw_scaler).
+ */
+typedef struct sw420_retired {
+    struct sw420_retired *next;
+    uint8_t *buf[VIDEO_ROTATE_BUFFERS];
+    size_t   slot_bytes;
+} sw420_retired;
+static sw420_retired *video_sw420_retired = NULL;
+
+static void sw420_free_set(uint8_t **set)
+{
+    for (int i = 0; i < VIDEO_ROTATE_BUFFERS; i++) {
+        free(set[i]);
+        set[i] = NULL;
+    }
+}
+
+static int sw420_set_holds(const sw420_retired *r, const uint8_t *p)
+{
+    for (int i = 0; p && i < VIDEO_ROTATE_BUFFERS; i++)
+        if (r->buf[i] && p >= r->buf[i] && p < r->buf[i] + r->slot_bytes)
+            return 1;
+    return 0;
+}
+
+/* Frees the retired sets older than `keep` that the published frame is not in
+ * (all of them with keep == NULL and the file closed). */
+static void sw420_reap(const sw420_retired *keep, const uint8_t *shown)
+{
+    sw420_retired **pp = &video_sw420_retired;
+    while (*pp) {
+        sw420_retired *r = *pp;
+        if (r != keep && !sw420_set_holds(r, shown)) {
+            *pp = r->next;
+            sw420_free_set(r->buf);
+            free(r);
+        } else {
+            pp = &r->next;
+        }
+    }
+}
+
 static int present_pp_frame(const pp_frame *pf);
 static int convert_frame_via_sws(AVFrame *frame);
 static int convert_frame_to_pp420(AVFrame *frame, pp_frame *out);
@@ -355,21 +402,30 @@ static int convert_frame_to_pp420(AVFrame *frame, pp_frame *out)
     const size_t need = (size_t)yp * (size_t)h + 2u * (size_t)cp * (size_t)ch;
 
     if (need > video_sw420_slot_bytes || !video_sw420_buf[0]) {
+        /* Jelly5: the new set first, and the old one retired, never freed
+         * here: the frame on screen may be in it (see sw420_retired). */
+        uint8_t *fresh[VIDEO_ROTATE_BUFFERS] = {0};
         for (int i = 0; i < VIDEO_ROTATE_BUFFERS; i++) {
-            free(video_sw420_buf[i]);
-            video_sw420_buf[i] = NULL;
-        }
-        video_sw420_slot_bytes = 0;
-        for (int i = 0; i < VIDEO_ROTATE_BUFFERS; i++) {
-            video_sw420_buf[i] = (uint8_t *)malloc(need);
-            if (!video_sw420_buf[i]) {
-                for (int j = 0; j < i; j++) {
-                    free(video_sw420_buf[j]);
-                    video_sw420_buf[j] = NULL;
-                }
+            fresh[i] = (uint8_t *)malloc(need);
+            if (!fresh[i]) {
+                sw420_free_set(fresh);
                 return 0;
             }
         }
+        sw420_retired *old = NULL;
+        if (video_sw420_buf[0]) {
+            old = (sw420_retired *)calloc(1, sizeof *old);
+            if (!old) {
+                sw420_free_set(fresh);
+                return 0;
+            }
+            memcpy(old->buf, video_sw420_buf, sizeof old->buf);
+            old->slot_bytes = video_sw420_slot_bytes;
+            old->next = video_sw420_retired;
+            video_sw420_retired = old;
+        }
+        sw420_reap(old, pp_playback_shown_plane(&g_pp_pb));
+        memcpy(video_sw420_buf, fresh, sizeof video_sw420_buf);
         video_sw420_slot_bytes = need;
         video_sw420_index = 0;
     }
@@ -430,6 +486,9 @@ void evo_playback_release_sw_scaler(void)
     }
     video_sw420_w = video_sw420_h = 0;
     video_sw420_fmt = -1;
+    /* Jelly5: called once the file is closed (pp_playback_on_file_close), so
+     * nothing shows a retired set any more. */
+    sw420_reap(NULL, NULL);
 }
 
 static void prospero_video_queue_drain_nonkey(int max_packets)

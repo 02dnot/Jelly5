@@ -90,7 +90,8 @@ extern int       video_frame_loaded;
 extern uint32_t *video_frame_pixels;
 
 /* Drop the exotic-pixel-format scaler on file close - it is sized to the
- * closed file's geometry, like play_sws. */
+ * closed file's geometry, like play_sws - and the plane sets it outgrew.
+ * Jelly5: call it after pp_playback_on_file_close. */
 void evo_playback_release_sw_scaler(void);
 
 #ifdef __cplusplus

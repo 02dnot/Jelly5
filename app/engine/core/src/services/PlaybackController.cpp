@@ -407,7 +407,6 @@ void PlaybackController::stopPlayback() {
         sws_freeContext(play_sws);
         play_sws = nullptr;
     }
-    evo_playback_release_sw_scaler();   /* from EVO Player 9354813 */
 
     if (audio_handle >= 1) {
         if (jelly5_bs_active())
@@ -497,6 +496,8 @@ void PlaybackController::stopPlayback() {
     prospero_thumbnail_close_context();
 
     pp_playback_on_file_close(&g_pp_pb);
+    /* from EVO Player 9354813; after the close, which unpublishes its planes */
+    evo_playback_release_sw_scaler();
     pp_playback_log_stats(&g_pp_pb);
     evo_log_alloc_state("stop");
 }

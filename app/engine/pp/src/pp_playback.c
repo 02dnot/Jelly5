@@ -402,6 +402,19 @@ int pp_playback_has_display(const pp_playback *pb)
     return pb && pb->gl_ready;
 }
 
+const uint8_t *pp_playback_shown_plane(pp_playback *pb)
+{
+    const uint8_t *p;
+    if (!pb)
+        return NULL;
+    if (pb->lock)
+        pthread_mutex_lock(mtx(pb));
+    p = pb->gl_src_y;
+    if (pb->lock)
+        pthread_mutex_unlock(mtx(pb));
+    return p;
+}
+
 int pp_playback_get_video_frame(pp_playback *pb, pp_video_frame *f)
 {
     int got = 0;
