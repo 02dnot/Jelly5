@@ -117,6 +117,8 @@ private:
 
     bool m_controls = false, m_shown_once = false;
     double m_hide_at = 0;
+    double m_input_at = -1e9;   /* the viewer's last press */
+    int m_skip_seen = -1;       /* the skip segment last shown (its focus on arrival) */
     Zone m_zone = Zone::Buttons;
     int m_button = 0;
     Anim a_controls, a_loading, a_overlay, a_skip, a_next, a_spinner, a_toast, a_error, a_flash, a_stats;
@@ -150,6 +152,7 @@ private:
     int m_chap = 0;                     /* the chapter menu: the focused chapter */
     Anim m_chap_scroll;
     Drop m_chap_drop;
+    Drop m_skip_drop;   /* the skip button's focus */
     void draw_chapters(const NuvioStatus &st, float a, float dt);
     /* A trickplay thumbnail of the moment `pos` into r; false without trickplay. */
     bool trick_thumb(const gfx::Rect &r, double pos, float a, float radius);

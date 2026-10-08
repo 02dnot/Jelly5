@@ -297,6 +297,20 @@ void PlayerUi::tick(const NuvioStatus &st, std::vector<OsdCommand> &out, bool po
         show_controls(st.now, Zone::Buttons);   /* a moment as the picture appears */
         m_hide_at = st.now + 3.0;
     }
+    /* A skip button that appears takes the focus: controls that came up by
+     * themselves (as the picture starts) step aside, unless the viewer has been
+     * pressing something in the last 2 s. */
+    {
+        const int k = current_skip(st);
+        if (k != m_skip_seen) {
+            m_skip_seen = k;
+            if (k >= 0 && m_controls && m_zone == Zone::Buttons && m_overlay == Overlay::None && !st.paused &&
+                st.now - m_input_at > 2.0) {
+                m_controls = false;
+                m_dirty = true;
+            }
+        }
+    }
     /* Automatic intro skipping (Innstillinger). */
     if (m_req->prefs.auto_skip && !m_seeking) {
         const int k = current_skip(st);
@@ -524,6 +538,8 @@ void PlayerUi::end()
 void PlayerUi::input(const nuvio_input_state &in, const NuvioStatus &st, std::vector<OsdCommand> &out)
 {
     const size_t first = out.size();
+    if (in.pressed)
+        m_input_at = st.now;
     input_local(in, st, out);
     if (in_group())
         to_group(st, out, first);
@@ -1112,13 +1128,25 @@ void PlayerUi::draw_skip_next(const NuvioStatus &st)
         if (k >= 0)
             label = m_req->skips[k].type == "recap" ? T("Hopp over oppsummering")
                     : m_req->skips[k].type == "preview" ? T("Hopp over forhåndsvisning") : T("Hopp over intro");
-        const gfx::TextStyle st2{gfx::Bold, 26};
-        const float w = gfx::text_width(label, st2) + 72;
+        /* As every control: glass, and the glass drop when it has the focus, which
+         * it has whenever ✕ presses it (the controls hidden, or on the bar). While
+         * the viewer moves through the buttons, ✕ is theirs and it has none. */
+        const bool focus = k >= 0 && !m_seeking && (!m_controls || m_zone == Zone::Bar);
+        const gfx::TextStyle st2{focus ? gfx::Bold : gfx::SemiBold, 26};
+        const float w = gfx::text_width(label, {gfx::Bold, 26}) + 72;
         const float y = H - 350 - (1.f - a_skip.value) * 20 + (m_controls ? 0 : 200);
         const gfx::Rect r{W - kPad - w, y, w, 72};
         gfx::push_opacity(a_skip.value);
-        glass_panel(r, 14, 1.f, true, 1.f);   /* the one thing to press: the focus glass */
-        gfx::text(r.x + r.w / 2, r.y + 46, label, st2, kText, 1);
+        glass_panel(r, 14, 1.f, true);
+        if (focus)
+            m_skip_drop.to(r, k, 0, y);
+        else
+            m_skip_drop.hide();
+        bool moving = false;
+        m_skip_drop.draw(m_dt, 1.f, &moving, 14);
+        if (moving)
+            m_dirty = true;
+        gfx::text(r.x + r.w / 2, r.y + 46, label, st2, focus ? kText : kText2, 1);
         gfx::pop_opacity();
     }
 
