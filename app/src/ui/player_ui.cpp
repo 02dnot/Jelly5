@@ -135,6 +135,8 @@ int PlayerUi::current_skip(const NuvioStatus &st) const
         const NuvioSkip &k = m_req->skips[i];
         if (k.type == "outro" || k.type == "credits")
             continue;   /* the next-episode card covers the end */
+        if (next_card(st) && k.start >= card_start(st))
+            continue;   /* a preview after the credits: the card has the spot and ✕ */
         if (st.position >= k.start && st.position < k.end - 1.0 && !m_skip_done[i])
             return (int)i;
     }
@@ -154,14 +156,18 @@ double PlayerUi::card_start(const NuvioStatus &st) const
 {
     double start = -1;
     for (const NuvioSkip &k : m_req->skips)
-        if ((k.type == "outro" || k.type == "credits") && k.start < st.duration - 1.0 && (start < 0 || k.start < start))
-            start = k.start;   /* a marker past the end of this file (another cut) does not count */
+        /* Credits that end near the end of this file: not a marker past its end
+         * (another cut), nor one in the middle (a detection gone wrong). */
+        if ((k.type == "outro" || k.type == "credits") && k.start < st.duration - 1.0 &&
+            k.end >= st.duration - 180.0 && (start < 0 || k.start < start))
+            start = k.start;
     if (start >= 0)
         return start;
     const NuvioPrefs &p = m_req->prefs;
-    if (p.next_by_minutes)
-        return st.duration - p.next_minutes * 60.0;
-    return std::min(st.duration * std::min(99.0, p.next_percent) / 100.0, st.duration - 45.0);
+    const double rule = p.next_by_minutes
+                            ? st.duration - p.next_minutes * 60.0
+                            : std::min(st.duration * std::min(99.0, p.next_percent) / 100.0, st.duration - 45.0);
+    return std::max(rule, st.duration * 0.5);   /* a short file is watched first */
 }
 
 /* The next-episode card: from the credits to the end, only when the next
@@ -344,14 +350,14 @@ void PlayerUi::tick(const NuvioStatus &st, std::vector<OsdCommand> &out, bool po
         m_dirty = true;
     }
     /* A card put away comes back when the credits are reached again (a seek back). */
-    if (m_card_dismissed && m_req && st.started && st.duration > 0 && st.position < card_start(st) - 1.0)
+    if (m_card_dismissed && m_req && st.started && st.duration > 0 && st.position < card_start(st))
         m_card_dismissed = false;
     /* The next-episode countdown (10 s). */
     if (next_card(st)) {
         if (m_card_since < 0)
             m_card_since = st.now;
-        else if (st.paused || m_overlay != Overlay::None || m_seeking)
-            m_card_since += step;   /* held while paused, scrubbing, or the card is hidden */
+        else if (st.paused || m_overlay != Overlay::None || m_seeking || (m_controls && m_zone == Zone::Buttons))
+            m_card_since += step;   /* held while paused, scrubbing, in the buttons, or the card is hidden */
         if (m_req->prefs.autoplay_next && st.now - m_card_since >= 10.0 && !st.paused) {
             m_card_dismissed = true;
             out.push_back({OsdCmd::PlayNext});
@@ -1186,8 +1192,11 @@ void PlayerUi::draw_skip_next(const NuvioStatus &st)
                           156};
         /* As the skip button: the glass drop when ✕ plays it (the controls
          * hidden, or on the bar); while the viewer moves through the buttons, ✕
-         * is theirs, and the card's ✕ hints step back. */
-        const bool focus = card && !m_seeking && (!m_controls || m_zone == Zone::Bar);
+         * is theirs, and the card's ✕ hints step back. It keeps the last state
+         * while it fades out. */
+        if (card)
+            m_card_focus = !m_seeking && (!m_controls || m_zone == Zone::Bar);
+        const bool focus = m_card_focus;
         gfx::push_opacity(a_next.value);
         glass(r, 1.f);
         if (focus)

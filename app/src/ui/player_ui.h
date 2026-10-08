@@ -137,6 +137,7 @@ private:
     bool m_card_seen = false;           /* the card was up last tick (its focus on arrival) */
     double m_card_since = -1;           /* the next-episode countdown */
     Drop m_card_drop;                   /* the card's focus */
+    bool m_card_focus = false;          /* ✕ plays it (kept while it fades out) */
 
     Overlay m_overlay = Overlay::None;
     Overlay m_overlay_drawn = Overlay::None;   /* kept while it fades out */
