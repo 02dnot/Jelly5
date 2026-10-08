@@ -192,6 +192,7 @@ bool nuvio_request_parse(const char *json, NuvioRequest &r)
     r.autoplay_count = std::max(0, int_of<int>(root, "autoplayCount", 0));
     r.autoplay_idle = std::max(0.0, num_of(root, "autoplayIdle", 0.0));
     r.not_group = bool_of(root, "notGroup", false);
+    r.live = bool_of(root, "live", false);
 
     const cJSON *stream = cJSON_GetObjectItemCaseSensitive(root, "stream");
     r.stream_title = str_of(stream, "title");

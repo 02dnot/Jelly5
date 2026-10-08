@@ -7,6 +7,7 @@
 #include "ui/home.h"
 #include "app/seerr_service.h"
 #include "app/i18n.h"
+#include "app/livetv.h"
 
 #include "gfx/art.h"
 #include "gfx/gfx.h"
@@ -201,7 +202,7 @@ Action Home::input(uint32_t p)
         return action;
     }
     if ((p & NUVIO_BTN_OPTIONS) && !m_discover) {   /* Seerr's titles have no options of the library's */
-        if (const jf::Item *f = focused_item())
+        if (const jf::Item *f = focused_item(); f && f->type != "TvChannel")   /* (a channel's are in Direkte-TV) */
             m_menu.open(*f, m_row >= 0 && m_model.rows[m_row].kind == HomeRow::Resume);
         return action;
     }
@@ -268,6 +269,10 @@ std::string Home::card_url(const jf::Item &it) const
 {
     if (it.external())
         return it.ext.thumb;
+    if (it.type == "TvChannel") {   /* what airs on it: its picture (none: the card shows the logo) */
+        const jf::Item *p = it.now_on();
+        return p && !p->primary_tag.empty() ? m_client.image_url(p->id, "Primary", p->primary_tag, 640) : std::string();
+    }
     if (it.type == "Episode" && !it.primary_tag.empty())
         return m_client.image_url(it.id, "Primary", it.primary_tag, 640);
     if (!it.thumb_tag.empty())
@@ -281,11 +286,47 @@ std::string Home::backdrop_url(const jf::Item &it) const
 {
     if (it.external())
         return it.ext.backdrop;
+    if (it.type == "TvChannel") {
+        const jf::Item *p = it.now_on();
+        return p && !p->primary_tag.empty() ? m_client.image_url(p->id, "Primary", p->primary_tag, 1920) : std::string();
+    }
     return m_client.image_url(it.backdrop_owner, "Backdrop", it.backdrop_tag, 1920);
+}
+
+void Home::draw_live_card(const jf::Item &ch, const gfx::Rect &r, float radius, float a) const
+{
+    const std::string url = card_url(ch);
+    const bool picture = !url.empty() && !art::failed(url);
+    if (picture) {
+        art::draw(r, url, ch.now_on() ? ch.now_on()->primary_blurhash : std::string(), 640, 360, radius, a);
+        gfx::fill_vgradient({r.x, r.y + r.h * 0.45f, r.w, r.h * 0.55f}, 0x00000000u, alpha(0xb3000000u, a), radius);
+    } else {
+        draw_glass_placeholder(r, radius, a);
+    }
+    /* The channel's logo: large on a card without a picture, else small in a corner. */
+    const gfx::Rect box = picture ? gfx::Rect{r.x + 16, r.y + 14, r.w * 0.22f, r.h * 0.2f}
+                                  : gfx::Rect{r.x + r.w * 0.3f, r.y + r.h * 0.2f, r.w * 0.4f, r.h * 0.45f};
+    if (!draw_logo_fit(livetv::logo_url(ch, 320), box, a) && !picture)
+        gfx::text(r.x + r.w / 2, r.y + r.h / 2, ch.name, {gfx::Bold, 28, r.w - 40}, alpha(kText, a), 1);
+    /* "DIREKTE" and how far the programme has come. */
+    const gfx::TextStyle ts{gfx::Bold, 15};
+    const float tw = gfx::text_width(T("DIREKTE"), ts) + 20;
+    gfx::fill({r.x + r.w - tw - 14, r.y + 14, tw, 26}, alpha(0xffff453au, a), 7);
+    gfx::text(r.x + r.w - tw - 4, r.y + 33, T("DIREKTE"), ts, alpha(kText, a));
+    if (const jf::Item *p = ch.now_on()) {
+        const int64_t t = livetv::now();
+        const float f = (float)(t - p->start_utc) / (float)std::max<int64_t>(1, p->end_utc - p->start_utc);
+        gfx::fill({r.x + 18, r.y + r.h - 22, r.w - 36, 6}, alpha(0x47ffffffu, a), 3);
+        gfx::fill({r.x + 18, r.y + r.h - 22, (r.w - 36) * std::max(0.f, std::min(1.f, f)), 6}, alpha(0xffffffffu, a), 3);
+    }
 }
 
 void Home::draw_card_art(const jf::Item &it, const gfx::Rect &r, float radius, float a) const
 {
+    if (it.type == "TvChannel") {
+        draw_live_card(it, r, radius, a);
+        return;
+    }
     if (it.external()) {   /* Seerr's: its name on its colours, the picture over it, where it stands */
         draw_glass_placeholder(r, radius, a);
         art::draw(r, it.ext.thumb, "", 640, 360, radius, a, 0);
@@ -350,6 +391,14 @@ void Home::draw_backdrop(float dt)
                 gfx::image(full, ph, a, 0, true);
     }
 
+    /* A channel focused: what airs on it is behind the info in a picture that often
+     * spells out its own title. Dimmed, so the two never read over each other. */
+    m_live_dim.to(f && f->type == "TvChannel" ? 1.f : 0.f);
+    if (m_live_dim.step(dt, 6.f))
+        m_animating = true;
+    if (m_live_dim.value > 0.01f)
+        gfx::fill(full, alpha(kBg, 0.6f * m_live_dim.value));
+
     /* Scrims (concept: .scrim-left, .scrim-bottom, .scrim-top). */
     gfx::fill_hgradient({0, 0, 576, gfx::H}, alpha(kBg, 0.92f), alpha(kBg, 0.72f));
     gfx::fill_hgradient({576, 0, 538, gfx::H}, alpha(kBg, 0.72f), alpha(kBg, 0.2f));
@@ -359,10 +408,45 @@ void Home::draw_backdrop(float dt)
     gfx::fill_vgradient({0, 0, gfx::W, 220}, 0x8c000000u, 0x00000000u);
 }
 
+void Home::draw_live_info(const jf::Item &ch, float bottom, float a)
+{
+    const jf::Item *p = ch.now_on();
+    const gfx::TextStyle ov{gfx::Regular, 26, 780, 2, 37.7f};
+    const bool has_ov = p && !p->overview.empty();
+    const float meta_y = bottom - (has_ov ? 2 * 37.7f : 0) - 46;
+    gfx::text(kPad, meta_y - 60, p ? p->name : ch.name, {gfx::Bold, 72, 1500}, alpha(kText, a));
+    float x = kPad;
+    const gfx::TextStyle meta{gfx::Medium, 24};
+    x += gfx::text(x, meta_y, (ch.channel_number.empty() ? std::string() : ch.channel_number + "  ") + ch.name, meta,
+                   alpha(kText2, a));
+    if (p) {
+        const int64_t t = livetv::now();
+        const std::string when = livetv::clock(p->start_utc) + "\xE2\x80\x93" + livetv::clock(p->end_utc);
+        gfx::fill({x + 12, meta_y - 10, 5, 5}, alpha(0x6bebebf5, a), 2.5f);
+        x += 29 + gfx::text(x + 29, meta_y, when, meta, alpha(kText2, a));
+        const std::string kind = livetv::kind_label(*p);
+        if (!kind.empty()) {
+            gfx::fill({x + 12, meta_y - 10, 5, 5}, alpha(0x6bebebf5, a), 2.5f);
+            x += 29 + gfx::text(x + 29, meta_y, kind, meta, alpha(kText2, a));
+        }
+        if (p->end_utc > t) {
+            const int left = (int)((p->end_utc - t + 59) / 60);
+            gfx::fill({x + 12, meta_y - 10, 5, 5}, alpha(0x6bebebf5, a), 2.5f);
+            gfx::text(x + 29, meta_y, TN(left, "%d min igjen", "%d min igjen"), meta, alpha(kText2, a));
+        }
+    }
+    if (has_ov)
+        gfx::text(kPad, meta_y + 50, p->overview, ov, alpha(kText2, a));
+}
+
 void Home::draw_info(const jf::Item &it, float bottom, bool hero, float a)
 {
     if (a <= 0.f)
         return;
+    if (it.type == "TvChannel") {
+        draw_live_info(it, bottom, a);
+        return;
+    }
     const bool episode = it.type == "Episode";
     /* Measure from the bottom up so a tall logo never collides with the rows. */
     const gfx::TextStyle ov{gfx::Regular, 26, 780, hero ? 3 : 2, 37.7f};
@@ -597,6 +681,15 @@ void Home::draw_rows(float dt)
             /* Label under the focused card (concept: titles only on focus). */
             const float la = a * lift.value;
             const bool ep = it.type == "Episode";
+            if (it.type == "TvChannel") {   /* what airs, then where and when */
+                const jf::Item *p = it.now_on();
+                gfx::text(cr.x, cr.y + cr.h + 38, p ? p->name : it.name, {gfx::SemiBold, 22, cr.w}, alpha(kText, la));
+                std::string sub = (it.channel_number.empty() ? std::string() : it.channel_number + "  ") + it.name;
+                if (p)
+                    sub += " \xC2\xB7 " + livetv::clock(p->start_utc) + "\xE2\x80\x93" + livetv::clock(p->end_utc);
+                gfx::text(cr.x, cr.y + cr.h + 66, sub, {gfx::Medium, 19, cr.w}, alpha(kText3, la));
+                continue;
+            }
             gfx::text(cr.x, cr.y + cr.h + 38, ep ? it.series_name : it.name, {gfx::SemiBold, 22, cr.w},
                       alpha(kText, la));
             if (ep) {

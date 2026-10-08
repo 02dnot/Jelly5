@@ -18,7 +18,7 @@ namespace ui {
 
 const char *tab_label(int tab)
 {
-    const char *const kLabels[] = {T("Hjem"),  T("Filmer"),        T("Serier"),       T("Musikk"),
+    const char *const kLabels[] = {T("Hjem"),   T("Filmer"),       T("Serier"), T("Musikk"), T("Direkte-TV"),
                                    T("Oppdag"), T("S\xC3\xB8k"), T("Innstillinger")};
     return tab >= 0 && tab < Nav::Count ? kLabels[tab] : "";
 }

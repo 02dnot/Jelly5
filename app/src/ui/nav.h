@@ -20,7 +20,7 @@ public:
     /* Settings is the avatar on the right, not a pill tab. Movies, Shows and Music
      * show only when the user has such a library; Discover (Seerr's) only while
      * Seerr is on and signed in. */
-    enum Tab { Home = 0, Movies, Shows, Music, Discover, Search, Settings, Count };
+    enum Tab { Home = 0, Movies, Shows, Music, LiveTv, Discover, Search, Settings, Count };
 
     /* The pill tabs, in order (Home ... Search). */
     void set_tabs(std::vector<int> tabs) { m_tabs = std::move(tabs); }

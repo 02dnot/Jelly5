@@ -22,11 +22,16 @@
  *   skip / next "Hopp over intro" and the next-episode card, Cross acts
  *   music       a now-playing screen instead: the album's cover, the track,
  *               artist and album, the bar; Cross pauses, L1/R1 change track
+ *   live TV     the channel and what airs on it instead of the bar (how far the
+ *               programme has come, what follows); no seeking. L1/R1 change
+ *               channel, △ the channel list (what airs on each, now and next),
+ *               "Forrige kanal" goes back to the one before
  */
 #pragma once
 
 #include "gfx/gfx.h"
 #include "nuvio_osd.h"   /* NuvioStatus, OsdCommand */
+#include "app/livetv.h"
 #include "app/remote.h"
 #include "app/segments.h"
 #include "ui/anim.h"
@@ -73,9 +78,25 @@ public:
     }
 
 private:
-    enum class Overlay { None, Tracks, Episodes, Chapters };
+    enum class Overlay { None, Tracks, Episodes, Chapters, Channels };
     enum class Zone { Bar, Buttons };
-    enum class Button { PlayPause, Episodes, Chapters, Tracks, Speed, Next };
+    enum class Button { PlayPause, Episodes, Chapters, Tracks, Speed, Next, Channels, PrevChannel };
+
+    /* Live TV. */
+    bool m_live = false;                /* no end, no seeking */
+    bool m_channel = false;             /* a channel: zapping and the channel list (not a recording in progress) */
+    livetv::GuideRef m_guide;
+    unsigned m_guide_version = 0;
+    int m_ch_index = 0;                 /* the channel list's focus */
+    Anim m_ch_scroll;
+    Drop m_ch_drop;
+    livetv::GuideRef guide();           /* the latest snapshot (held by the caller while it reads) */
+    int playing_channel();              /* this channel's place in the guide, -1: not in it */
+    void zap(const std::string &channel_id, std::vector<OsdCommand> &out);
+    void zap_step(int dir, std::vector<OsdCommand> &out);
+    void channels_input(uint32_t p, std::vector<OsdCommand> &out);
+    void draw_channels(float a, float dt);
+    void draw_live_info(const NuvioStatus &st, float a);   /* the controls' lower part, live */
 
     void show_controls(double now, Zone zone);
     void seek_step(int dir, const NuvioStatus &st, double now);

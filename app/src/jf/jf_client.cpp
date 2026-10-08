@@ -35,6 +35,7 @@ HttpResponse tracked_request(std::atomic<int> &streak, const std::string &method
 }
 
 constexpr int kTimeout = 15;
+constexpr int kLiveSegment = 1;   /* seconds: a channel's HLS segments (see playback_info_as) */
 constexpr const char *kVersion = "0.0.1";
 constexpr const char *kFields = "Overview,Genres";            /* rows: what the UI shows */
 /* Rows: only the image types the UI draws (and their BlurHashes), one of each. */
@@ -124,6 +125,45 @@ std::string header_safe(const std::string &s)
     return out;
 }
 
+} // namespace
+
+/* "2026-10-08T22:15:00.0000000Z" (UTC, as both servers send it) in Unix seconds; 0 if
+ * it is not such a date. Without timegm, which the console's libc may lack. */
+int64_t utc_of(const std::string &iso)
+{
+    int y, mo, d, h = 0, mi = 0, sec = 0;
+    if (std::sscanf(iso.c_str(), "%4d-%2d-%2dT%2d:%2d:%2d", &y, &mo, &d, &h, &mi, &sec) < 3 || mo < 1 || mo > 12)
+        return 0;
+    /* Days since 1970-01-01 (Howard Hinnant's days_from_civil). */
+    y -= mo <= 2;
+    const int64_t era = (y >= 0 ? y : y - 399) / 400;
+    const int64_t yoe = y - era * 400;
+    const int64_t doy = (153 * (mo + (mo > 2 ? -3 : 9)) + 2) / 5 + d - 1;
+    const int64_t doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    const int64_t days = era * 146097 + doe - 719468;
+    return days * 86400 + h * 3600 + mi * 60 + sec;
+}
+
+std::string iso_of(int64_t utc)
+{
+    int64_t z = utc / 86400 + 719468;
+    const int64_t secs = utc % 86400;
+    const int64_t era = (z >= 0 ? z : z - 146096) / 146097;
+    const int64_t doe = z - era * 146097;
+    const int64_t yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    const int64_t doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    const int64_t mp = (5 * doy + 2) / 153;
+    const int d = (int)(doy - (153 * mp + 2) / 5 + 1);
+    const int m = (int)(mp < 10 ? mp + 3 : mp - 9);
+    const int y = (int)(yoe + era * 400 + (m <= 2));
+    char b[32];
+    std::snprintf(b, sizeof b, "%04d-%02d-%02dT%02d:%02d:%02dZ", y, m, d, (int)(secs / 3600), (int)(secs / 60 % 60),
+                  (int)(secs % 60));
+    return b;
+}
+
+namespace {
+
 Item item_of(const cJSON *o)
 {
     Item it;
@@ -197,6 +237,41 @@ Item item_of(const cJSON *o)
             it.locations.push_back(g->valuestring);
     it.tmdb_id = str_of(cJSON_GetObjectItemCaseSensitive(o, "ProviderIds"), "Tmdb");
     it.tvdb_id = str_of(cJSON_GetObjectItemCaseSensitive(o, "ProviderIds"), "Tvdb");
+
+    /* Live TV (Emby also names a channel's number "Number"). */
+    it.channel_number = str_of(o, "ChannelNumber");
+    if (it.channel_number.empty())
+        it.channel_number = str_of(o, "Number");
+    it.channel_id = str_of(o, "ChannelId");
+    it.channel_name = str_of(o, "ChannelName");
+    it.channel_primary_tag = str_of(o, "ChannelPrimaryImageTag");
+    it.episode_title = str_of(o, "EpisodeTitle");
+    it.start_utc = utc_of(str_of(o, "StartDate"));
+    it.end_utc = utc_of(str_of(o, "EndDate"));
+    it.is_live = bool_of(o, "IsLive");
+    it.is_new = bool_of(o, "IsNew");
+    it.is_premiere = bool_of(o, "IsPremiere");
+    it.is_repeat = bool_of(o, "IsRepeat");
+    it.is_movie = bool_of(o, "IsMovie");
+    it.is_series = bool_of(o, "IsSeries");
+    it.is_sports = bool_of(o, "IsSports");
+    it.is_kids = bool_of(o, "IsKids");
+    it.is_news = bool_of(o, "IsNews");
+    it.timer_id = str_of(o, "TimerId");
+    it.series_timer_id = str_of(o, "SeriesTimerId");
+    const cJSON *cur = cJSON_GetObjectItemCaseSensitive(o, "CurrentProgram");
+    if (cJSON_IsObject(cur)) {
+        it.current_program.push_back(item_of(cur));
+        Item &p = it.current_program.back();
+        if (p.channel_id.empty())
+            p.channel_id = it.id;
+        if (p.channel_name.empty())
+            p.channel_name = it.name;
+        if (p.channel_number.empty())
+            p.channel_number = it.channel_number;
+        if (p.channel_primary_tag.empty())
+            p.channel_primary_tag = it.primary_tag;
+    }
     return it;
 }
 
@@ -509,6 +584,8 @@ bool Client::validate()
         const cJSON *policy = cJSON_GetObjectItemCaseSensitive(j, "Policy");
         is_admin_ = bool_of(policy, "IsAdministrator");
         manages_subtitles_ = is_admin_ || bool_of(policy, "EnableSubtitleManagement");
+        live_tv_access_ = bool_of(policy, "EnableLiveTvAccess");
+        can_record_ = live_tv_access_ && bool_of(policy, "EnableLiveTvManagement");
         cJSON_Delete(j);
     }
     return true;
@@ -1341,7 +1418,7 @@ std::string Client::image_url(const std::string &owner, const char *type, const 
 #define JELLY5_AV1_PROFILES ""
 #endif
 
-std::string Client::device_profile_json(int64_t max_bitrate)
+std::string Client::device_profile_json(int64_t max_bitrate, int segment_s)
 {
     std::string profile = R"({
   "Name": "Jelly5 PS5",
@@ -1393,6 +1470,12 @@ std::string Client::device_profile_json(int64_t max_bitrate)
     {"Format": "ssa", "Method": "External"}, {"Format": "vtt", "Method": "External"}
   ]
 })";
+    if (segment_s > 0) {
+        const std::string at = "\"MinSegments\": \"1\",";
+        const size_t p = profile.find(at);
+        if (p != std::string::npos)
+            profile.insert(p + at.size(), " \"SegmentLength\": " + std::to_string(segment_s) + ",");
+    }
     if (max_bitrate > 0) {
         const std::string cap = std::to_string(max_bitrate);
         for (size_t at; (at = profile.find("200000000")) != std::string::npos;)
@@ -1403,13 +1486,17 @@ std::string Client::device_profile_json(int64_t max_bitrate)
 
 bool Client::playback_info(const std::string &item_id, int64_t start_ticks, int audio_index,
                            int subtitle_index, Playback *out, int64_t max_bitrate,
-                           const std::string &media_source_id)
+                           const std::string &media_source_id, bool channel)
 {
     /* Dolby Vision profile 5 plays directly on both kinds: the GPU rebuilds it
      * from its RPU (src/dv_rpu.c). Emby used to be asked again for an encoded
      * video here. */
     const int64_t cap = max_bitrate > 0 ? max_bitrate : 200000000;
-    std::string req = "{\"DeviceProfile\":" + device_profile_json(max_bitrate) +
+    /* A channel's transcode in short segments: the server sends the first sooner, and
+     * the player needs less held to ride over the gap between two. */
+    const char *seg = std::getenv("JELLY5_LIVE_SEGMENT");   /* (host tests: to measure) */
+    std::string req = "{\"DeviceProfile\":" +
+                      device_profile_json(max_bitrate, channel ? (seg ? std::atoi(seg) : kLiveSegment) : 0) +
                       ",\"MaxStreamingBitrate\":" + std::to_string(cap) +
                       ",\"StartTimeTicks\":" + std::to_string(start_ticks) +
                       ",\"EnableDirectPlay\":true,\"EnableDirectStream\":true"
@@ -1469,17 +1556,29 @@ bool Client::playback_info(const std::string &item_id, int64_t start_ticks, int 
             }
         }
         const std::string transcoding = str_of(ms, "TranscodingUrl");
+        const std::string live_id = str_of(ms, "LiveStreamId");
         if (bool_of(ms, "SupportsDirectPlay")) {
             c.v.play_method = "DirectPlay";
             /* Jellyfin: ApiKey (10.8 on; the legacy api_key counts only with the server's
-             * legacy authorization on, which newer servers have off). Emby: api_key only. */
-            c.v.url = server_ + "/Videos/" + item_id + "/stream?static=true&mediaSourceId=" + c.v.id +
+             * legacy authorization on, which newer servers have off). Emby: api_key only.
+             * A live channel's stream is the one the server opened for it (LiveStreamId). */
+            c.v.url = server_ + "/Videos/" + item_id + "/stream?static=true&mediaSourceId=" + url_escape(c.v.id) +
+                      (live_id.empty() ? std::string() : "&liveStreamId=" + url_escape(live_id)) +
                       "&playSessionId=" + session + "&" + token_param() + "=" + token_;
             c.rank = 3;
         } else if (!transcoding.empty()) {
             c.v.play_method = method_of(transcoding, !codec.empty());
             c.v.url = server_ + transcoding;
             c.rank = c.v.play_method == "DirectStream" ? 2 : 1;
+        } else if (const std::string ds = str_of(ms, "DirectStreamUrl");
+                   emby() && !ds.empty() && bool_of(ms, "SupportsDirectStream")) {
+            /* Emby offers a live channel (and some sources) as its own stream URL, the
+             * container remuxed by the server; it carries no token of its own. */
+            c.v.play_method = "DirectStream";
+            c.v.url = (ds.rfind("http", 0) == 0 ? ds : server_ + ds);
+            if (c.v.url.find(std::string(token_param()) + "=") == std::string::npos)
+                c.v.url += std::string(c.v.url.find('?') == std::string::npos ? "?" : "&") + token_param() + "=" + token_;
+            c.rank = 2;
         } else {
             continue;
         }
@@ -1492,6 +1591,13 @@ bool Client::playback_info(const std::string &item_id, int64_t start_ticks, int 
     }
     if (found.empty()) {
         set_error("PlaybackInfo: the server offers no way to play this (" + str_of(j, "ErrorCode") + ")");
+        /* A channel's stream is open from this answer on: closed again, as nothing will play it. */
+        cJSON_ArrayForEach(ms, cJSON_GetObjectItemCaseSensitive(j, "MediaSources")) {
+            Playback opened;
+            opened.live_stream_id = str_of(ms, "LiveStreamId");
+            opened.play_session_id = session;
+            close_live_stream(opened);
+        }
         cJSON_Delete(j);
         return false;
     }
@@ -1511,6 +1617,8 @@ bool Client::playback_info(const std::string &item_id, int64_t start_ticks, int 
     pb.streams = found.front().v.streams;
     pb.play_method = found.front().v.play_method;
     pb.url = found.front().v.url;
+    pb.live_stream_id = str_of(ms, "LiveStreamId");
+    pb.live = bool_of(ms, "IsInfiniteStream") || !pb.live_stream_id.empty();
     const std::string transcoding = str_of(ms, "TranscodingUrl");
     const size_t r = transcoding.find("TranscodeReasons=");
     if (pb.play_method != "DirectPlay" && r != std::string::npos)
@@ -1522,6 +1630,184 @@ bool Client::playback_info(const std::string &item_id, int64_t start_ticks, int 
     return true;
 }
 
+
+/* ---- Live TV ---- */
+
+/* Rows of the guide: the channel's logo and the programme's own picture. */
+constexpr const char *kLiveImages = "&EnableImageTypes=Primary,Thumb,Backdrop&ImageTypeLimit=1";
+
+bool Client::live_tv_available(bool *answered)
+{
+    if (answered)
+        *answered = true;
+    if (!live_tv_access_)
+        return false;
+    std::string body;
+    if (!get_json("/LiveTv/Info", &body)) {
+        if (answered)
+            *answered = false;
+        return false;
+    }
+    cJSON *j = cJSON_Parse(body.c_str());
+    bool enabled = bool_of(j, "IsEnabled"), mine = false;
+    const cJSON *u;
+    cJSON_ArrayForEach(u, cJSON_GetObjectItemCaseSensitive(j, "EnabledUsers"))
+        if (cJSON_IsString(u) && user_id_ == u->valuestring)
+            mine = true;
+    cJSON_Delete(j);
+    /* Enabled for this user; and there are channels (Emby without Premiere has none). */
+    if (!enabled || !mine)
+        return false;
+    const Page first = channels(0, 1, false);
+    if (answered)
+        *answered = first.ok;
+    return first.total > 0;
+}
+
+Page Client::channels(int start, int limit, bool with_current_program, bool favorites_only)
+{
+    Page page;
+    std::string body;
+    if (!get_json("/LiveTv/Channels?UserId=" + user_id_ + "&StartIndex=" + std::to_string(start) + "&Limit=" +
+                      std::to_string(limit) + "&EnableFavoriteSorting=true&EnableUserData=true" +
+                      "&AddCurrentProgram=" + (with_current_program ? "true" : "false") +
+                      (favorites_only ? "&IsFavorite=true" : "") + "&Fields=Overview" + kLiveImages +
+                      "&EnableTotalRecordCount=true",
+                  &body))
+        return page;
+    page.ok = true;
+    page.items = items_of(body);
+    if (cJSON *j = cJSON_Parse(body.c_str())) {
+        page.total = int_of(j, "TotalRecordCount", (int)page.items.size());
+        cJSON_Delete(j);
+    }
+    return page;
+}
+
+bool Client::programs(const std::vector<std::string> &channel_ids, int64_t from, int64_t to, std::vector<Item> *out)
+{
+    /* GET with the ids in the query, as Jellyfin's and Emby's own guides do; 50
+     * channels at most per request keeps the URL short (Emby's POST reads no body). */
+    for (size_t at = 0; at < channel_ids.size(); at += 50) {
+        std::string ids;
+        for (size_t i = at; i < channel_ids.size() && i < at + 50; i++)
+            ids += (ids.empty() ? "" : ",") + url_escape(channel_ids[i]);
+        std::string body;
+        /* Ends after from and starts before to: what shows in the window. */
+        if (!get_json("/LiveTv/Programs?UserId=" + user_id_ + "&ChannelIds=" + ids + "&MinEndDate=" +
+                          url_escape(iso_of(from + 1)) + "&MaxStartDate=" + url_escape(iso_of(to - 1)) +
+                          "&SortBy=StartDate&EnableTotalRecordCount=false&EnableUserData=false"
+                          "&Fields=Overview,ChannelInfo" +
+                          kLiveImages,
+                      &body))
+            return false;   /* the caller tries again later */
+        for (Item &it : items_of(body))
+            out->push_back(std::move(it));
+    }
+    return true;
+}
+
+bool Client::program(const std::string &id, Item *out)
+{
+    std::string body;
+    if (!get_json("/LiveTv/Programs/" + id + "?UserId=" + user_id_, &body))
+        return false;
+    cJSON *j = cJSON_Parse(body.c_str());
+    if (!j)
+        return false;
+    *out = item_of(j);
+    cJSON_Delete(j);
+    return true;
+}
+
+std::vector<Item> Client::recordings(int limit)
+{
+    std::string body;
+    if (!get_json("/LiveTv/Recordings?UserId=" + user_id_ + "&Limit=" + std::to_string(limit) +
+                      "&EnableTotalRecordCount=false&Fields=Overview" + kImages,
+                  &body))
+        return {};
+    return items_of(body);
+}
+
+std::vector<Item> Client::timers()
+{
+    std::vector<Item> out;
+    std::string body;
+    if (!get_json("/LiveTv/Timers", &body))
+        return out;
+    cJSON *j = cJSON_Parse(body.c_str());
+    const cJSON *t;
+    cJSON_ArrayForEach(t, cJSON_GetObjectItemCaseSensitive(j, "Items")) {
+        const std::string status = str_of(t, "Status");
+        if (status == "Completed" || status == "Cancelled")
+            continue;
+        const cJSON *info = cJSON_GetObjectItemCaseSensitive(t, "ProgramInfo");
+        Item it = cJSON_IsObject(info) ? item_of(info) : item_of(t);
+        if (!cJSON_IsObject(info))
+            it.id = str_of(t, "ProgramId");
+        if (it.name.empty())
+            it.name = str_of(t, "Name");
+        if (it.channel_id.empty())
+            it.channel_id = str_of(t, "ChannelId");
+        if (it.channel_name.empty())
+            it.channel_name = str_of(t, "ChannelName");
+        it.start_utc = utc_of(str_of(t, "StartDate"));
+        it.end_utc = utc_of(str_of(t, "EndDate"));
+        it.timer_id = str_of(t, "Id");
+        it.series_timer_id = str_of(t, "SeriesTimerId");
+        it.timer_status = status;
+        it.type = "Program";
+        out.push_back(std::move(it));
+    }
+    cJSON_Delete(j);
+    std::sort(out.begin(), out.end(), [](const Item &a, const Item &b) { return a.start_utc < b.start_utc; });
+    return out;
+}
+
+bool Client::record(const std::string &program_id, bool series)
+{
+    /* The server's defaults for this programme (its channel, times, padding), sent
+     * back as they are: what every client does. */
+    std::string defaults;
+    if (!get_json("/LiveTv/Timers/Defaults?ProgramId=" + url_escape(program_id), &defaults))
+        return false;
+    HttpResponse r = tracked_request(unreachable_, "POST",
+                                     server_ + (series ? "/LiveTv/SeriesTimers" : "/LiveTv/Timers"),
+                                     {auth_header(), "Content-Type: application/json"}, defaults, kTimeout);
+    if (!r.ok())
+        set_error(std::string("POST ") + (series ? "SeriesTimers" : "Timers") + " -> " + std::to_string(r.status));
+    return r.ok();
+}
+
+bool Client::cancel_timer(const std::string &timer_id)
+{
+    HttpResponse r = tracked_request(unreachable_, "DELETE", server_ + "/LiveTv/Timers/" + url_escape(timer_id),
+                                     {auth_header()}, "", kTimeout);
+    if (!r.ok())
+        set_error("DELETE Timers -> " + std::to_string(r.status));
+    return r.ok();
+}
+
+bool Client::cancel_series_timer(const std::string &series_timer_id)
+{
+    HttpResponse r = tracked_request(unreachable_, "DELETE",
+                                     server_ + "/LiveTv/SeriesTimers/" + url_escape(series_timer_id),
+                                     {auth_header()}, "", kTimeout);
+    if (!r.ok())
+        set_error("DELETE SeriesTimers -> " + std::to_string(r.status));
+    return r.ok();
+}
+
+void Client::close_live_stream(const Playback &pb)
+{
+    if (pb.live_stream_id.empty())
+        return;
+    post_json("/LiveStreams/Close?LiveStreamId=" + url_escape(pb.live_stream_id) +
+                  (pb.play_session_id.empty() ? std::string() : "&PlaySessionId=" + url_escape(pb.play_session_id)),
+              "", nullptr);
+}
+
 /* With cJSON: the ids come from the server and are escaped, not pasted in. */
 static std::string report_body(const Playback &pb, int64_t position_ticks, bool paused, bool with_method,
                                int audio_index = -1, int subtitle_index = -2)
@@ -1530,9 +1816,11 @@ static std::string report_body(const Playback &pb, int64_t position_ticks, bool 
     cJSON_AddStringToObject(o, "ItemId", pb.item_id.c_str());
     cJSON_AddStringToObject(o, "MediaSourceId", pb.media_source_id.c_str());
     cJSON_AddStringToObject(o, "PlaySessionId", pb.play_session_id.c_str());
+    if (!pb.live_stream_id.empty())   /* the stopped report closes it on the server */
+        cJSON_AddStringToObject(o, "LiveStreamId", pb.live_stream_id.c_str());
     cJSON_AddRawToObject(o, "PositionTicks", std::to_string(position_ticks).c_str());   /* exact, past 2^53 too */
     cJSON_AddBoolToObject(o, "IsPaused", paused);
-    cJSON_AddTrueToObject(o, "CanSeek");
+    cJSON_AddBoolToObject(o, "CanSeek", !pb.live);
     if (with_method)
         cJSON_AddStringToObject(o, "PlayMethod", pb.play_method.c_str());
     if (audio_index >= 0)

@@ -10,6 +10,8 @@
 #include "nuvio_subs.h"
 #include "app/settings.h"
 #include "app/i18n.h"
+#include "app/livetv.h"
+#include "ui/livetv.h"
 #include "app/track_memory.h"
 #include "app/spawn.h"
 #include "jf/json_num.h"
@@ -301,6 +303,20 @@ std::string request_json(jf::Client &c, const jf::Item &it, const jf::Playback &
     const bool episode = it.type == "Episode", audio = it.type == "Audio";
     cJSON *o = cJSON_CreateObject();
     cJSON_AddStringToObject(o, "id", it.id.c_str());
+    if (pb.live) {
+        /* A channel: what airs on it now names it (the player follows the guide from
+         * here, app/livetv), its logo is the title's. */
+        const livetv::GuideRef g = livetv::guide();
+        const jf::Item *p = g->on_at(it.id, livetv::now());
+        if (!p)
+            p = it.now_on();
+        cJSON_AddBoolToObject(o, "live", 1);
+        cJSON_AddStringToObject(o, "description", p ? p->overview.c_str() : "");
+        if (p && !p->primary_tag.empty())
+            cJSON_AddStringToObject(o, "background", c.image_url(p->id, "Primary", p->primary_tag, 1920).c_str());
+        if (it.type == "TvChannel")
+            cJSON_AddStringToObject(o, "logo", c.image_url(it.id, "Primary", it.primary_tag, 400).c_str());
+    }
     if (audio) {   /* the player's music screen: the album's cover, artist and album */
         cJSON_AddStringToObject(o, "artist", it.album_artist.c_str());
         cJSON_AddStringToObject(o, "album", it.album.c_str());
@@ -324,7 +340,8 @@ std::string request_json(jf::Client &c, const jf::Item &it, const jf::Playback &
     }
     if (it.year)
         cJSON_AddStringToObject(o, "year", std::to_string(it.year).c_str());
-    cJSON_AddStringToObject(o, "description", it.overview.c_str());
+    if (!pb.live)
+        cJSON_AddStringToObject(o, "description", it.overview.c_str());
     std::string genres;
     for (const auto &g : it.genres)
         genres += (genres.empty() ? "" : ", ") + g;
@@ -335,17 +352,24 @@ std::string request_json(jf::Client &c, const jf::Item &it, const jf::Playback &
         std::snprintf(r, sizeof r, "%.1f", it.community_rating);
         cJSON_AddStringToObject(o, "rating", r);
     }
-    cJSON_AddStringToObject(o, "itemType", episode ? "series" : audio ? "audio" : "movie");
+    /* "live": a channel (zapping, its guide); a recording still being made is live too
+     * (no end yet, no seeking) but no channel. */
+    cJSON_AddStringToObject(o, "itemType", pb.live && it.type == "TvChannel" ? "live"
+                                           : episode                        ? "series"
+                                           : audio                          ? "audio"
+                                                                            : "movie");
     {   /* the controller's light: the picture's colour */
         const std::string &hash = audio ? (!it.album_blurhash.empty() ? it.album_blurhash : it.primary_blurhash)
                                         : it.backdrop_blurhash;
         cJSON_AddNumberToObject(o, "lightColor", (double)light_of(hash));
     }
-    cJSON_AddStringToObject(o, "logo", c.image_url(it.logo_owner, "Logo", it.logo_tag, 800).c_str());
-    cJSON_AddStringToObject(o, "poster", c.image_url(episode ? it.series_id : it.id, "Primary",
-                                                      episode ? std::string() : it.primary_tag, 400).c_str());
-    cJSON_AddStringToObject(o, "background",
-                            c.image_url(it.backdrop_owner, "Backdrop", it.backdrop_tag, 1920).c_str());
+    if (!pb.live) {
+        cJSON_AddStringToObject(o, "logo", c.image_url(it.logo_owner, "Logo", it.logo_tag, 800).c_str());
+        cJSON_AddStringToObject(o, "poster", c.image_url(episode ? it.series_id : it.id, "Primary",
+                                                          episode ? std::string() : it.primary_tag, 400).c_str());
+        cJSON_AddStringToObject(o, "background",
+                                c.image_url(it.backdrop_owner, "Backdrop", it.backdrop_tag, 1920).c_str());
+    }
     if (episode)
         cJSON_AddStringToObject(o, "thumbnail", c.image_url(it.id, "Primary", it.primary_tag, 640).c_str());
     cJSON_AddNumberToObject(o, "startPosition", (double)it.position_ticks / jf::kTicksPerSecond);
@@ -579,6 +603,8 @@ std::string request_json(jf::Client &c, const jf::Item &it, const jf::Playback &
         {"subtitles_off", T("Undertekster er av")}, {"subtitles", T("Undertekster")}, {"track", T("Spor")},
         {"unavailable", T("Utilgjengelig")}, {"unknown_language", T("Ukjent")}, {"upcoming", T("Kommer")},
         {"youre_watching", T("Du ser på")}, {"addon", T("Kilde")},
+        {"open_failed", pb.live ? T("Kanalen kunne ikke åpnes. Den sender kanskje ikke akkurat nå.")
+                                : T("Strømmen kunne ikke åpnes. Kilden er kanskje ikke tilgjengelig.")},
     };
     cJSON *strings = cJSON_CreateObject();
     for (const auto &kv : kStrings)
@@ -793,7 +819,7 @@ void new_title()
 
 bool available()
 {
-    return s_session.active && s_session.client && s_session.client->can_search_subtitles();
+    return s_session.active && s_session.client && s_session.client->can_search_subtitles() && !s_session.pb.live;
 }
 
 void search(const std::string &language)
@@ -1243,10 +1269,18 @@ static bool play_chain_tracks(jf::Client &client, jf::Item item, std::vector<jf:
             return true;   /* the music stopped between tracks (a film's chain has no such stop) */
         jf::Playback pb;
         const int mbps = settings::get().local.max_mbps;
-        if (!client.playback_info(item.id, item.position_ticks, -1, -2, &pb, (int64_t)mbps * 1000000)) {
+        if (item.type == "TvChannel") {
+            /* Changing channel: what was picked shows at once, while the server opens it
+             * (the player's loading veil then carries the same screen on). */
+            if (chain > 0)
+                ui::show_tuning(item.id, item.name);
+            jelly5_wait_reports(3000);   /* the last channel's stream closed before this one opens */
+        }
+        if (!client.playback_info(item.id, item.position_ticks, -1, -2, &pb, (int64_t)mbps * 1000000,
+                                  std::string(), item.type == "TvChannel")) {
             *error = client.last_error();
             evo_bt("jelly5: playback info failed: %s", error->c_str());
-            return chain > 0;
+            return chain > 0 && item.type != "TvChannel";   /* a channel zapped to says it could not open */
         }
         int keep_audio, keep_subtitle;   /* an episode: the tracks chosen earlier in its series */
         remembered_tracks(client, item, pb, &keep_audio, &keep_subtitle);
@@ -1256,10 +1290,22 @@ static bool play_chain_tracks(jf::Client &client, jf::Item item, std::vector<jf:
         }
         evo_bt("jelly5: play %s (%s) %s %s", item.name.c_str(), item.id.c_str(), pb.play_method.c_str(),
                pb.transcode_reasons.c_str());
-        if (nuvio_player_stop_requested())
+        if (nuvio_player_stop_requested()) {
+            client.close_live_stream(pb);   /* (a channel's stream is open from PlaybackInfo on) */
             return true;
+        }
         Extras ex;
-        if (item.type == "Audio") {
+        if (pb.live && item.type != "TvChannel")
+            pb.live = false;   /* a recording still being made: plays as a title (it may resume, seek and end);
+                                * its stream still closes by LiveStreamId */
+        if (pb.live) {
+            /* A channel: no intros, chapters or previews; it plays from where it airs. */
+            item.position_ticks = 0;
+            ex.not_group = true;   /* never a SyncPlay group's (see main's play) */
+            if (item.type == "TvChannel")   /* (not a recording still being made) */
+                livetv::watched(item.id);
+            livetv::refresh();   /* the guide the player shows (zapping, the channel list) */
+        } else if (item.type == "Audio") {
             ex.lyrics = client.lyrics(item.id);
         } else {   /* music has no intros, chapters or previews */
             jelly5::run_all({
@@ -1267,8 +1313,10 @@ static bool play_chain_tracks(jf::Client &client, jf::Item item, std::vector<jf:
                 [&] { ex.segments = client.segments(item.id); },
             });
         }
-        if (nuvio_player_stop_requested())
+        if (nuvio_player_stop_requested()) {
+            client.close_live_stream(pb);
             return true;   /* stopped while the server answered: nothing reported, nothing opened */
+        }
         if (ex.trickplay.valid())
             evo_bt("jelly5: trickplay %dx%d, %d thumbnails", ex.trickplay.width, ex.trickplay.height, ex.trickplay.count);
         ex.autoplay_count = still_count;
@@ -1321,11 +1369,18 @@ static bool play_chain_tracks(jf::Client &client, jf::Item item, std::vector<jf:
             const int64_t at = ticks(pos);
             s_reports++;
             auto report = [c, stopped, at] {
-                c->report_stopped(stopped, at);
+                c->report_stopped(stopped, at);   /* (a channel's carries its stream: the server closes it) */
                 c->stop_encoding(stopped);
                 s_reports--;
             };
-            if (!jelly5::spawn(report))
+            /* Another channel next: this one's stream is closed first, so a tuner or an
+             * IPTV account that takes one stream at a time is free for it. (A channel
+             * picked in the guide after leaving waits for it too: see the top.) */
+            int s0 = 0, e0 = 0;
+            std::string to;
+            if (stopped.live && next_from_result(result, &s0, &e0, &to))
+                report();
+            else if (!jelly5::spawn(report))
                 report();   /* no thread: tell the server here, the menus wait a moment */
         }
         evo_bt("jelly5: playback done at %.1f s: %s", pos, result.c_str());
@@ -1379,6 +1434,20 @@ static bool play_chain_tracks(jf::Client &client, jf::Item item, std::vector<jf:
         }
         if (!next_from_result(result, &season, &number, &pick))
             return true;
+        if (pb.live) {   /* zapping: the channel the player asked for */
+            if (pick.empty())
+                return true;
+            const livetv::GuideRef g = livetv::guide();
+            if (const jf::Item *ch = g->channel(pick)) {
+                item = *ch;
+            } else {
+                item = jf::Item();
+                item.id = pick;
+                item.type = "TvChannel";
+            }
+            item.position_ticks = 0;
+            continue;
+        }
         still_watching_from_result(result, &still_count, &still_idle);
         const jf::Item *next = nullptr;
         for (const auto &e : episodes)
