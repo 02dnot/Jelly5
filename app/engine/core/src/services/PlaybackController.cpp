@@ -941,9 +941,18 @@ bool PlaybackController::startPlaybackSource(const PlaybackSource& source,
                 dsd ? (const AVDOVIDecoderConfigurationRecord *)dsd->data : nullptr;
             /* Only when this build carries the profile 5 pipelines: without
              * them nothing would use the parsed RPUs. */
+            const AVCodecParameters *vp = vStream->codecpar;
             if (dcfg && dcfg->dv_profile == 5 &&
                 evo_agc_runtime_pipeline_valid(EVO_AGC_PIPE_VIDEO_DV5))
                 dv_session_begin();
+            /* Jelly5: a server's HLS remux (MPEG-TS) loses the configuration
+             * record but keeps the RPUs: an HEVC 10-bit stream without one is
+             * probed, and its first RPU decides (src/dv_rpu.c). */
+            else if (!dcfg && vp->codec_id == AV_CODEC_ID_HEVC &&
+                     (vp->profile == AV_PROFILE_HEVC_MAIN_10 || vp->bits_per_raw_sample == 10 ||
+                      vp->format == AV_PIX_FMT_YUV420P10LE) &&
+                     evo_agc_runtime_pipeline_valid(EVO_AGC_PIPE_VIDEO_DV5))
+                dv_session_begin_probe();
             else
                 dv_session_end();
         }

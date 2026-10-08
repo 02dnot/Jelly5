@@ -1,6 +1,9 @@
 /*
  * Nuvio PS5
  * Copyright (C) 2026 Husam Osman
+ * Portions from EVO Player (sainsaji), c0c6a5e: the shader constants' layout
+ * (dv_pack_gpu) and the default offsets.
+ * Modified for Jelly5.
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 /* Dolby Vision RPU parsing and profile 5 reconstruction - see dv_rpu.h. */
@@ -243,7 +246,7 @@ int dv_rpu_parse(dv_parser *p, const uint8_t *nal, int size, dv_params *out)
     if (getn(&b, 6) != 2)                  /* rpu_type */
         return -1;
     const int rpu_format = (int)getn(&b, 11);
-    getn(&b, 4);                           /* vdr_rpu_profile */
+    const int rpu_profile = (int)getn(&b, 4);   /* vdr_rpu_profile */
     getn(&b, 4);                           /* vdr_rpu_level */
     if (!get1(&b) || (rpu_format & 0x700)) /* vdr_seq_info_present */
         return -1;
@@ -258,7 +261,7 @@ int dv_rpu_parse(dv_parser *p, const uint8_t *nal, int size, dv_params *out)
             return -1;
     }
     getn(&b, 2);                           /* vdr_rpu_normalized_idc */
-    get1(&b);                              /* bl_video_full_range */
+    const int bl_full_range = (int)get1(&b);   /* bl_video_full_range */
     const int bl_depth = ue_max(&b, 8) + 8;   /* -1 + 8 when out of range: refused below */
     const uint32_t el_minus8 = ue(&b);
     ue(&b);                                /* vdr_bit_depth_minus8 */
@@ -368,6 +371,7 @@ int dv_rpu_parse(dv_parser *p, const uint8_t *nal, int size, dv_params *out)
 
     p->cur_mapping = mapping_id;
     finish(p, out);
+    out->p5 = rpu_profile == 0 && bl_full_range;
     return 0;
 }
 
@@ -509,6 +513,10 @@ static dv_parser *g_parser;
 static struct { int64_t pts; dv_params p; int used; } g_ring[DV_RING];
 static int g_next;
 static int g_parsed, g_failed, g_logged_fail;
+/* Jelly5: a probe for profile 5 without a configuration record (a server's
+ * HLS remux drops it; the RPUs stay). Pictures left before giving up. */
+#define DV_PROBE_FRAMES 48
+static int g_probe, g_probe_left;
 
 void dv_session_begin(void)
 {
@@ -519,7 +527,44 @@ void dv_session_begin(void)
     memset(g_ring, 0, sizeof g_ring);
     g_next = 0;
     g_parsed = g_failed = g_logged_fail = 0;
+    g_probe = 0;
     g_active = 1;
+    pthread_mutex_unlock(&g_lock);
+}
+
+void dv_session_begin_probe(void)
+{
+    dv_session_begin();
+    pthread_mutex_lock(&g_lock);
+    g_probe = 1;
+    g_probe_left = DV_PROBE_FRAMES;
+    pthread_mutex_unlock(&g_lock);
+}
+
+/* Probe: the first RPU decides. Call with g_lock held; 1 when *dv may be stored. */
+static int probe_accept(const dv_params *dv)
+{
+    if (!g_probe)
+        return 1;
+    g_probe = 0;
+    if (dv->p5) {
+        evo_bt("dv5: profile 5 RPUs without a configuration record: rebuilt as profile 5");
+        return 1;
+    }
+    g_active = 0;   /* RPUs of another profile (8): its base layer plays as it is */
+    evo_bt("dv5: RPUs of another profile without a configuration record: left alone");
+    return 0;
+}
+
+void dv_session_no_rpu(void)
+{
+    if (!g_active)
+        return;
+    pthread_mutex_lock(&g_lock);
+    if (g_probe && --g_probe_left <= 0) {
+        g_probe = 0;
+        g_active = 0;   /* no Dolby Vision here */
+    }
     pthread_mutex_unlock(&g_lock);
 }
 
@@ -545,6 +590,10 @@ void dv_store(int64_t pts_us, const dv_params *dv)
     if (!dv || !dv->valid)
         return;
     pthread_mutex_lock(&g_lock);
+    if (!g_active || !probe_accept(dv)) {
+        pthread_mutex_unlock(&g_lock);
+        return;
+    }
     g_ring[g_next].pts = pts_us;
     g_ring[g_next].p = *dv;
     g_ring[g_next].used = 1;
@@ -602,13 +651,16 @@ void dv_session_parse_au(const uint8_t *au, int size, int64_t pts_us)
                     evo_bt("dv5: first RPU parsed - pivots %d/%d/%d, %s chroma",
                            p.comp[0].num_pivots, p.comp[1].num_pivots, p.comp[2].num_pivots,
                            p.comp[1].method[0] ? "MMR" : "polynomial");
-            } else if (g_failed++ == 0 || (g_failed % 500) == 0) {
-                evo_bt("dv5: RPU parse failed (%d so far, %d parsed)", g_failed, g_parsed);
+            } else {
+                if (g_failed++ == 0 || (g_failed % 500) == 0)
+                    evo_bt("dv5: RPU parse failed (%d so far, %d parsed)", g_failed, g_parsed);
+                dv_session_no_rpu();
             }
             return;
         }
         i = end - 1;
     }
+    dv_session_no_rpu();
 }
 
 int dv_from_avdovi(const void *data, dv_params *out)
@@ -655,5 +707,6 @@ int dv_from_avdovi(const void *data, dv_params *out)
         tmp.dm.offset[i] = (float)av_q2d(c->ycc_to_rgb_offset[i]);
     tmp.dm.present = 1;
     finish(&tmp, out);
+    out->p5 = h->vdr_rpu_profile == 0 && h->bl_video_full_range_flag;
     return 0;
 }

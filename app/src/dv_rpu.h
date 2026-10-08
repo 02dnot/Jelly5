@@ -51,6 +51,8 @@ typedef struct {
     float    offset[3];         /* ycc_to_rgb_offset */
     float    lms2rgb[9];        /* fixed LMS->RGB times the RPU's rgb_to_lms */
     uint32_t hash;              /* changes whenever any of the above does */
+    int      p5;                /* the RPU's header says profile 5 (vdr_rpu_profile 0,
+                                 * full-range base layer), as dovi_tool reads it */
 } dv_params;
 
 typedef struct dv_parser dv_parser;
@@ -102,6 +104,13 @@ void dv_pack_gpu(const dv_params *dv, dv_gpu_params *out);
  * only while a profile 5 stream plays.
  */
 void dv_session_begin(void);           /* a profile 5 stream opened */
+/* Jelly5: an HEVC 10-bit stream without a configuration record opened (a
+ * server's HLS remux drops it, the RPUs stay). Its first RPU decides: profile
+ * 5 RPUs are used as above, any other ends the session, and so does a run of
+ * pictures without one. */
+void dv_session_begin_probe(void);
+/* A picture without an RPU (counts down the probe). */
+void dv_session_no_rpu(void);
 void dv_session_end(void);
 int  dv_session_active(void);
 void dv_store(int64_t pts_us, const dv_params *dv);
