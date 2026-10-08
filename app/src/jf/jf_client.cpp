@@ -274,6 +274,7 @@ MediaStream stream_of(const cJSON *s, const std::string &server)
     m.is_forced = bool_of(s, "IsForced");
     m.is_external = bool_of(s, "IsExternal");
     m.is_text = bool_of(s, "IsTextSubtitleStream");
+    m.is_hearing_impaired = bool_of(s, "IsHearingImpaired");
     m.delivery_method = str_of(s, "DeliveryMethod");
     const std::string d = str_of(s, "DeliveryUrl");
     if (!d.empty())
@@ -545,6 +546,11 @@ bool Client::get_prefs(UserPrefs *out)
         out->subtitle_language = str_of(cfg, "SubtitleLanguagePreference");
         out->subtitle_mode = str_of(cfg, "SubtitleMode");
         out->autoplay_next = bool_of(cfg, "EnableNextEpisodeAutoPlay");
+        /* Both servers' default is on: a server that leaves a key out keeps it. */
+        if (cJSON_IsBool(cJSON_GetObjectItemCaseSensitive(cfg, "RememberAudioSelections")))
+            out->remember_audio = bool_of(cfg, "RememberAudioSelections");
+        if (cJSON_IsBool(cJSON_GetObjectItemCaseSensitive(cfg, "RememberSubtitleSelections")))
+            out->remember_subtitles = bool_of(cfg, "RememberSubtitleSelections");
     }
     cJSON_Delete(j);
     return cfg != nullptr;
@@ -1390,9 +1396,11 @@ std::string Client::device_profile_json(int64_t max_bitrate)
 }
 
 bool Client::playback_info(const std::string &item_id, int64_t start_ticks, int audio_index,
-                           int subtitle_index, Playback *out, int64_t max_bitrate)
+                           int subtitle_index, Playback *out, int64_t max_bitrate,
+                           const std::string &media_source_id)
 {
-    if (!playback_info_as(item_id, start_ticks, audio_index, subtitle_index, out, max_bitrate, false))
+    if (!playback_info_as(item_id, start_ticks, audio_index, subtitle_index, out, max_bitrate, false,
+                          media_source_id))
         return false;
     /* Dolby Vision profile 5 has no base layer the PS5 shows right (green and
      * purple). Jellyfin's profile keeps it from playing directly or being copied
@@ -1406,7 +1414,8 @@ bool Client::playback_info(const std::string &item_id, int64_t start_ticks, int 
     for (const MediaStream &s : out->streams)
         if (s.type == "Video" && s.video_range_type == "DOVI") {
             Playback encoded;
-            if (!playback_info_as(item_id, start_ticks, audio_index, subtitle_index, &encoded, max_bitrate, true))
+            if (!playback_info_as(item_id, start_ticks, audio_index, subtitle_index, &encoded, max_bitrate, true,
+                                  media_source_id))
                 return true;
             stop_encoding(*out);
             *out = std::move(encoded);
@@ -1416,7 +1425,8 @@ bool Client::playback_info(const std::string &item_id, int64_t start_ticks, int 
 }
 
 bool Client::playback_info_as(const std::string &item_id, int64_t start_ticks, int audio_index,
-                              int subtitle_index, Playback *out, int64_t max_bitrate, bool transcode)
+                              int subtitle_index, Playback *out, int64_t max_bitrate, bool transcode,
+                              const std::string &media_source_id)
 {
     const int64_t cap = max_bitrate > 0 ? max_bitrate : 200000000;
     const char *direct = transcode ? "false" : "true";
@@ -1430,6 +1440,14 @@ bool Client::playback_info_as(const std::string &item_id, int64_t start_ticks, i
         req += ",\"AudioStreamIndex\":" + std::to_string(audio_index);
     if (subtitle_index >= -1)
         req += ",\"SubtitleStreamIndex\":" + std::to_string(subtitle_index);
+    if (!media_source_id.empty()) {   /* (escaped: the id comes from the server) */
+        cJSON *id = cJSON_CreateString(media_source_id.c_str());
+        char *quoted = cJSON_PrintUnformatted(id);
+        if (quoted)
+            req += std::string(",\"MediaSourceId\":") + quoted;
+        cJSON_free(quoted);
+        cJSON_Delete(id);
+    }
     if (!emby())   /* Jellyfin 12: the userId query is deprecated for the body's UserId */
         req += ",\"UserId\":\"" + user_id_ + "\"";
     req += "}";

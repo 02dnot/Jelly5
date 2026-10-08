@@ -126,6 +126,10 @@ unsigned s_now_track = 0;
 
 /* The viewer's language preferences for the audio pick (set per playback). */
 std::vector<std::string> s_audio_langs;
+/* Jelly5: the audio track the viewer chose earlier in this series (the container's
+ * stream, for the request's first source; -1 none). Cleared when the viewer picks
+ * another or another source opens. Read on the open thread. */
+std::atomic<int> s_keep_audio{-1};
 
 double now_s()
 {
@@ -238,6 +242,9 @@ extern "C" int nuvio_pick_audio_stream(AVFormatContext *fmt, int current)
         const AVStream *st = fmt->streams[i];
         return st->codecpar->codec_type == AVMEDIA_TYPE_AUDIO && avcodec_find_decoder(st->codecpar->codec_id);
     };
+    const int keep = s_keep_audio;   /* Jelly5: the series' remembered track first */
+    if (keep >= 0 && keep < (int)fmt->nb_streams && decodable((unsigned)keep))
+        return keep;
     auto best_in = [&](const std::string &key) {
         int best = -1, best_rank = -1;
         for (unsigned i = 0; i < fmt->nb_streams; i++) {
@@ -406,6 +413,7 @@ struct Session {
     bool cancel = false;
     bool done = false;
     bool user_picked_subs = false;
+    bool keep_subs_pending = false;   /* Jelly5: the series' remembered subtitle is still to be found */
     /* The selected subtitle track, found again once a reopened stream is open:
      * an external one by its url, an embedded one by its stream index. */
     bool resub_pending = false;
@@ -607,6 +615,35 @@ void auto_select_subtitles(Session &s)
         return;
     const NuvioPrefs &p = s.req.prefs;
     const int n = nuvio_subs_count();
+    /* Jelly5: the subtitle the viewer chose earlier in this series (or off) is their
+     * choice here too. A file still loading is waited for; one that failed, or a
+     * track that is not there, leaves it to the rules below. */
+    if (s.keep_subs_pending) {
+        if (p.keep_subtitle == 1) {
+            s.keep_subs_pending = false;
+            s.user_picked_subs = true;
+            return;
+        }
+        int found = -1, external = 0;
+        nuvio_sub_track t{};
+        for (int i = 0; i < n && found < 0; i++) {
+            if (nuvio_subs_track(i, &t) != 0)
+                continue;
+            if (p.keep_subtitle == 2 && t.external && external++ == p.keep_subtitle_at)
+                found = i;
+            else if (p.keep_subtitle == 3 && !t.external && t.stream == p.keep_subtitle_at)
+                found = i;
+        }
+        if (found >= 0 && t.state == 0)
+            return;   /* still loading: nothing else meanwhile */
+        s.keep_subs_pending = false;
+        if (found >= 0 && t.state == 1) {
+            s.user_picked_subs = true;
+            nuvio_subs_select(found);
+            s_osd.note_subtitle_choice();
+            return;
+        }
+    }
     auto find = [&](const std::string &lang, bool forced_only) {
         const std::string key = nuvio_language_key(lang);
         int best = -1, best_score = -1;
@@ -766,6 +803,12 @@ void open_source(Session &s, int index, double at)
     s.error.clear();
     s.last_pts = INT64_MIN;
     s.user_picked_subs = false;
+    s.keep_subs_pending = false;   /* the remembered tracks were found in the first source's file */
+    s_keep_audio = -1;
+    /* The new file's tracks are picked anew: only the viewer's subtitle file comes
+     * back (reset_subtitles), so only that stays their choice. */
+    s.res.audio_picked = false;
+    s.res.subtitle_picked = s.res.subtitle_picked && !s.resub_url.empty();
     s.job.kind = 0;
     s.job.src = evo::PlaybackSource();
     s.job.src.url = src.url;
@@ -816,12 +859,16 @@ void apply(Session &s, const OsdCommand &c)
         if (c.index >= 0 && c.index < (int)s.audio_streams.size() && !s.job.running) {
             s.job.kind = 1;
             s.job.audio_stream = s.audio_streams[c.index];
+            s.res.audio_picked = true;
+            s_keep_audio = -1;
             s.st.switching = true;
             start_job(s.job);
         }
         break;
     case OsdCmd::SelectSubtitle:
         s.user_picked_subs = true;
+        s.keep_subs_pending = false;
+        s.res.subtitle_picked = true;
         nuvio_subs_select(c.index);
         break;
     case OsdCmd::SubtitleDelay:
@@ -979,6 +1026,8 @@ extern "C" void nuvio_player_run(const char *json)
     }
         const int session = ++s_session;
     s_audio_langs = s.req.prefs.audio_langs;
+    s_keep_audio = s.req.source_index == 0 ? s.req.prefs.keep_audio_stream : -1;
+    s.keep_subs_pending = s.req.source_index == 0 && s.req.prefs.keep_subtitle != 0;
     std::snprintf(nuvio_stream_headers, sizeof nuvio_stream_headers, "%s", s.req.headers.c_str());
     std::snprintf(nuvio_stream_user_agent, sizeof nuvio_stream_user_agent, "%s", s.req.user_agent.c_str());
 

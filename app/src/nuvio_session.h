@@ -102,6 +102,13 @@ struct NuvioPrefs {
     /* Jelly5: "Ser du fortsatt på?" (ui/still_watching.h); 0 = never ask. */
     int still_watching_episodes = 0;         /* autoplayed episodes in a row */
     double still_watching_seconds = 0;       /* seconds played since the last press */
+    /* Jelly5: the track the viewer chose earlier in this series (app/track_memory),
+     * found in this file for the request's first source. */
+    int keep_audio_stream = -1;              /* the container's stream index; -1: none */
+    int keep_subtitle = 0;                   /* 0 none, 1 off, 2 the request's external file
+                                              * keep_subtitle_at (its place among them), 3 the
+                                              * container's stream keep_subtitle_at */
+    int keep_subtitle_at = -1;
     bool has_tz = false;                     /* the page's UTC offset, for the clock */
     int tz_offset_min = 0;
 };
@@ -158,6 +165,7 @@ struct NuvioResult {
     int source_index = -1;        /* action source */
     std::string audio_lang, subtitle_lang;
     bool subtitles_on = false;
+    bool audio_picked = false, subtitle_picked = false;   /* Jelly5: the viewer chose a track (app/track_memory) */
     int subtitle_delay_ms = 0;
     bool group_end = false;       /* Jelly5: ended as a SyncPlay group's item: the group plays on */
     int autoplay_count = 0;       /* Jelly5: for the next episode (ui/still_watching.h) */
