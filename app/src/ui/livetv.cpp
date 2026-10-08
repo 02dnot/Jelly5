@@ -226,8 +226,8 @@ void ProgramSheet::draw(jf::Client &c, float dt, bool *animating)
     m_drop.draw(dt, a, animating, 14);
     for (size_t i = 0; i < m_options.size(); i++) {
         const bool focus = (int)i == m_focus;
-        gfx::text(r.x + 56, y + 42, labels[i], {focus ? gfx::Bold : gfx::SemiBold, 26, w - 112},
-                  alpha(focus ? kText : kText2, a));
+        marquee_text(r.x + 56, y + 42, labels[i], {focus ? gfx::Bold : gfx::SemiBold, 26, w - 112},
+                     alpha(focus ? kText : kText2, a), focus);
         y += row_h + 6;
     }
     draw_pad_hints(r.x + 56, r.y + r.h - 52, {{PadButton::Cross, T("Velg")}, {PadButton::Circle, T("Lukk")}}, 0, 26,
@@ -825,6 +825,7 @@ void LiveTv::draw_recordings(float dt)
         gfx::Rect r;
         const jf::Item *it;
         bool timer;
+        bool focus;
     };
     std::vector<Card> cards;
     for (int row = 0; row < 2; row++) {
@@ -843,7 +844,9 @@ void LiveTv::draw_recordings(float dt)
             if (x > gfx::W + 20 || x + cw < -20)
                 continue;
             const gfx::Rect r{x, top, cw, ch};
-            cards.push_back({r, &items[i], row == 1});
+            const bool focus = m_focused && m_zone == Zone::Guide && row == m_rec_row && (int)i == c &&
+                               !m_sheet.active();
+            cards.push_back({r, &items[i], row == 1, focus});
             if (m_focused && m_zone == Zone::Guide && row == m_rec_row && (int)i == c) {
                 focus_rect = {r.x - 6, r.y - 6, r.w + 12, r.h + 12};
                 focus_key = row * 4096 + (int)i;
@@ -867,10 +870,10 @@ void LiveTv::draw_recordings(float dt)
         }
         /* (a recorded episode is filed as its series' episode: the series names it) */
         const bool episode = c.it->type == "Episode" && !c.it->series_name.empty();
-        gfx::text(c.r.x + 14, c.r.y + c.r.h - (c.timer || episode ? 40 : 16), episode ? c.it->series_name : c.it->name,
-                  {gfx::SemiBold, 20, c.r.w - 28}, kText);
+        marquee_text(c.r.x + 14, c.r.y + c.r.h - (c.timer || episode ? 40 : 16), episode ? c.it->series_name : c.it->name,
+                     {gfx::SemiBold, 20, c.r.w - 28}, kText, c.focus);
         if (episode && !c.timer)
-            gfx::text(c.r.x + 14, c.r.y + c.r.h - 15, c.it->name, {gfx::Medium, 17, c.r.w - 28}, kText2);
+            marquee_text(c.r.x + 14, c.r.y + c.r.h - 15, c.it->name, {gfx::Medium, 17, c.r.w - 28}, kText2, c.focus);
         if (c.timer) {   /* when, and that it will be recorded */
             rec_mark(c.r.x + 14, c.r.y + c.r.h - 22, !c.it->series_timer_id.empty(), 1.f);
             const float dx = c.it->series_timer_id.empty() ? 20 : 29;
@@ -1041,7 +1044,8 @@ void LiveTv::draw_guide(float dt)
             gfx::text(d.r.x + 18, d.r.y + 45, ch.channel_number, {gfx::SemiBold, 22, 50},
                       d.focus ? kText : kText3);
             if (!draw_logo(m_client, ch, {lx, d.r.y + 10, d.r.w - 70 - 16, d.r.h - 20}, 1.f))
-                gfx::text(lx, d.r.y + 45, ch.name, {gfx::SemiBold, 22, d.r.w - 70 - 16}, d.focus ? kText : kText2);
+                marquee_text(lx, d.r.y + 45, ch.name, {gfx::SemiBold, 22, d.r.w - 70 - 16}, d.focus ? kText : kText2,
+                             d.focus);
             if (ch.favorite)
                 gfx::text(d.r.x + d.r.w - 12, d.r.y + 24, "\xE2\x99\xA5", {gfx::Bold, 16}, alpha(kLive, 0.9f), 2);
             continue;
@@ -1062,8 +1066,8 @@ void LiveTv::draw_guide(float dt)
         const bool rec = d.program && (!d.program->timer_id.empty() || !d.program->series_timer_id.empty());
         const float rec_w = rec ? (d.program->series_timer_id.empty() ? 20.f : 30.f) : 0.f;
         const std::string title = d.program ? d.program->name : T("Ingen programinformasjon");
-        gfx::text(tx, d.r.y + 32, title, {d.focus ? gfx::Bold : gfx::SemiBold, 22, tw - rec_w},
-                  d.program ? ink : kText3);
+        marquee_text(tx, d.r.y + 32, title, {d.focus ? gfx::Bold : gfx::SemiBold, 22, tw - rec_w},
+                     d.program ? ink : kText3, d.focus);
         if (rec && tw > 60)
             rec_mark(std::min(tx + gfx::text_width(title, {gfx::SemiBold, 22, tw - rec_w}) + 8, d.r.x + d.r.w - 12 - rec_w + 6),
                      d.r.y + 25, !d.program->series_timer_id.empty(), 1.f);

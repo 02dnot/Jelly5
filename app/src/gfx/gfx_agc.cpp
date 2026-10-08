@@ -831,6 +831,10 @@ void push_fade_mask(const Rect &r, float top, float bottom, float left, float ri
 
 void pop_fade_mask() { s_mask_on = false; }
 
+bool fade_mask_active() { return s_mask_on; }
+
+uint64_t frame_index() { return s_frame; }
+
 void rim(const Rect &r, float radius, float opacity)
 {
     if (!s_rim || opacity <= 0.f || r.w < 2 * radius || r.h < 2 * radius)

@@ -12,7 +12,10 @@
 #include "ui_assets.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
+#include <cstdio>
+#include <unordered_map>
 
 namespace ui {
 
@@ -439,11 +442,12 @@ void draw_poster(jf::Client &c, const jf::Item &it, const gfx::Rect &base, float
     /* The title under every poster (a grid is for skimming), brighter on focus; an
      * album's artist or an episode's series on a second line. */
     const uint32_t tc = lift > 0.5f ? kText : kText2;
-    gfx::text(r.x, r.y + r.h + 34, it.name, {gfx::SemiBold, 20, r.w}, alpha(tc, opacity));
+    const bool focused = lift > 0.5f;
+    marquee_text(r.x, r.y + r.h + 34, it.name, {gfx::SemiBold, 20, r.w}, alpha(tc, opacity), focused);
     const std::string &sub = it.type == "MusicAlbum" ? it.album_artist : it.type == "Episode" ? it.series_name
                                                                                               : std::string();
     if (!sub.empty())
-        gfx::text(r.x, r.y + r.h + 60, sub, {gfx::Medium, 18, r.w}, alpha(kText3, opacity));
+        marquee_text(r.x, r.y + r.h + 60, sub, {gfx::Medium, 18, r.w}, alpha(kText3, opacity), focused);
 }
 
 const char *seerr_status_label(int status, bool full)
@@ -641,7 +645,8 @@ float pill_bar(float x, float y, const std::vector<std::string> &labels, int on,
         const float w = pill_w(labels[i], max_w);
         gfx::TextStyle ts = kPillText;
         ts.max_w = w - 40;
-        gfx::text(px + w / 2, y + kPillPad + 42, labels[i], ts, alpha(i == on ? kText : kText2, opacity), 1);
+        marquee_text(px + w / 2, y + kPillPad + 42, labels[i], ts, alpha(i == on ? kText : kText2, opacity),
+                     focused && i == on, 1);
         px += w + kPillGap;
     }
     return bw;
@@ -666,6 +671,99 @@ bool draw_logo_fit(const std::string &url, const gfx::Rect &box, float a)
     gfx::image({box.x + (box.w - iw * k) / 2, box.y + (box.h - ih * k) / 2, iw * k, ih * k}, t, a * art::fade(url), 6,
                false);
     return true;
+}
+
+/* ---- marquee ---------------------------------------------------------- */
+
+namespace {
+
+constexpr double kMarqueeWait = 1.2;    /* s on the cut label before it moves */
+constexpr float kMarqueeSpeed = 70.f;   /* logical px a second */
+constexpr double kMarqueeRest = 1.5;    /* s at the end */
+constexpr double kMarqueeFade = 0.3;    /* s out at the end, and in at the start */
+constexpr int kMarqueeLoops = 3;
+
+struct MarqueeState {
+    double start = 0;
+    uint64_t frame = 0;   /* the last frame it was drawn focused */
+};
+std::unordered_map<std::string, MarqueeState> s_marquee;
+bool s_marquee_moving = false;
+
+double marquee_now()
+{
+    using namespace std::chrono;
+    return duration<double>(steady_clock::now().time_since_epoch()).count();
+}
+
+} // namespace
+
+float marquee_text(float x, float baseline, const std::string &s, const gfx::TextStyle &st, uint32_t color,
+                   bool focused, int align)
+{
+    if (!focused || st.max_w <= 0 || st.max_lines > 1 || s.empty())
+        return gfx::text(x, baseline, s, st, color, align);
+    gfx::TextStyle whole = st;
+    whole.max_w = 0;
+    const float full = gfx::text_width(s, whole);
+    const float room = st.max_w;
+    if (full <= room + 0.5f)
+        return gfx::text(x, baseline, s, st, color, align);
+
+    /* One state per label (its text and size): it starts over when the label was
+     * not drawn focused in the frame before (focus came back, or moved to it). */
+    char key_tail[48];
+    std::snprintf(key_tail, sizeof key_tail, "\x1f%d/%d/%d", (int)st.weight, (int)(st.size * 10), (int)room);
+    const std::string key = s + key_tail;
+    const uint64_t frame = gfx::frame_index();
+    const double now = marquee_now();
+    MarqueeState &m = s_marquee[key];
+    if (m.frame + 1 < frame)
+        m.start = now;
+    m.frame = frame;
+    if (s_marquee.size() > 64)   /* labels no longer focused */
+        for (auto it = s_marquee.begin(); it != s_marquee.end();)
+            it = it->second.frame + 1 < frame ? s_marquee.erase(it) : std::next(it);
+
+    const float excess = full - room;
+    const double glide = excess / kMarqueeSpeed;
+    const double loop = kMarqueeWait + glide + kMarqueeRest + kMarqueeFade;
+    const double t = now - m.start;
+    if (t >= loop * kMarqueeLoops)
+        return gfx::text(x, baseline, s, st, color, align);   /* done: it rests, cut */
+    s_marquee_moving = true;
+    const int n = (int)(t / loop);
+    const double p = t - n * loop;
+    if (p < kMarqueeWait) {   /* the cut label (after the first round, fading back in) */
+        const float a = n > 0 ? (float)std::min(1.0, p / kMarqueeFade) : 1.f;
+        gfx::push_opacity(a);
+        const float w = gfx::text(x, baseline, s, st, color, align);
+        gfx::pop_opacity();
+        return w;
+    }
+    const float off = (float)std::min<double>(excess, (p - kMarqueeWait) * kMarqueeSpeed);
+    const double out = p - (kMarqueeWait + glide + kMarqueeRest);
+    const float a = out > 0 ? (float)std::max(0.0, 1.0 - out / kMarqueeFade) : 1.f;
+    const float left = align == 1 ? x - room / 2 : align == 2 ? x - room : x;
+    const gfx::Rect clip{left - 2, baseline - st.size * 1.4f, room + 4, st.size * 2.2f};
+    gfx::push_scissor(clip);
+    const bool soft = !gfx::fade_mask_active();   /* inside a list's own fade: hard edges */
+    if (soft)
+        gfx::push_fade_mask(clip, 0, 0, off > 1.f ? 18.f : 0.f, off < excess - 1.f ? 18.f : 0.f);
+    gfx::push_opacity(a);
+    gfx::text(left - off, baseline, s, whole, color, 0);
+    gfx::pop_opacity();
+    if (soft)
+        gfx::pop_fade_mask();
+    gfx::pop_scissor();
+    return room;
+}
+
+bool marquee_take_animating()
+{
+    const bool moving = s_marquee_moving;
+    s_marquee_moving = false;
+    return moving;
 }
 
 } // namespace ui

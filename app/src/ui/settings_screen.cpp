@@ -558,7 +558,7 @@ void SettingsScreen::draw(double, float dt)
         const float vx = rr.x + rr.w - 32 - (adj && focus ? 30 : 0);
         /* The value has what the label leaves (an error from Seerr can be long). */
         const float vmax = std::max(300.f, vx - (rr.x + 32 + lw + 48));
-        gfx::text(vx, cy, v, {gfx::Medium, 24, vmax}, fg2, 2);
+        marquee_text(vx, cy, v, {gfx::Medium, 24, vmax}, fg2, focus, 2);
         if (adj && focus) {
             gfx::text(rr.x + rr.w - 30, cy, "\xE2\x80\xBA", {gfx::Bold, 30}, fg2, 2);
             gfx::text(vx - gfx::text_width(v, {gfx::Medium, 24, vmax}) - 14, cy, "\xE2\x80\xB9", {gfx::Bold, 30}, fg2, 2);   /* as the value's own width */

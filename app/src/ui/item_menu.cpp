@@ -164,8 +164,8 @@ void ItemMenu::draw(float dt, bool *animating)
     for (size_t i = 0; i < m_options.size(); i++) {
         const bool focus = (int)i == m_focus;
         const gfx::Rect row{r.x + 30, y, w - 60, row_h};
-        gfx::text(row.x + 26, row.y + 44, labels[i], {focus ? gfx::Bold : gfx::SemiBold, 26, w - 112},
-                  alpha(focus ? kText : kText2, a));
+        marquee_text(row.x + 26, row.y + 44, labels[i], {focus ? gfx::Bold : gfx::SemiBold, 26, w - 112},
+                     alpha(focus ? kText : kText2, a), focus);
         y += row_h + 6;
     }
     draw_pad_hints(r.x + 56, r.y + r.h - 52, {{PadButton::Cross, T("Velg")}, {PadButton::Circle, T("Lukk")}}, 0, 26,

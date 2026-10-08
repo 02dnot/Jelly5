@@ -2265,6 +2265,8 @@ bool draw_frame(double t, float dt)
         draw_launch(t, s_splash.value, "", "", true);   /* (the line fades with it) */
         break;
     }
+    if (ui::marquee_take_animating())
+        animating = true;   /* a focused title is gliding to show its end */
     gfx::end_frame();
     startup_mark("first frame");
     /* The first screen complete: home up, the splash gone, no picture still on its way. */

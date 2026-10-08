@@ -263,7 +263,7 @@ void Album::draw(double now, float dt)
         else
             std::snprintf(num, sizeof num, "%d", t.index > 0 && !m_playlist ? t.index : i + 1);
         gfx::text(x + 30, y + 40, num, {gfx::SemiBold, 22}, dim, 2);
-        gfx::text(x + 60, y + 40, t.name, {focus ? gfx::Bold : gfx::Medium, 25, w - 200}, fg);
+        marquee_text(x + 60, y + 40, t.name, {focus ? gfx::Bold : gfx::Medium, 25, w - 200}, fg, focus);
         gfx::text(x + w - 20, y + 40, duration(t.runtime_ticks), {gfx::Medium, 22}, dim, 2);
     }
     gfx::pop_scissor();

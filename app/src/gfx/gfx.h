@@ -81,6 +81,10 @@ int backdrop_blur(const Rect &r, float radius, float sigma = 24.f, float opacity
  * hard). Done in the geometry: no layer, nothing read back. */
 void push_fade_mask(const Rect &r, float top, float bottom, float left = 0, float right = 0);
 void pop_fade_mask();
+/* Whether a fade mask is on (masks do not nest: an inner one would end the outer). */
+bool fade_mask_active();
+/* The frame being drawn: counts begin_frame and begin_overlay. */
+uint64_t frame_index();
 /* Where the glass's light comes from (screen direction, x right, y down); the
  * shell tilts it with the DualSense. Returns true when it moved enough to redraw. */
 bool set_glass_light(float x, float y);
