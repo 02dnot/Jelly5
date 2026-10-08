@@ -605,6 +605,11 @@ std::string request_json(jf::Client &c, const jf::Item &it, const jf::Playback &
         {"youre_watching", T("Du ser på")}, {"addon", T("Kilde")},
         {"open_failed", pb.live ? T("Kanalen kunne ikke åpnes. Den sender kanskje ikke akkurat nå.")
                                 : T("Strømmen kunne ikke åpnes. Kilden er kanskje ikke tilgjengelig.")},
+        {"opening", T("Åpner \xE2\x80\xA6")}, {"buffering", T("Bufrer \xE2\x80\xA6")},
+        {"decode_failed", T("Denne videoen kunne ikke dekodes.")},
+        {"did_not_start", T("Avspillingen startet ikke. Kilden er kanskje for treg eller utilgjengelig.")},
+        {"audio_switch_failed", T("Kunne ikke spille av lydsporet")},
+        {"decoder_hung", T("Maskinvaredekoderen svarer ikke. Start Jelly5 på nytt for å bruke den igjen.")},
     };
     cJSON *strings = cJSON_CreateObject();
     for (const auto &kv : kStrings)

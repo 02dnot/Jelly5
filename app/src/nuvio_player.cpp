@@ -1131,7 +1131,14 @@ extern "C" void nuvio_player_run(const char *json)
                     evo_bt("nuvio: open ok - %s", s.st.quality_line.c_str());
                     /* Profile 5 is rebuilt on the GPU; only a build without that
                      * pipeline would still show it in the wrong colours. */
-                    if (play_fmt && video_stream_index >= 0 &&
+                    /* The hardware decoder hung earlier (the watchdog in
+                     * evo_vdec_native.c): everything plays on the software
+                     * decoder until the app is restarted. Say so. */
+                    if (video_stream_index >= 0 && evo_vdec_native_hung())
+                        s_osd.toast(s.req.str("decoder_hung",
+                                              "The hardware decoder stopped responding. Restart Jelly5 to use it again."),
+                                    now);
+                    else if (play_fmt && video_stream_index >= 0 &&
                         dolby_vision_profile(play_fmt->streams[video_stream_index]->codecpar) == 5 &&
                         !evo_agc_runtime_pipeline_valid(EVO_AGC_PIPE_VIDEO_DV5))
                         s_osd.toast(s.req.str("dv5_unsupported",

@@ -198,6 +198,41 @@ static bool streamInProgram(const AVFormatContext* fmt, int prog_idx, int stream
     return false;
 }
 
+/*
+ * The demux and video threads run through these, so stopPlayback() can see
+ * whether they returned. A sceVideodec2 call that never returns (the native
+ * decoder's hang watchdog, from EVO Player b7f6f25) would otherwise hold the
+ * render thread in pthread_join for good: it waits as long as a join would,
+ * unless the watchdog says the thread is stuck in the decoder, and then leaves
+ * the thread behind (it parks itself if the call ever returns).
+ */
+static volatile int s_demux_exited = 1;
+static volatile int s_video_exited = 1;
+
+static void* demux_thread_main(void* arg) {
+    void* r = demux_thread_func(arg);
+    __atomic_store_n(&s_demux_exited, 1, __ATOMIC_RELEASE);
+    return r;
+}
+
+static void* video_thread_main(void* arg) {
+    void* r = video_decode_thread_func(arg);
+    __atomic_store_n(&s_video_exited, 1, __ATOMIC_RELEASE);
+    return r;
+}
+
+static void joinUnlessHung(pthread_t thread, volatile int* exited, const char* what) {
+    while (!__atomic_load_n(exited, __ATOMIC_ACQUIRE)) {
+        if (evo_vdec_native_hung_in(thread)) {
+            pthread_detach(thread);
+            evo_bt("stopPlayback: the %s thread is stuck in the hardware decoder - left behind", what);
+            return;
+        }
+        usleep(5 * 1000);
+    }
+    pthread_join(thread, nullptr);
+}
+
 static uint64_t GetCurrentTimeMs() {
     struct timeval tv;
     gettimeofday(&tv, nullptr);
@@ -358,14 +393,14 @@ void PlaybackController::stopPlayback() {
          * reconnect loop; stop must not wait that out. */
         evo_stream_io_abort(m_streamIo);
         demux_thread_running = 0;
-        pthread_join(demux_thread, nullptr);
+        joinUnlessHung(demux_thread, &s_demux_exited, "demux");
     }
 
     prospero_embedded_subtitle_close();
 
     if (video_thread_running) {
         video_thread_running = 0;
-        pthread_join(video_thread, nullptr);
+        joinUnlessHung(video_thread, &s_video_exited, "video");
     }
 
     if (audio_decode_thread_running) {
@@ -1401,10 +1436,14 @@ bool PlaybackController::startPlaybackSource(const PlaybackSource& source,
     evo_boot_log("  pb: threads demux=1 video=%d adec=%d aout=%d",
                  video_thread_running, audio_decode_thread_running,
                  audio_thread_running);
-    evo_thread_create(&demux_thread, demux_thread_func, nullptr);
+    s_demux_exited = 0;
+    if (evo_thread_create(&demux_thread, demux_thread_main, nullptr) != 0)
+        s_demux_exited = 1;
 
     if (video_thread_running) {
-        evo_thread_create(&video_thread, video_decode_thread_func, nullptr);
+        s_video_exited = 0;
+        if (evo_thread_create(&video_thread, video_thread_main, nullptr) != 0)
+            s_video_exited = 1;
     }
     if (audio_decode_thread_running) {
         evo_thread_create(&audio_decode_thread, audio_decode_thread_func, nullptr);
