@@ -34,6 +34,8 @@
 #include "evo_vdec.h"
 #include "evo_adec.h"
 #include "pp_stage_breadcrumb.h"
+#include "evo_boot_trace.h"
+#include "evo_stream_io.h"
 
 /* ---------------------------------------------------------------------------
  * TRANSITIONAL: playback-core decode context + flags + the app playback
@@ -90,7 +92,8 @@ int audio_stream_index = -1;
 
 volatile int demux_thread_running = 0;
 /* What the demux thread is doing, for the status line: 1 reading, 2 waiting
- * for video room, 3 waiting for audio room, 4 seeking, 5 read failed. */
+ * for video room, 3 waiting for audio room, 4 seeking, 5 read failed,
+ * 6 recovering from a failed read. */
 volatile int evo_demux_state = 0;
 pthread_t    demux_thread;
 
@@ -749,6 +752,267 @@ static void demux_wait_for_room(PacketQueue *q, int is_video, PacketQueue *other
     }
 }
 
+/* ---------------------------------------------------------------------------
+ * Network read recovery (from EVO Player 4b2dbde, reworked for Jelly5).
+ *
+ * A failed read used to be the end of the file: the AVIOContext latches its
+ * error, every later av_read_frame() fails, and video stops while the queues
+ * drain. Only then did the player notice the early end and reopen the stream
+ * (nuvio_player.cpp, connection_dropped): a freeze, a spinner and a fresh
+ * open, though the network was usually back within seconds and thirty
+ * seconds of read-ahead were still queued. EVO hit it on hardware 2026-10-07:
+ * a Jellyfin stream lost one chunk and never showed another frame.
+ *
+ * So on a seekable network file, a read error short of the real end clears
+ * the latch, seeks back to just before the last packets demuxed, and drops
+ * what it has already queued until each stream is past that point again. The viewer sees
+ * nothing while the queue lasts. After DEMUX_RECOVER_TRIES failures in a row
+ * it ends as before, and the player's reopen takes over.
+ *
+ * Per stream, not just audio and video as in EVO: an embedded subtitle read
+ * again would show twice, and one dropped while the video catches up would
+ * not show at all. "Already have" is by file position first: Matroska video
+ * has no DTS of its own (libavformat guesses one from the PTS, and has none
+ * for the first frames after a seek), and the later frames of a laced block
+ * carry no timestamp at all. Packets at the same position (laces, or frames
+ * a parser split from one PES) are told apart by timestamp.
+ * ------------------------------------------------------------------------ */
+#define DEMUX_RECOVER_TRIES       10
+#define DEMUX_RECOVER_MAX_STREAMS 64
+
+static int     s_recover_allowed;        /* this source may recover (set per file) */
+static int     s_recover_tries;          /* failures since the last new anchor packet */
+static int     s_recover_gave_up;        /* logged once per outage */
+static int     s_recover_catching;       /* some stream is dropping what it has already */
+static int64_t s_last_ts[DEMUX_RECOVER_MAX_STREAMS];   /* last timestamp handed on */
+static int64_t s_last_pos[DEMUX_RECOVER_MAX_STREAMS];  /* and file position, -1 unknown */
+static int64_t s_seek_ts[DEMUX_RECOVER_MAX_STREAMS];   /* last real timestamp, to seek back to */
+static uint8_t s_catching[DEMUX_RECOVER_MAX_STREAMS];  /* dropping up to s_last_ts */
+
+static int64_t pkt_ts(const AVPacket *pkt)
+{
+    return pkt->dts != AV_NOPTS_VALUE ? pkt->dts : pkt->pts;
+}
+
+/* The stream the recovery seeks by: video, or audio for music. */
+static int recover_anchor(void)
+{
+    const int a = video_stream_index >= 0 ? video_stream_index : audio_stream_index;
+    return a >= 0 && a < DEMUX_RECOVER_MAX_STREAMS ? a : -1;
+}
+
+static void demux_recover_reset(void)
+{
+    for (int i = 0; i < DEMUX_RECOVER_MAX_STREAMS; i++) {
+        s_last_ts[i] = AV_NOPTS_VALUE;
+        s_last_pos[i] = -1;
+        s_seek_ts[i] = AV_NOPTS_VALUE;
+        s_catching[i] = 0;
+    }
+    s_recover_tries = 0;
+    s_recover_gave_up = 0;
+    s_recover_catching = 0;
+}
+
+/*
+ * Only a seekable network file: a local file's error is the disc's, an HLS
+ * or DASH playlist reconnects per segment inside its own demuxer, and a
+ * stream that cannot seek (a progressive transcode, a live channel) cannot
+ * go back to where it broke. A live source that should reconnect at EOF
+ * instead gets its own rule here when it comes.
+ */
+static int demux_recover_allowed_for(const AVFormatContext *fmt)
+{
+    if (!fmt || !fmt->pb || !fmt->url)
+        return 0;
+    const char *u = fmt->url;
+    if (strncmp(u, "http://", 7) != 0 && strncmp(u, "https://", 8) != 0)
+        return 0;
+    if (evo_stream_io_url_is_playlist(u))
+        return 0;
+    if (fmt->iformat && (strcmp(fmt->iformat->name, "hls") == 0 ||
+                         strcmp(fmt->iformat->name, "dash") == 0))
+        return 0;
+    return (fmt->pb->seekable & AVIO_SEEKABLE_NORMAL) != 0;
+}
+
+/* 1 when the read ended the stream for good (or recovery is not ours to try). */
+static int demux_read_is_final(int read_result)
+{
+    const int a = recover_anchor();
+    if (!s_recover_allowed || !demux_thread_running || !play_fmt || !play_fmt->pb ||
+        a < 0 || s_seek_ts[a] == AV_NOPTS_VALUE)
+        return 1;
+    /* Stop (evo_stream_io_abort) or a deadline: not the network's doing. */
+    if (read_result == AVERROR_EXIT)
+        return 1;
+    if (read_result == AVERROR_EOF) {
+        /* A clean end of the file: the http layer reports a connection that
+         * closed early as an error (and has already tried to reconnect). */
+        if (!play_fmt->pb->error)
+            return 1;
+        if (media_duration_sec > 0.0) {
+            const AVStream *st = play_fmt->streams[a];
+            const double start = st->start_time != AV_NOPTS_VALUE
+                                     ? st->start_time * av_q2d(st->time_base) : 0.0;
+            if (s_seek_ts[a] * av_q2d(st->time_base) - start >= media_duration_sec - 3.0)
+                return 1;
+        }
+    }
+    return s_recover_tries >= DEMUX_RECOVER_TRIES;
+}
+
+/*
+ * Where to go back to: a second before the earlier of the anchor's and the
+ * audio's last packet. Not the anchor's own timestamp: a parser holds the
+ * frame it is assembling until the next one starts (AC-3 and H.264 in
+ * MPEG-TS), the seek flushes it, and in MPEG-TS the audio of a moment may sit
+ * before the video's keyframe in the file. Going back further only costs a
+ * re-read: what was already handed on is dropped by position and timestamp.
+ */
+static int64_t recover_seek_target(int a)
+{
+    const AVRational tb = play_fmt->streams[a]->time_base;
+    int64_t t = s_seek_ts[a];
+    const int au = audio_stream_index;
+    if (au >= 0 && au != a && au < DEMUX_RECOVER_MAX_STREAMS && s_seek_ts[au] != AV_NOPTS_VALUE) {
+        const int64_t ta = av_rescale_q(s_seek_ts[au], play_fmt->streams[au]->time_base, tb);
+        if (ta < t)
+            t = ta;
+    }
+    return t - av_rescale_q(1, (AVRational){1, 1}, tb);
+}
+
+/* Clear the latch, wait a moment (shorter the first time), and seek back
+ * (recover_seek_target); a seek that fails (the server is still away) is
+ * the next try, without reading on from where the stream broke, which would
+ * lose what the demuxer had half read. A stop or a seek cuts the wait short:
+ * the seek at the top of the loop then starts from a clean latch. */
+static void demux_recover(int read_result)
+{
+    const int a = recover_anchor();
+    const AVStream *st = play_fmt->streams[a];
+    char err[64];
+
+    evo_demux_state = 6;
+    for (;;) {
+        s_recover_tries++;
+        av_strerror(read_result, err, sizeof err);
+        evo_bt("demux: read failed (%s) at %.2f s - recovering, try %d/%d", err,
+               s_seek_ts[a] * av_q2d(st->time_base), s_recover_tries, DEMUX_RECOVER_TRIES);
+        {
+            char d[64];
+            snprintf(d, sizeof d, "try=%d", s_recover_tries);
+            pp_stage_bc("DEMUX_RECOVER", d);
+        }
+
+        play_fmt->pb->error = 0;
+        play_fmt->pb->eof_reached = 0;
+        for (int waited = 0, wait_ms = s_recover_tries == 1 ? 200 : 1000; waited < wait_ms;
+             waited += 50) {
+            if (!demux_thread_running || prospero_seek_pending)
+                return;
+            prebuffer_check(0);   /* a rebuffer's deadline still holds */
+            usleep(50000);
+        }
+
+        const int64_t pos_before = avio_tell(play_fmt->pb);
+        int rc = av_seek_frame(play_fmt, a, recover_seek_target(a), AVSEEK_FLAG_BACKWARD);
+        /* Matroska ignores a failed avio_seek and reports success, and its next
+         * read would start mid-cluster and skip the rest of it. A demuxer that
+         * reads the file in order must have gone back; MP4 reads each sample
+         * at its own offset, so its seek leaves the position where it was. */
+        if (rc >= 0 && avio_tell(play_fmt->pb) >= pos_before &&
+            !(play_fmt->iformat && strcmp(play_fmt->iformat->name, "mov,mp4,m4a,3gp,3g2,mj2") == 0))
+            rc = AVERROR(EIO);
+        play_fmt->pb->error = 0;
+        play_fmt->pb->eof_reached = 0;
+        if (rc >= 0)
+            break;
+        av_strerror(rc, err, sizeof err);
+        evo_bt("demux: recovery seek failed (%s)", err);
+        if (s_recover_tries >= DEMUX_RECOVER_TRIES || !demux_thread_running || prospero_seek_pending)
+            return;
+        read_result = rc;
+    }
+    s_recover_catching = 0;
+    for (int i = 0; i < DEMUX_RECOVER_MAX_STREAMS; i++) {
+        s_catching[i] = s_last_ts[i] != AV_NOPTS_VALUE || s_last_pos[i] >= 0;
+        s_recover_catching |= s_catching[i];
+    }
+}
+
+/*
+ * A packet that came back although the read under it failed. MP4 hands back
+ * what arrived (flagged corrupt), MPEG-TS flushes the half PES it had, and
+ * Matroska resyncs to the next cluster and skips the rest of the broken one.
+ * Each is either a broken copy (kept, the whole one read again later would be
+ * dropped as a duplicate) or a jump past packets that never came. So while
+ * recovery can run, a set error latch makes the read a failed one, whatever
+ * the demuxer returned; when it cannot, the latch is cleared and the packet
+ * goes on as before, or the real end of the file would read as an error.
+ */
+static int demux_read_broke(const AVPacket *pkt)
+{
+    (void)pkt;
+    if (!s_recover_allowed || !play_fmt->pb || !play_fmt->pb->error)
+        return 0;
+    if (!demux_read_is_final(play_fmt->pb->error))
+        return 1;
+    char err[64];
+    av_strerror(play_fmt->pb->error, err, sizeof err);
+    evo_bt("demux: read on past a read error (%s)", err);
+    play_fmt->pb->error = 0;
+    return 0;
+}
+
+/* While catching up after a recovery seek: 1 = already handed on, drop it. */
+static int demux_already_have(const AVPacket *pkt)
+{
+    const int i = pkt->stream_index;
+    if (!s_recover_catching || i < 0 || i >= DEMUX_RECOVER_MAX_STREAMS || !s_catching[i])
+        return 0;
+    const int64_t ts = pkt_ts(pkt);
+    const int ts_old = ts == AV_NOPTS_VALUE || s_last_ts[i] == AV_NOPTS_VALUE || ts <= s_last_ts[i];
+    if (pkt->pos >= 0 && s_last_pos[i] >= 0) {
+        if (pkt->pos < s_last_pos[i] || (pkt->pos == s_last_pos[i] && ts_old))
+            return 1;
+    } else if (ts_old) {
+        return 1;
+    }
+    s_catching[i] = 0;
+    s_recover_catching = 0;
+    for (int k = 0; k < DEMUX_RECOVER_MAX_STREAMS; k++)
+        s_recover_catching |= s_catching[k];
+    if (i == recover_anchor()) {
+        evo_bt("demux: recovered - picking up after %.2f s",
+               s_seek_ts[i] * av_q2d(play_fmt->streams[i]->time_base));
+        pp_stage_bc("DEMUX_RECOVERED", "");
+    }
+    return 0;
+}
+
+/* A packet that goes on: where each stream has got to. */
+static void demux_note_packet(const AVPacket *pkt)
+{
+    const int i = pkt->stream_index;
+    if (i < 0 || i >= DEMUX_RECOVER_MAX_STREAMS)
+        return;
+    const int64_t ts = pkt_ts(pkt);
+    if (pkt->pos >= 0 && pkt->pos != s_last_pos[i]) {
+        s_last_pos[i] = pkt->pos;
+        s_last_ts[i] = ts;     /* the timestamp at this position, NOPTS or not */
+    } else if (ts != AV_NOPTS_VALUE) {
+        s_last_ts[i] = ts;
+    }
+    if (ts != AV_NOPTS_VALUE)
+        s_seek_ts[i] = ts;
+    if (i == recover_anchor()) {
+        s_recover_tries = 0;
+        s_recover_gave_up = 0;
+    }
+}
+
 void *demux_thread_func(void *arg) {
     (void)arg;
 
@@ -773,6 +1037,8 @@ void *demux_thread_func(void *arg) {
                         strncmp(u, "ftp://", 6) == 0 || strncmp(u, "smb://", 6) == 0;
         s_readahead_us = net ? READAHEAD_NET_US : READAHEAD_LOCAL_US;
     }
+    demux_recover_reset();
+    s_recover_allowed = demux_recover_allowed_for(play_fmt);
     /* Budget by what the rings actually got: cap plus the quarter of
      * overshoot must still fit, or the packets past it fall back to the
      * plain allocator. */
@@ -797,6 +1063,7 @@ void *demux_thread_func(void *arg) {
             evo_demux_state = 4;
         if (prospero_process_seek_request()) {
             av_packet_unref(pkt);
+            demux_recover_reset();
             continue;
         }
 
@@ -811,7 +1078,19 @@ void *demux_thread_func(void *arg) {
                 pkt
             );
 
+        if (read_result >= 0 && demux_read_broke(pkt)) {
+            av_packet_unref(pkt);
+            read_result = play_fmt->pb->error;
+        }
         if (read_result < 0) {
+            if (!demux_read_is_final(read_result)) {
+                demux_recover(read_result);
+                continue;
+            }
+            if (s_recover_tries >= DEMUX_RECOVER_TRIES && !s_recover_gave_up) {
+                s_recover_gave_up = 1;
+                evo_bt("demux: gave up after %d tries - the stream stopped", s_recover_tries);
+            }
             /*
              * Keep the demux thread alive so seeking backward from EOF
              * does not require reopening the file.
@@ -822,6 +1101,12 @@ void *demux_thread_func(void *arg) {
             usleep(5000);
             continue;
         }
+
+        if (demux_already_have(pkt)) {
+            av_packet_unref(pkt);
+            continue;
+        }
+        demux_note_packet(pkt);
 
         video_decode_done = 0;
         prebuffer_check(0);
