@@ -78,6 +78,12 @@ int  nuvio_subs_selected(void);              /* -1 = off */
 void nuvio_subs_select(int id);
 void nuvio_subs_set_delay_ms(int ms);
 int  nuvio_subs_delay_ms(void);
+/* Jelly5: auto-sync's rate for external tracks (subtitle seconds per media second,
+ * 1.0 = none; reset by close), and an external text track's cue times in its own
+ * seconds (malloc'd arrays for the caller to free; returns the count, 0 = none). */
+void   nuvio_subs_set_scale(double scale);
+double nuvio_subs_scale(void);
+int    nuvio_subs_cues(int id, double **start, double **end);
 void nuvio_subs_set_style(const nuvio_sub_style *style);
 void nuvio_subs_get_style(nuvio_sub_style *out);
 

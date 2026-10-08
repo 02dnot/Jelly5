@@ -535,6 +535,13 @@ const std::unordered_map<std::string, const char *> &french_table()
         {"Oppskalering: bruker et mindre AI-nett, GPU-en rakk ikke mer", "Mise à l'échelle : réseau IA plus petit, le GPU ne suivait pas"},
         {"Oppskalering: bruker Skarp, GPU-en rakk ikke AI", "Mise à l'échelle : mode Net, le GPU ne suivait pas l'IA"},
         {"Oppskalering er slått av: GPU-en rakk det ikke", "Mise à l'échelle désactivée : le GPU ne suivait pas"},
+        {"Kunne ikke starte", "Impossible de démarrer"},
+        {"Undertekstene er synkronisert (%+.1f s)", "Sous-titres synchronisés (%+.1f s)"},
+        {"Ingen sikker match", "Aucune correspondance sûre"},
+        {"Fant ingen sikker match – juster forsinkelsen selv", "Aucune correspondance sûre – ajustez le décalage vous-même"},
+        {"Kunne ikke lese lyden", "Impossible de lire le son"},
+        {"Synkroniser automatisk", "Synchroniser automatiquement"},
+        {"Lytter … %d %%", "Écoute … %d %%"},
     };
     return t;
 }

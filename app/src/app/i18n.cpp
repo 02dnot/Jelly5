@@ -364,6 +364,13 @@ const std::unordered_map<std::string, const char *> &english_table()
         {"Oppskalering: bruker et mindre AI-nett, GPU-en rakk ikke mer", "Upscaling: using a smaller AI network, the GPU couldn't keep up"},
         {"Oppskalering: bruker Skarp, GPU-en rakk ikke AI", "Upscaling: using Sharp, the GPU couldn't keep up with AI"},
         {"Oppskalering er slått av: GPU-en rakk det ikke", "Upscaling is off: the GPU couldn't keep up"},
+        {"Kunne ikke starte", "Couldn't start"},
+        {"Undertekstene er synkronisert (%+.1f s)", "Subtitles synced (%+.1f s)"},
+        {"Ingen sikker match", "No sure match"},
+        {"Fant ingen sikker match – juster forsinkelsen selv", "No sure match found – adjust the delay yourself"},
+        {"Kunne ikke lese lyden", "Couldn't read the audio"},
+        {"Synkroniser automatisk", "Sync automatically"},
+        {"Lytter … %d %%", "Listening … %d %%"},
     };
     return t;
 }

@@ -536,6 +536,13 @@ const std::unordered_map<std::string, const char *> &japanese_table()
         {"Oppskalering: bruker et mindre AI-nett, GPU-en rakk ikke mer", "アップスケーリング：GPU が追いつかないため、小さい AI ネットワークを使用"},
         {"Oppskalering: bruker Skarp, GPU-en rakk ikke AI", "アップスケーリング：GPU が AI に追いつかないため、シャープを使用"},
         {"Oppskalering er slått av: GPU-en rakk det ikke", "アップスケーリングをオフにしました：GPU が追いつきません"},
+        {"Kunne ikke starte", "開始できませんでした"},
+        {"Undertekstene er synkronisert (%+.1f s)", "字幕を同期しました（%+.1f 秒）"},
+        {"Ingen sikker match", "確かな一致なし"},
+        {"Fant ingen sikker match – juster forsinkelsen selv", "確かな一致が見つかりません – 遅延を手動で調整してください"},
+        {"Kunne ikke lese lyden", "音声を読み取れませんでした"},
+        {"Synkroniser automatisk", "自動で同期"},
+        {"Lytter … %d %%", "聞き取り中 … %d %%"},
     };
     return t;
 }

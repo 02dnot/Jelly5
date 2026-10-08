@@ -536,6 +536,13 @@ const std::unordered_map<std::string, const char *> &ukrainian_table()
         {"Oppskalering: bruker et mindre AI-nett, GPU-en rakk ikke mer", "Масштабування: менша мережа ШІ, GPU не встигав"},
         {"Oppskalering: bruker Skarp, GPU-en rakk ikke AI", "Масштабування: Чітке, GPU не встигав за ШІ"},
         {"Oppskalering er slått av: GPU-en rakk det ikke", "Масштабування вимкнено: GPU не встигав"},
+        {"Kunne ikke starte", "Не вдалося запустити"},
+        {"Undertekstene er synkronisert (%+.1f s)", "Субтитри синхронізовано (%+.1f с)"},
+        {"Ingen sikker match", "Немає надійного збігу"},
+        {"Fant ingen sikker match – juster forsinkelsen selv", "Надійного збігу не знайдено – налаштуйте затримку самі"},
+        {"Kunne ikke lese lyden", "Не вдалося прочитати звук"},
+        {"Synkroniser automatisk", "Синхронізувати автоматично"},
+        {"Lytter … %d %%", "Слухаю … %d %%"},
     };
     return t;
 }

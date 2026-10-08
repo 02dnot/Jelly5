@@ -536,6 +536,13 @@ const std::unordered_map<std::string, const char *> &czech_table()
         {"Oppskalering: bruker et mindre AI-nett, GPU-en rakk ikke mer", "Škálování: menší síť AI, GPU nestíhala"},
         {"Oppskalering: bruker Skarp, GPU-en rakk ikke AI", "Škálování: Ostré, GPU nestíhala AI"},
         {"Oppskalering er slått av: GPU-en rakk det ikke", "Škálování je vypnuto: GPU nestíhala"},
+        {"Kunne ikke starte", "Nepodařilo se spustit"},
+        {"Undertekstene er synkronisert (%+.1f s)", "Titulky synchronizovány (%+.1f s)"},
+        {"Ingen sikker match", "Žádná jistá shoda"},
+        {"Fant ingen sikker match – juster forsinkelsen selv", "Nenalezena žádná jistá shoda – upravte zpoždění sami"},
+        {"Kunne ikke lese lyden", "Nepodařilo se přečíst zvuk"},
+        {"Synkroniser automatisk", "Synchronizovat automaticky"},
+        {"Lytter … %d %%", "Poslouchám … %d %%"},
     };
     return t;
 }

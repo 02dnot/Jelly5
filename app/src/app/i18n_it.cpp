@@ -531,6 +531,13 @@ const std::unordered_map<std::string, const char *> &italian_table()
         {"Oppskalering: bruker et mindre AI-nett, GPU-en rakk ikke mer", "Upscaling: rete IA più piccola, la GPU non teneva il passo"},
         {"Oppskalering: bruker Skarp, GPU-en rakk ikke AI", "Upscaling: Nitido, la GPU non teneva il passo con l'IA"},
         {"Oppskalering er slått av: GPU-en rakk det ikke", "Upscaling disattivato: la GPU non teneva il passo"},
+        {"Kunne ikke starte", "Impossibile avviare"},
+        {"Undertekstene er synkronisert (%+.1f s)", "Sottotitoli sincronizzati (%+.1f s)"},
+        {"Ingen sikker match", "Nessuna corrispondenza sicura"},
+        {"Fant ingen sikker match – juster forsinkelsen selv", "Nessuna corrispondenza sicura – regola tu il ritardo"},
+        {"Kunne ikke lese lyden", "Impossibile leggere l'audio"},
+        {"Synkroniser automatisk", "Sincronizza automaticamente"},
+        {"Lytter … %d %%", "In ascolto … %d %%"},
     };
     return t;
 }

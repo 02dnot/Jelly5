@@ -27,6 +27,8 @@
  * coefficients are precomputed and the VAD works in linear energy).
  */
 #include "evo_subsync.h"
+#include "evo_stream_io.h"
+#include "evo_thread.h"
 
 #include <pthread.h>
 #include <stdint.h>
@@ -73,6 +75,11 @@
  * the same USB stick keeps its bandwidth. The window decode has to read every
  * interleaved video packet to reach the audio. */
 #define SS_READ_CAP_BPS (40.0 * 1024.0 * 1024.0)
+/* Jelly5: from the media server (direct play over http) the read shares the
+ * network with the stream being watched: a lower cap, and half-length windows
+ * (as for embedded tracks), which still find one offset or ratio reliably. */
+#define SS_NET_READ_CAP_BPS (16.0 * 1024.0 * 1024.0)
+#define SS_NET_WINDOW_S     150.0
 
 static const struct {
     double      srt_fps;
@@ -106,10 +113,22 @@ const char *evo_subsync_ratio_label(double scale)
     return NULL;
 }
 
+static int ss_is_http(const char *p)
+{
+    return p && (!strncmp(p, "http://", 7) || !strncmp(p, "https://", 8));
+}
+
+/* Jelly5: an http(s) URL too (a direct-play stream from the server); it is
+ * opened with the playback's network options and request headers. */
 int evo_subsync_path_supported(const char *media_path)
 {
-    return media_path && media_path[0] && !strstr(media_path, "://");
+    return media_path && media_path[0] && (!strstr(media_path, "://") || ss_is_http(media_path));
 }
+
+/* The request headers for an http(s) media path: set before evo_subsync_start,
+ * read only by the worker (ignored while one runs). */
+static char s_req_headers[4096];
+static char s_req_ua[512];
 
 /* ------------------------------------------------------------------------
  * Bit vectors. Bit i lives in word i >> 6, bit i & 63.
@@ -170,6 +189,7 @@ typedef struct {
     double          *ecs, *ece;
     int              en, ecap;
 
+    double           read_cap;         /* bytes/s */
     double           io_t0;
     double           io_bytes;
     int64_t          io_last;
@@ -235,7 +255,7 @@ static void ss_throttle(ss_ctx *c)
     int64_t pos = avio_tell(c->fmt->pb);
     if (pos > c->io_last) c->io_bytes += (double)(pos - c->io_last);
     c->io_last = pos;
-    double due = c->io_t0 + c->io_bytes / SS_READ_CAP_BPS;
+    double due = c->io_t0 + c->io_bytes / c->read_cap;
     double now = ss_now_s();
     if (due > now) {
         double wait = due - now;
@@ -567,8 +587,20 @@ int evo_subsync_analyse(const char *media_path, int audio_stream,
     if (!c.fmt) goto done;
     c.fmt->interrupt_callback.callback = ss_interrupt;
     c.fmt->interrupt_callback.opaque = (void *)cancel;
-    if (avformat_open_input(&c.fmt, media_path, NULL, NULL) < 0) {
-        evo_log("subsync: open failed: %s", media_path);
+    const int net = ss_is_http(media_path);
+    c.read_cap = net ? SS_NET_READ_CAP_BPS : SS_READ_CAP_BPS;
+    AVDictionary *opts = NULL;
+    if (net) {
+        evo_stream_io_apply_network_options(&opts, media_path);
+        /* This worker's own copy, not what the player holds right now. */
+        av_dict_set(&opts, "headers", s_req_headers[0] ? s_req_headers : NULL, 0);
+        av_dict_set(&opts, "user_agent", s_req_ua[0] ? s_req_ua : NULL, 0);
+    }
+    const int open_rc = avformat_open_input(&c.fmt, media_path, NULL, &opts);
+    av_dict_free(&opts);
+    if (open_rc < 0) {
+        /* (Never the path: a server URL carries the account's token.) */
+        evo_log("subsync: open failed (%s)", net ? "network" : "file");
         c.fmt = NULL;       /* freed by avformat_open_input on failure */
         goto done;
     }
@@ -628,7 +660,7 @@ int evo_subsync_analyse(const char *media_path, int audio_stream,
 
     /* Windows at 20/50/80%: far apart for drift, clear of opening/closing
      * credits where there is music but no dialogue. */
-    double wlen = c.sub_stream >= 0 ? SS_WINDOW_EMB_S : SS_WINDOW_S;
+    double wlen = c.sub_stream >= 0 ? SS_WINDOW_EMB_S : net ? SS_NET_WINDOW_S : SS_WINDOW_S;
     if (wlen > c.duration_s / 4.0) wlen = c.duration_s / 4.0;
     static const double centres[SS_WINDOWS] = { 0.2, 0.5, 0.8 };
     for (int i = 0; i < SS_WINDOWS; i++) {
@@ -803,7 +835,7 @@ static volatile int    s_progress;
 static int             s_have_result;          /* under s_mx */
 static evo_subsync_result_t s_result;          /* under s_mx */
 
-static char    s_path[1024];
+static char    s_path[4096];
 static int     s_stream;
 static int     s_sub_stream;
 static double *s_cs, *s_ce;
@@ -842,7 +874,7 @@ int evo_subsync_start(const char *media_path, int audio_stream,
 {
     if (s_running) return 0;
     ss_reap();
-    if (!evo_subsync_path_supported(media_path))
+    if (!evo_subsync_path_supported(media_path) || strlen(media_path) >= sizeof(s_path))
         return 0;
 
     if (sub_stream < 0) {
@@ -869,7 +901,7 @@ int evo_subsync_start(const char *media_path, int audio_stream,
     s_cancel = 0;
     s_progress = 0;
     s_running = 1;
-    if (pthread_create(&s_thread, NULL, ss_worker, NULL) != 0) {
+    if (evo_thread_create(&s_thread, ss_worker, NULL) != 0) {   /* FFmpeg wants a big stack */
         s_running = 0;
         free(s_cs); free(s_ce);
         s_cs = s_ce = NULL;
@@ -894,6 +926,13 @@ void evo_subsync_cancel(void)
 }
 
 int evo_subsync_running(void) { return s_running; }
+
+void evo_subsync_set_request_headers(const char *headers, const char *user_agent)
+{
+    if (s_running) return;
+    snprintf(s_req_headers, sizeof(s_req_headers), "%s", headers ? headers : "");
+    snprintf(s_req_ua, sizeof(s_req_ua), "%s", user_agent ? user_agent : "");
+}
 
 int evo_subsync_progress(void) { return s_progress; }
 

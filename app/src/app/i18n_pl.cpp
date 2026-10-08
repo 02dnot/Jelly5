@@ -536,6 +536,13 @@ const std::unordered_map<std::string, const char *> &polish_table()
         {"Oppskalering: bruker et mindre AI-nett, GPU-en rakk ikke mer", "Skalowanie: mniejsza sieć AI, GPU nie nadążał"},
         {"Oppskalering: bruker Skarp, GPU-en rakk ikke AI", "Skalowanie: Ostre, GPU nie nadążał z AI"},
         {"Oppskalering er slått av: GPU-en rakk det ikke", "Skalowanie wyłączone: GPU nie nadążał"},
+        {"Kunne ikke starte", "Nie udało się uruchomić"},
+        {"Undertekstene er synkronisert (%+.1f s)", "Napisy zsynchronizowane (%+.1f s)"},
+        {"Ingen sikker match", "Brak pewnego dopasowania"},
+        {"Fant ingen sikker match – juster forsinkelsen selv", "Nie znaleziono pewnego dopasowania – dostosuj opóźnienie samodzielnie"},
+        {"Kunne ikke lese lyden", "Nie udało się odczytać dźwięku"},
+        {"Synkroniser automatisk", "Synchronizuj automatycznie"},
+        {"Lytter … %d %%", "Nasłuchiwanie … %d %%"},
     };
     return t;
 }

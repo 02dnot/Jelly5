@@ -59,7 +59,7 @@ int evo_subsync_analyse(const char *media_path, int audio_stream,
 /* ---- background worker (one run at a time) ---------------------------- */
 
 /* Starts the worker, copying the cue times when sub_stream < 0. 0 if one is
- * already running, the path is not a local file, or there are too few cues. */
+ * already running, the path is not supported, or there are too few cues. */
 int  evo_subsync_start(const char *media_path, int audio_stream,
                        int sub_stream,
                        const double *cue_start, const double *cue_end,
@@ -72,8 +72,13 @@ int  evo_subsync_progress(void);       /* 0-100 while running                */
 /* 1 once, with the finished run's result. UI thread only. */
 int  evo_subsync_take_result(evo_subsync_result_t *out);
 
-/* 1 for a path the worker can open itself (no "scheme://"). */
+/* 1 for a path the worker can open itself: a file (no "scheme://") or, in
+ * Jelly5, an http(s) URL. */
 int  evo_subsync_path_supported(const char *media_path);
+/* Jelly5: request headers ("Name: value\r\n" each) and user agent for an
+ * http(s) media path; copied, and used by the next start. Ignored while a run
+ * is going. */
+void evo_subsync_set_request_headers(const char *headers, const char *user_agent);
 
 /* "25->23.976 fps" for a standard ratio, NULL for 1.0 / anything else. */
 const char *evo_subsync_ratio_label(double scale);

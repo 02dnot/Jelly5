@@ -536,6 +536,13 @@ const std::unordered_map<std::string, const char *> &indonesian_table()
         {"Oppskalering: bruker et mindre AI-nett, GPU-en rakk ikke mer", "Peningkatan resolusi: jaringan AI lebih kecil, GPU tidak sanggup"},
         {"Oppskalering: bruker Skarp, GPU-en rakk ikke AI", "Peningkatan resolusi: Tajam, GPU tidak sanggup menjalankan AI"},
         {"Oppskalering er slått av: GPU-en rakk det ikke", "Peningkatan resolusi dimatikan: GPU tidak sanggup"},
+        {"Kunne ikke starte", "Tidak dapat memulai"},
+        {"Undertekstene er synkronisert (%+.1f s)", "Subtitle disinkronkan (%+.1f dtk)"},
+        {"Ingen sikker match", "Tidak ada kecocokan pasti"},
+        {"Fant ingen sikker match – juster forsinkelsen selv", "Tidak ditemukan kecocokan pasti – atur sendiri penundaannya"},
+        {"Kunne ikke lese lyden", "Tidak dapat membaca audio"},
+        {"Synkroniser automatisk", "Sinkronkan otomatis"},
+        {"Lytter … %d %%", "Mendengarkan … %d %%"},
     };
     return t;
 }

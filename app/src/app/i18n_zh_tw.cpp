@@ -536,6 +536,13 @@ const std::unordered_map<std::string, const char *> &chinese_traditional_table()
         {"Oppskalering: bruker et mindre AI-nett, GPU-en rakk ikke mer", "超解析度：GPU 跟不上，改用較小的 AI 網路"},
         {"Oppskalering: bruker Skarp, GPU-en rakk ikke AI", "超解析度：GPU 跟不上 AI，改用銳利"},
         {"Oppskalering er slått av: GPU-en rakk det ikke", "超解析度已關閉：GPU 跟不上"},
+        {"Kunne ikke starte", "無法開始"},
+        {"Undertekstene er synkronisert (%+.1f s)", "字幕已同步（%+.1f 秒）"},
+        {"Ingen sikker match", "無可靠相符"},
+        {"Fant ingen sikker match – juster forsinkelsen selv", "找不到可靠相符 – 請手動調整延遲"},
+        {"Kunne ikke lese lyden", "無法讀取音訊"},
+        {"Synkroniser automatisk", "自動同步"},
+        {"Lytter … %d %%", "正在聆聽 … %d %%"},
     };
     return t;
 }

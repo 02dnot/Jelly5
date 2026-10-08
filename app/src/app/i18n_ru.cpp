@@ -536,6 +536,13 @@ const std::unordered_map<std::string, const char *> &russian_table()
         {"Oppskalering: bruker et mindre AI-nett, GPU-en rakk ikke mer", "Масштабирование: сеть ИИ поменьше, GPU не справлялся"},
         {"Oppskalering: bruker Skarp, GPU-en rakk ikke AI", "Масштабирование: Чёткое, GPU не справлялся с ИИ"},
         {"Oppskalering er slått av: GPU-en rakk det ikke", "Масштабирование выключено: GPU не справлялся"},
+        {"Kunne ikke starte", "Не удалось запустить"},
+        {"Undertekstene er synkronisert (%+.1f s)", "Субтитры синхронизированы (%+.1f с)"},
+        {"Ingen sikker match", "Нет надёжного совпадения"},
+        {"Fant ingen sikker match – juster forsinkelsen selv", "Надёжное совпадение не найдено – настройте задержку сами"},
+        {"Kunne ikke lese lyden", "Не удалось прочитать звук"},
+        {"Synkroniser automatisk", "Синхронизировать автоматически"},
+        {"Lytter … %d %%", "Слушаю … %d %%"},
     };
     return t;
 }

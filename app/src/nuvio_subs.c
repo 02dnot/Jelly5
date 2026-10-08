@@ -18,6 +18,7 @@
 
 #include <ctype.h>
 #include <fcntl.h>
+#include <math.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -68,6 +69,7 @@ static int s_ntracks;
 static int s_stream_map[MAX_STREAMS];
 static int s_selected = -1;
 static int s_delay_ms;
+static double s_scale = 1.0;  /* Jelly5: an external track's timing per media second (auto-sync) */
 static int64_t s_start_ms;    /* video stream start: external cues are 0-based */
 static nuvio_sub_style s_style = {100, 0xffffff, 0, 1, 0.0f, 0.0f};
 static unsigned s_style_gen = 1;
@@ -714,6 +716,7 @@ void nuvio_subs_close(void)
         clear_fonts();   /* else the next close does it */
     s_selected = -1;
     s_delay_ms = 0;
+    s_scale = 1.0;
     s_session++;
     for (int i = 0; i < MAX_STREAMS; i++)
         s_stream_map[i] = -1;
@@ -789,6 +792,48 @@ void nuvio_subs_set_delay_ms(int ms)
 int nuvio_subs_delay_ms(void)
 {
     return s_delay_ms;
+}
+
+void nuvio_subs_set_scale(double scale)
+{
+    s_scale = scale > 0.5 && scale < 2.0 ? scale : 1.0;
+}
+
+double nuvio_subs_scale(void)
+{
+    return s_scale;
+}
+
+int nuvio_subs_cues(int id, double **start, double **end)
+{
+    *start = *end = NULL;
+    int n = 0;
+    pthread_mutex_lock(&s_lock);
+    strack *t = (id >= 0 && id < s_ntracks) ? &s_tracks[id] : NULL;
+    if (t && t->info.external && t->info.state == 1 && !t->loading && t->ass && t->ass->n_events > 0) {
+        const int count = t->ass->n_events;
+        double *cs = (double *)malloc(sizeof(double) * (size_t)count);
+        double *ce = (double *)malloc(sizeof(double) * (size_t)count);
+        if (cs && ce) {
+            for (int i = 0; i < count; i++) {
+                const ASS_Event *e = &t->ass->events[i];
+                if (e->Duration <= 0)
+                    continue;
+                cs[n] = (double)e->Start / 1000.0;
+                ce[n] = (double)(e->Start + e->Duration) / 1000.0;
+                n++;
+            }
+        }
+        if (n > 0) {
+            *start = cs;
+            *end = ce;
+        } else {
+            free(cs);
+            free(ce);
+        }
+    }
+    pthread_mutex_unlock(&s_lock);
+    return n;
 }
 
 void nuvio_subs_set_style(const nuvio_sub_style *style)
@@ -1329,9 +1374,13 @@ int nuvio_subs_render(ui_canvas *c, int64_t pts_us, nuvio_rect v, float lift)
         goto done;
     }
 
-    int64_t now = pts_us / 1000 - s_delay_ms;
+    /* Jelly5: an external track's own clock may run at another rate (a 25 fps file on
+     * a 23.976 fps release): s_scale, found by auto-sync, stretches it. */
+    int64_t now;
     if (t->info.external)
-        now -= s_start_ms;
+        now = (int64_t)llround((double)(pts_us / 1000 - s_start_ms) * s_scale) - s_delay_ms;
+    else
+        now = pts_us / 1000 - s_delay_ms;
 
     if (t->ass) {
         ass_set_frame_size(s_rend, c->w, c->h);
