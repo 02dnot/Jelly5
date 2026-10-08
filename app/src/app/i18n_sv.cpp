@@ -304,6 +304,7 @@ const std::unordered_map<std::string, const char *> &swedish_table()
         {"Undertekststørrelse", "Undertextstorlek"},
         {"Undertekstbakgrunn", "Undertextbakgrund"},
         {"Spill neste episode automatisk", "Spela nästa avsnitt automatiskt"},
+        {"Spør om du fortsatt ser på", "Fråga om du fortfarande tittar"}, {"Etter 3 episoder", "Efter 3 avsnitt"}, {"Etter 2 timer", "Efter 2 timmar"}, {"Ser du fortsatt på?", "Tittar du fortfarande?"},
         {"Hopp over intro automatisk", "Hoppa över intro automatiskt"},
         {"Om Jelly5", "Om Jelly5"},
         {"Automatisk (maks)", "Automatisk (max)"},

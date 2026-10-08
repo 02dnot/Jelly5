@@ -30,6 +30,7 @@
 #include "app/remote.h"
 #include "ui/anim.h"
 #include "ui/screen.h"
+#include "ui/still_watching.h"
 
 #include <string>
 #include <vector>
@@ -60,7 +61,15 @@ public:
     void toast(const std::string &text, double now);
     void playback_ended(const NuvioStatus &st, std::vector<OsdCommand> &out);
     void note_subtitle_choice() { m_dirty = true; }
-    bool post_play_active() const { return false; }
+    /* Asking "Ser du fortsatt på?" at an episode's end: the player neither ends
+     * nor refills, and the server is told it is paused. */
+    bool post_play_active() const { return m_asking; }
+    /* For the next episode's request (the chain carries them on). */
+    void still_watching(int *count, double *idle) const
+    {
+        *count = m_still.count;
+        *idle = m_still.idle;
+    }
 
 private:
     enum class Overlay { None, Tracks, Episodes, Chapters };
@@ -80,6 +89,15 @@ private:
     std::vector<int> seasons() const;
     std::vector<int> episodes_in(int season) const;   /* indices into m_req->episodes */
     void open_overlay(Overlay o);
+    /* The next episode by itself (the countdown, the end): or the question first. */
+    void autoplay_next(const NuvioStatus &st, std::vector<OsdCommand> &out, bool ended);
+    void answer_still(bool go, std::vector<OsdCommand> &out);
+    void draw_still(const NuvioStatus &st);
+    StillWatching m_still;
+    bool m_asking = false;   /* "Ser du fortsatt på?" is up */
+    bool m_ask_hold = false;   /* asked before the end: kept paused under it */
+    double m_ask_paused_at = -1;
+    Anim a_ask;
 
     void tracks_input(uint32_t p, const NuvioStatus &st, std::vector<OsdCommand> &out);
     void episodes_input(uint32_t p, std::vector<OsdCommand> &out);

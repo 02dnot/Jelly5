@@ -281,6 +281,7 @@ const std::unordered_map<std::string, const char *> &italian_table()
         {"Undertekststørrelse", "Dimensione sottotitoli"},
         {"Undertekstbakgrunn", "Sfondo sottotitoli"},
         {"Spill neste episode automatisk", "Riproduci automaticamente l'episodio successivo"},
+        {"Spør om du fortsatt ser på", "Chiedi se stai ancora guardando"}, {"Etter 3 episoder", "Dopo 3 episodi"}, {"Etter 2 timer", "Dopo 2 ore"}, {"Ser du fortsatt på?", "Stai ancora guardando?"},
         {"Hopp over intro automatisk", "Salta automaticamente le intro"},
         {"Om Jelly5", "Informazioni su Jelly5"},
         {"Automatisk (maks)", "Automatica (massima)"},

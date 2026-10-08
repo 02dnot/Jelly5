@@ -281,6 +281,7 @@ const std::unordered_map<std::string, const char *> &portuguese_table()
         {"Undertekststørrelse", "Tamanho das legendas"},
         {"Undertekstbakgrunn", "Fundo das legendas"},
         {"Spill neste episode automatisk", "Reproduzir próximo episódio automaticamente"},
+        {"Spør om du fortsatt ser på", "Perguntar se você ainda está assistindo"}, {"Etter 3 episoder", "Após 3 episódios"}, {"Etter 2 timer", "Após 2 horas"}, {"Ser du fortsatt på?", "Você ainda está assistindo?"},
         {"Hopp over intro automatisk", "Pular aberturas automaticamente"},
         {"Om Jelly5", "Sobre o Jelly5"},
         {"Automatisk (maks)", "Automática (máxima)"},

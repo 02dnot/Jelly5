@@ -94,6 +94,7 @@ const char *label_of(int row)
                                          T("Undertekststørrelse"),
                                          T("Undertekstbakgrunn"),
                                          T("Spill neste episode automatisk"),
+                                         T("Spør om du fortsatt ser på"),
                                          T("Hopp over intro automatisk"),
                                          T("Lydforsinkelse"),
                                          T("Nattmodus"),
@@ -202,6 +203,10 @@ std::string SettingsScreen::value(Row r) const
         return s.local.sub_background < 0.05f ? std::string(T("Av"))
                                               : std::to_string((int)(s.local.sub_background * 100 + 0.5f)) + " %";
     case Autoplay: return s.server.autoplay_next ? T("På") : T("Av");
+    case StillWatching:
+        return s.local.still_watching == 1   ? T("Etter 3 episoder")
+               : s.local.still_watching == 2 ? T("Etter 2 timer")
+                                             : T("Av");
     case AutoSkip: return s.local.auto_skip_intro ? T("På") : T("Av");
     case NightMode: return s.local.night_mode ? T("På") : T("Av");
     case Bitstream:   /* night mode needs the sound decoded here, so it wins */
@@ -275,6 +280,10 @@ void SettingsScreen::change(Row r, int dir)
         settings::set_local(s.local);
         break;
     }
+    case StillWatching:   /* Av, after 3 episodes, after 2 hours (from the next playback) */
+        s.local.still_watching = cycle(s.local.still_watching, 3);
+        settings::set_local(s.local);
+        break;
     case AutoSkip:
         s.local.auto_skip_intro = !s.local.auto_skip_intro;
         settings::set_local(s.local);

@@ -304,6 +304,7 @@ const std::unordered_map<std::string, const char *> &indonesian_table()
         {"Undertekststørrelse", "Ukuran subtitle"},
         {"Undertekstbakgrunn", "Latar subtitle"},
         {"Spill neste episode automatisk", "Putar episode berikutnya otomatis"},
+        {"Spør om du fortsatt ser på", "Tanya apakah kamu masih menonton"}, {"Etter 3 episoder", "Setelah 3 episode"}, {"Etter 2 timer", "Setelah 2 jam"}, {"Ser du fortsatt på?", "Kamu masih menonton?"},
         {"Hopp over intro automatisk", "Lewati intro otomatis"},
         {"Om Jelly5", "Tentang Jelly5"},
         {"Automatisk (maks)", "Otomatis (maksimum)"},

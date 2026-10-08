@@ -22,6 +22,7 @@ struct Local {
     int max_mbps = 0;            /* the current server's; 0 = no cap (direct play whatever the network allows) */
     std::string max_mbps_for;    /* the server max_mbps is (use_server); a copy for another is not saved as this one's */
     bool auto_skip_intro = false;
+    int still_watching = 0;      /* "Spør om du fortsatt ser på": 0 off, 1 after 3 episodes, 2 after 2 hours */
     int language = 0;            /* i18n::Choice: 0 follow the PS5, 1 Norsk, 2 English */
     /* How text subtitles look (set in Innstillinger or in the player). */
     int sub_size = 100;          /* % */

@@ -304,6 +304,7 @@ const std::unordered_map<std::string, const char *> &vietnamese_table()
         {"Undertekststørrelse", "Cỡ phụ đề"},
         {"Undertekstbakgrunn", "Nền phụ đề"},
         {"Spill neste episode automatisk", "Tự động phát tập tiếp theo"},
+        {"Spør om du fortsatt ser på", "Hỏi xem bạn còn đang xem không"}, {"Etter 3 episoder", "Sau 3 tập"}, {"Etter 2 timer", "Sau 2 giờ"}, {"Ser du fortsatt på?", "Bạn vẫn đang xem chứ?"},
         {"Hopp over intro automatisk", "Tự động bỏ qua phần giới thiệu"},
         {"Om Jelly5", "Giới thiệu Jelly5"},
         {"Automatisk (maks)", "Tự động (tối đa)"},

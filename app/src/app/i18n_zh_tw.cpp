@@ -304,6 +304,7 @@ const std::unordered_map<std::string, const char *> &chinese_traditional_table()
         {"Undertekststørrelse", "字幕大小"},
         {"Undertekstbakgrunn", "字幕背景"},
         {"Spill neste episode automatisk", "自動播放下一集"},
+        {"Spør om du fortsatt ser på", "詢問是否仍在觀看"}, {"Etter 3 episoder", "3 集後"}, {"Etter 2 timer", "2 小時後"}, {"Ser du fortsatt på?", "您還在觀看嗎？"},
         {"Hopp over intro automatisk", "自動跳過片頭"},
         {"Om Jelly5", "關於 Jelly5"},
         {"Automatisk (maks)", "自動（最高）"},

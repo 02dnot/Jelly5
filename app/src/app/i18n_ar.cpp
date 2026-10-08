@@ -304,6 +304,7 @@ const std::unordered_map<std::string, const char *> &arabic_table()
         {"Undertekststørrelse", "حجم الترجمة"},
         {"Undertekstbakgrunn", "خلفية الترجمة"},
         {"Spill neste episode automatisk", "تشغيل الحلقة التالية تلقائيًا"},
+        {"Spør om du fortsatt ser på", "السؤال إن كنت لا تزال تشاهد"}, {"Etter 3 episoder", "بعد 3 حلقات"}, {"Etter 2 timer", "بعد ساعتين"}, {"Ser du fortsatt på?", "هل ما زلت تشاهد؟"},
         {"Hopp over intro automatisk", "تخطي المقدمات تلقائيًا"},
         {"Om Jelly5", "حول Jelly5"},
         {"Automatisk (maks)", "تلقائي (الأقصى)"},

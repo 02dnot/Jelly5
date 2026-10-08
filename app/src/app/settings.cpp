@@ -78,6 +78,11 @@ void load_local()
     s_all.local.max_mbps = at != s_quality.end() ? at->second : s_quality_default;
     s_all.local.max_mbps_for = s_server;
     s_all.local.auto_skip_intro = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(j, "autoSkipIntro"));
+    /* Missing (older settings) or unknown: off. */
+    s_all.local.still_watching =
+        jf::to_int<int>(cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(j, "stillWatching")));
+    if (s_all.local.still_watching < 0 || s_all.local.still_watching > 2)
+        s_all.local.still_watching = 0;
     s_all.local.language = jf::to_int<int>(cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(j, "language")));
     if (const cJSON *v = cJSON_GetObjectItemCaseSensitive(j, "nightMode"))
         s_all.local.night_mode = cJSON_IsTrue(v);
@@ -135,6 +140,7 @@ void set_local(const Local &l)
         cJSON_AddNumberToObject(by, kv.first.c_str(), kv.second);
     cJSON_AddItemToObject(j, "maxMbpsByServer", by);
     cJSON_AddBoolToObject(j, "autoSkipIntro", l.auto_skip_intro);
+    cJSON_AddNumberToObject(j, "stillWatching", l.still_watching);
     cJSON_AddNumberToObject(j, "language", l.language);
     cJSON_AddBoolToObject(j, "refresh120", l.refresh_120);
     cJSON_AddNumberToObject(j, "audioDelayMs", l.audio_delay_ms);

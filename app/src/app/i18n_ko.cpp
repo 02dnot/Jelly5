@@ -304,6 +304,7 @@ const std::unordered_map<std::string, const char *> &korean_table()
         {"Undertekststørrelse", "자막 크기"},
         {"Undertekstbakgrunn", "자막 배경"},
         {"Spill neste episode automatisk", "다음 에피소드 자동 재생"},
+        {"Spør om du fortsatt ser på", "계속 시청 중인지 묻기"}, {"Etter 3 episoder", "에피소드 3개 후"}, {"Etter 2 timer", "2시간 후"}, {"Ser du fortsatt på?", "아직 시청 중이신가요?"},
         {"Hopp over intro automatisk", "오프닝 자동 건너뛰기"},
         {"Om Jelly5", "Jelly5 정보"},
         {"Automatisk (maks)", "자동(최대)"},

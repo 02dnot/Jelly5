@@ -304,6 +304,7 @@ const std::unordered_map<std::string, const char *> &dutch_table()
         {"Undertekststørrelse", "Ondertitelgrootte"},
         {"Undertekstbakgrunn", "Ondertitelachtergrond"},
         {"Spill neste episode automatisk", "Volgende aflevering automatisch afspelen"},
+        {"Spør om du fortsatt ser på", "Vragen of je nog kijkt"}, {"Etter 3 episoder", "Na 3 afleveringen"}, {"Etter 2 timer", "Na 2 uur"}, {"Ser du fortsatt på?", "Kijk je nog?"},
         {"Hopp over intro automatisk", "Intro automatisch overslaan"},
         {"Om Jelly5", "Over Jelly5"},
         {"Automatisk (maks)", "Automatisch (maximaal)"},

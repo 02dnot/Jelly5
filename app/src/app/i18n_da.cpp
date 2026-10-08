@@ -304,6 +304,7 @@ const std::unordered_map<std::string, const char *> &danish_table()
         {"Undertekststørrelse", "Undertekststørrelse"},
         {"Undertekstbakgrunn", "Undertekstbaggrund"},
         {"Spill neste episode automatisk", "Afspil næste afsnit automatisk"},
+        {"Spør om du fortsatt ser på", "Spørg, om du stadig ser med"}, {"Etter 3 episoder", "Efter 3 afsnit"}, {"Etter 2 timer", "Efter 2 timer"}, {"Ser du fortsatt på?", "Ser du stadig med?"},
         {"Hopp over intro automatisk", "Spring intro automatisk over"},
         {"Om Jelly5", "Om Jelly5"},
         {"Automatisk (maks)", "Automatisk (maks.)"},

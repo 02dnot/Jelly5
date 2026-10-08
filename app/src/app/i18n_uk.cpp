@@ -304,6 +304,7 @@ const std::unordered_map<std::string, const char *> &ukrainian_table()
         {"Undertekststørrelse", "Розмір субтитрів"},
         {"Undertekstbakgrunn", "Фон субтитрів"},
         {"Spill neste episode automatisk", "Автоматично відтворювати наступний епізод"},
+        {"Spør om du fortsatt ser på", "Питати, чи ви ще дивитеся"}, {"Etter 3 episoder", "Після 3 епізодів"}, {"Etter 2 timer", "Після 2 годин"}, {"Ser du fortsatt på?", "Ви ще дивитеся?"},
         {"Hopp over intro automatisk", "Автоматично пропускати заставки"},
         {"Om Jelly5", "Про Jelly5"},
         {"Automatisk (maks)", "Автоматично (максимум)"},

@@ -304,6 +304,7 @@ const std::unordered_map<std::string, const char *> &hungarian_table()
         {"Undertekststørrelse", "Felirat mérete"},
         {"Undertekstbakgrunn", "Felirat háttere"},
         {"Spill neste episode automatisk", "Következő epizód automatikus lejátszása"},
+        {"Spør om du fortsatt ser på", "Rákérdezés, hogy nézed-e még"}, {"Etter 3 episoder", "3 epizód után"}, {"Etter 2 timer", "2 óra után"}, {"Ser du fortsatt på?", "Még nézed?"},
         {"Hopp over intro automatisk", "Intró automatikus átugrása"},
         {"Om Jelly5", "A Jelly5 névjegye"},
         {"Automatisk (maks)", "Automatikus (maximum)"},

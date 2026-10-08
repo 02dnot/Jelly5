@@ -95,7 +95,9 @@ struct NuvioPrefs {
     bool clock_24h = true;
     bool skip_intro = true;
     bool auto_skip = false;                  /* Jelly5: skip intros without asking */
-    int still_watching_episodes = 3;         /* 0 = never ask */
+    /* Jelly5: "Ser du fortsatt på?" (ui/still_watching.h); 0 = never ask. */
+    int still_watching_episodes = 0;         /* autoplayed episodes in a row */
+    double still_watching_seconds = 0;       /* seconds played since the last press */
     bool has_tz = false;                     /* the page's UTC offset, for the clock */
     int tz_offset_min = 0;
 };
@@ -124,7 +126,8 @@ struct NuvioRequest {
     NuvioTrickplay trickplay;
     NuvioPrefs prefs;
     std::map<std::string, std::string> strings;
-    int autoplay_count = 0;       /* episodes played back to back so far */
+    int autoplay_count = 0;       /* episodes autoplayed since the viewer's last press */
+    double autoplay_idle = 0;     /* Jelly5: seconds played since the viewer's last press */
     bool not_group = false;       /* Jelly5: never a SyncPlay group's item (a theme song) */
 
     /* A UI string in the viewer's language (Nuvio's translation), else fallback. */
@@ -153,6 +156,8 @@ struct NuvioResult {
     bool subtitles_on = false;
     int subtitle_delay_ms = 0;
     bool group_end = false;       /* Jelly5: ended as a SyncPlay group's item: the group plays on */
+    int autoplay_count = 0;       /* Jelly5: for the next episode (ui/still_watching.h) */
+    double autoplay_idle = 0;
 };
 
 std::string nuvio_result_json(const NuvioRequest &req, const NuvioResult &res);
