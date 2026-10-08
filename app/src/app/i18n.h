@@ -17,9 +17,14 @@
 
 namespace i18n {
 
-enum class Lang { Norwegian, English, Spanish, French, German, Portuguese, Italian };
+enum class Lang {
+    Norwegian, English, Spanish, French, German, Portuguese, Italian,
+    /* every other PS5 system language */
+    Japanese, Dutch, Russian, Korean, ChineseTraditional, ChineseSimplified, Finnish, Swedish, Danish, Polish, Turkish, Arabic, Czech, Hungarian, Greek, Romanian, Thai, Vietnamese, Indonesian, Ukrainian,
+    Count
+};
 /* The setting: Auto, or a language (Lang + 1). */
-enum Choice { Auto = 0, Norwegian = 1, English = 2, ChoiceCount = 8 };
+enum Choice { Auto = 0, Norwegian = 1, English = 2, ChoiceCount = (int)Lang::Count + 1 };
 /* A choice's name in its own language ("Español"); Auto's is empty. */
 const char *choice_name(int choice);
 
@@ -37,3 +42,9 @@ unsigned generation();
 /* The text in the interface's language (the argument is the Norwegian). */
 const char *T(const char *nb);
 inline std::string T(const std::string &nb) { return T(nb.c_str()); }
+/* A count in the interface's language: nb_one / nb_other are the Norwegian
+ * formats ("%d sesong", "%d sesonger"), n goes in their %d. A table's entry for
+ * nb_other holds the language's forms separated by '|', in CLDR's order and only
+ * those whole numbers use (see plural_form in i18n.cpp): "%d season|%d seasons";
+ * Russian "%d сезон|%d сезона|%d сезонов"; Japanese one form. */
+std::string TN(int n, const char *nb_one, const char *nb_other);

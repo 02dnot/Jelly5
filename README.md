@@ -40,7 +40,7 @@ Jelly5 brings your Jellyfin or Emby library to the PS5 as a real app: a fast, sh
 - Title pages with logo art, cast, seasons and episodes, trailers, extras and theme music
 - Movie, TV and music libraries with sorting, filters and A–Z jumping, and search across everything
 - Several users and servers, a screensaver from your own backdrops, and a liquid-glass look throughout
-- In English, Norwegian, German, French, Spanish, Italian and Portuguese, following the PS5's language
+- In all 27 of the PS5's system languages, following the PS5's language (or a choice in Settings): English, Norwegian, German, French, Spanish, Italian, Portuguese, Dutch, Swedish, Danish, Finnish, Polish, Czech, Hungarian, Romanian, Greek, Russian, Ukrainian, Turkish, Arabic, Japanese, Korean, Chinese (Traditional and Simplified), Thai, Vietnamese and Indonesian
 
 **Playback**
 - Hardware-decoded H.264 and HEVC up to 4K with HDR10 and HLG; direct play where the PS5 can, server transcoding where it can't
@@ -216,7 +216,7 @@ Jelly5 stands on the work of others in the PS5 scene and beyond:
 - **[Jelly5-Seerr](https://github.com/viviandsx/Jelly5-Seer)** by [@viviandsx](https://github.com/viviandsx): the Seerr integration (client, search, requests, Discover) and the Linux build. Thank you!
 - **[Switchfin](https://github.com/dragonflylee/switchfin)**, a reference for the Jellyfin API
 - **[OverShifted/LiquidGlass](https://github.com/OverShifted/LiquidGlass)** (MIT), whose refraction profile the glass shader follows
-- [FFmpeg](https://ffmpeg.org), [libass](https://github.com/libass/libass), FreeType, HarfBuzz, [cJSON](https://github.com/DaveGamble/cJSON), [NanoSVG](https://github.com/memononen/nanosvg), [QR Code generator](https://www.nayuki.io/page/qr-code-generator-library) by Project Nayuki, and the Inter, Roboto and Noto typefaces
+- [FFmpeg](https://ffmpeg.org), [libass](https://github.com/libass/libass), FreeType, HarfBuzz, [cJSON](https://github.com/DaveGamble/cJSON), [NanoSVG](https://github.com/memononen/nanosvg), [QR Code generator](https://www.nayuki.io/page/qr-code-generator-library) by Project Nayuki, the [Unicode CLDR](https://cldr.unicode.org) (dates and language names), and the Inter, Roboto and Noto typefaces
 - The [Jellyfin](https://jellyfin.org) project, [Seerr](https://github.com/seerr-team/seerr), and [Emby](https://emby.media)'s API documentation ([Emby.SDK](https://github.com/MediaBrowser/Emby.SDK))
 
 Every component, its licence and where it is used are listed in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
