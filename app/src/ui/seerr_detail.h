@@ -48,6 +48,7 @@ private:
     };
     std::vector<Button> buttons() const;
     bool can_request() const;
+    int status() const;   /* where the title stands: seerr_service::status_of */
     std::vector<int> my_waiting_requests() const;   /* the viewer's requests still waiting for approval */
     void draw_qr(float dt);
 
@@ -74,6 +75,8 @@ private:
     /* "Trekk tilbake": the first ✕ arms it (until the focus moves), the second withdraws. */
     bool m_cancel_armed = false, m_cancelling = false;
     unsigned m_note_after_load = 0;         /* withdrawn: note the status the next load brings (0: none) */
+    unsigned m_loads = 0;                   /* this frame's copy of Data::loads */
+    unsigned m_requested_until = 0;         /* a request made here: the page is stale until this load */
     /* Under the page: "Anbefalt" and "Lignende" (posters). m_row -1: the buttons. */
     std::vector<jf::Item> m_rows[2];
     int m_row = -1, m_cols[2] = {0, 0};

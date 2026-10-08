@@ -45,6 +45,17 @@ public:
     void set_sources(std::vector<Source> sources);
     bool has_sources() const { return !m_sources.empty(); }
 
+    /* A change made elsewhere (marked seen, a favourite), shown at once; a title that
+     * no longer passes the filters leaves the grid. */
+    void apply(const UserDataChange &c);
+    /* Watched since it loaded: the loaded titles are asked again, in place, when the
+     * grid is next shown (refresh_if_stale, also from activate). */
+    void mark_stale() { m_stale = true; }
+    void refresh_if_stale();
+    /* Around main's write of a change: a refresh waits until it is done. */
+    static void write_started();
+    static void write_done();
+
     void activate() override;
     Action input(uint32_t pressed) override;
     void draw(double now, float dt) override;
@@ -68,6 +79,7 @@ private:
         unsigned generation = 0;    /* bumped on reload: stale pages are dropped */
         std::vector<std::string> genres;   /* this source's, for the filter */
         bool genres_loaded = false;
+        unsigned genres_gen = 0;    /* bumped on a source switch: stale genres are dropped */
         int jump_to = -1;           /* an A-Å jump that has landed: the index */
         std::string jump_letter;
     };
@@ -88,6 +100,7 @@ private:
     double m_source_at = -1;            /* a source pill rested on: switch to it then */
     void load_more();
     void reload();
+    bool refresh();   /* false: not now (a page on its way, or no thread) */
     const Source &source() const { return m_sources[std::min(m_source, (int)m_sources.size() - 1)]; }
     bool square() const;
     int pill_count() const;
@@ -103,6 +116,7 @@ private:
     std::shared_ptr<Data> m_data = std::make_shared<Data>();
     bool m_warmed = false;              /* the first screen of posters asked for ahead */
     double m_preload_at = -100;         /* the last first-page request preload made */
+    bool m_stale = false;               /* mark_stale: refreshed when next shown */
 
     int m_sort = 0;
     bool m_in_pills = false;

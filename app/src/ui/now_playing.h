@@ -29,6 +29,8 @@ public:
     bool animating() const override { return true; }   /* the clock and the bar move */
     float nav_alpha() const override { return 0.f; }
     float enter() const override { return m_enter.value; }
+    /* New music starts with the page up: nothing of the last music's track until its first. */
+    void forget();
 
 private:
     bool refresh();                     /* the latest status; false when nothing plays */
@@ -43,12 +45,13 @@ private:
     std::unique_ptr<NuvioRequest> m_req;   /* stable while m_ui points at it */
     NuvioStatus m_st;
     unsigned m_track = ~0u;
-    double m_seen_at = 0;               /* when a track was last playing (the gap between two) */
     PlayerUi m_ui;
     Anim m_enter;
 };
 
 /* The mini player over the menus while music plays (and the page is not up). */
 void draw_mini_player(double now, float opacity);
+/* New music starts: the mini player shows nothing until its first track. */
+void forget_mini_player();
 
 } // namespace ui

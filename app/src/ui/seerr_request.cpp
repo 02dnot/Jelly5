@@ -214,10 +214,9 @@ void RequestSheet::send()
         std::lock_guard<std::mutex> g(m_shared->lock);
         const seerr::Quota &q = m_shared->quota;
         if (m_shared->have_quota && q.limit > 0) {
-            char b[160];
             if (o.tv && (int)o.seasons.size() > q.remaining) {
-                std::snprintf(b, sizeof b, T("Kvoten din gir plass til %d sesonger til"), std::max(0, q.remaining));
-                m_error = b;
+                m_error = TN(std::max(0, q.remaining), "Kvoten din gir plass til %d sesong til",
+                             "Kvoten din gir plass til %d sesonger til");
                 m_retry = false;
                 return;
             }
@@ -243,7 +242,7 @@ void RequestSheet::send()
     const bool started = jelly5::spawn([sh, c, o] {
         const seerr::RequestResult r = c->request(o);
         if (r.outcome == seerr::RequestResult::SignedOut)
-            seerr_service::session_lost();
+            seerr_service::session_lost(c.get());
         std::lock_guard<std::mutex> g(sh->lock);
         sh->sending = false;
         sh->sent = true;
@@ -494,18 +493,14 @@ void RequestSheet::draw(float dt, bool *animating)
                 en = n > 0;
                 on = on && n > 0;
                 label = m_settings.partial_requests ? T("Alle sesonger") : T("Alle manglende sesonger");
-                char b[48];
-                std::snprintf(b, sizeof b, n == 1 ? T("%d sesong") : T("%d sesonger"), n);
-                right = b;
+                right = TN(n, "%d sesong", "%d sesonger");
             } else {
                 const seerr::Season &s = m_detail.seasons[row.season];
                 en = requestable(s, m_settings);
                 on = en ? (bool)m_picked[row.season] : s.status == seerr::Status::Available;
                 label = season_name(s);
                 if (en) {
-                    char b[48];
-                    std::snprintf(b, sizeof b, T("%d episoder"), s.episodes);
-                    right = b;
+                    right = TN(s.episodes, "%d episode", "%d episoder");
                 } else {
                     right = s.requested && s.status == seerr::Status::Unknown ? T("Forespurt")
                                                                               : seerr_status_label((int)s.status, true);
@@ -556,7 +551,7 @@ void RequestSheet::draw(float dt, bool *animating)
     const bool on_buttons = m_rows[m_focus].kind == Buttons;
     const std::string send_label = !m_error.empty() && m_retry ? T("Prøv igjen") : T("Be om");
     const gfx::TextStyle bt{gfx::Bold, 26};
-    const float bw0 = gfx::text_width(send_label, bt) + 96, bw1 = gfx::text_width(T("Avbryt"), bt) + 80;
+    const float bw0 = std::max(gfx::text_width(send_label, bt), gfx::text_width(T("Sender \xE2\x80\xA6"), bt)) + 96, bw1 = gfx::text_width(T("Avbryt"), bt) + 80;
     const gfx::Rect b0{r.x + 48, y, bw0, 76}, b1{r.x + 48 + bw0 + 20, y, bw1, 76};
     glass_panel(b0, 16, a, false);
     glass_panel(b1, 16, a, false);
@@ -567,7 +562,12 @@ void RequestSheet::draw(float dt, bool *animating)
     gfx::text(b0.x + b0.w / 2, b0.y + 47, sending ? T("Sender \xE2\x80\xA6") : send_label, bt, alpha(kText, a), 1);
     gfx::text(b1.x + b1.w / 2, b1.y + 47, T("Avbryt"), {on_buttons && m_button == 1 ? gfx::Bold : gfx::SemiBold, 26},
               alpha(kText, a), 1);
-    draw_pad_hints(r.x + r.w - 48, b0.y + 38, {{PadButton::Cross, T("Velg")}, {PadButton::Circle, T("Lukk")}}, 2, 26, a);
+    /* The hints on the right, where the buttons leave room for them. */
+    const float hints_w = pad_hint_width(PadButton::Cross, T("Velg"), 26) + 26 * 0.9f +
+                          pad_hint_width(PadButton::Circle, T("Lukk"), 26);
+    if (b1.x + b1.w + 32 + hints_w <= r.x + r.w - 48)
+        draw_pad_hints(r.x + r.w - 48, b0.y + 38, {{PadButton::Cross, T("Velg")}, {PadButton::Circle, T("Lukk")}}, 2, 26,
+                       a);
 }
 
 } // namespace ui

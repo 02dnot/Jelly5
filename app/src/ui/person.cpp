@@ -4,6 +4,8 @@
  */
 #include "ui/person.h"
 #include "app/i18n.h"
+#include "app/spawn.h"
+#include "app/i18n_cldr.h"
 
 #include "gfx/art.h"
 #include "nuvio_input.h"
@@ -18,22 +20,13 @@ namespace {
 constexpr float kPosterW = 220, kPosterH = 330, kGap = 32;
 constexpr float kRowsTop = 640, kRowH = 470;
 
-/* "1971-03-12T00:00:00.0000000Z" -> "12. mars 1971" */
+/* "1971-03-12T00:00:00.0000000Z" -> "12. mars 1971" (the interface's language) */
 std::string born_label(const std::string &iso)
 {
-    static const char *const months[] = {"januar", "februar", "mars",     "april",   "mai",      "juni",
-                                         "juli",   "august",  "september", "oktober", "november", "desember"};
     int y = 0, m = 0, d = 0;
-    if (std::sscanf(iso.c_str(), "%d-%d-%d", &y, &m, &d) != 3 || m < 1 || m > 12)
+    if (std::sscanf(iso.c_str(), "%d-%d-%d", &y, &m, &d) != 3)
         return std::string();
-    static const char *const en[] = {"January", "February", "March",     "April",   "May",      "June",
-                                     "July",    "August",   "September", "October", "November", "December"};
-    char b[48];
-    if (i18n::english())
-        std::snprintf(b, sizeof b, "%s %d, %d", en[m - 1], d, y);   /* March 12, 1971 */
-    else
-        std::snprintf(b, sizeof b, "%d. %s %d", d, months[m - 1], y);
-    return b;
+    return i18n::long_date(y, m, d);
 }
 
 } // namespace
@@ -49,23 +42,20 @@ void Person::activate()
     std::shared_ptr<Data> d = m_data;
     jf::Client *c = &m_client;
     const std::string id = m_view.person.id;
-    std::thread([d, c, id] {
+    jelly5::spawn([d, c, id] {   /* no thread: the page loads when it is opened again */
         jf::Item person;
         std::vector<jf::Item> movies, series;
         bool got = false;
-        std::thread a([&] { got = c->item(id, &person); });
-        std::thread b([&] { movies = c->person_items(id, "Movie", 60); });
-        std::thread e([&] { series = c->person_items(id, "Series", 60); });
-        a.join();
-        b.join();
-        e.join();
+        jelly5::run_all({[&] { got = c->item(id, &person); },
+                         [&] { movies = c->person_items(id, "Movie", 60); },
+                         [&] { series = c->person_items(id, "Series", 60); }});
         std::lock_guard<std::mutex> g(d->lock);
         if (got)
             d->c.person = person;
         d->c.movies = std::move(movies);
         d->c.series = std::move(series);
         d->c.loaded = true;
-    }).detach();
+    });
 }
 
 Action Person::input(uint32_t p)
@@ -155,7 +145,7 @@ void Person::draw(double now, float dt)
     gfx::shadow(portrait, 22, 36, 0.35f, 12);
     if (url.empty()) {
         gfx::fill_vgradient(portrait, 0xff2a2a35u, 0xff16161cu, 22);
-        gfx::text(portrait.x + portrait.w / 2, portrait.y + portrait.h / 2 + 30, p.name.substr(0, 1),
+        gfx::text(portrait.x + portrait.w / 2, portrait.y + portrait.h / 2 + 30, first_letter(p.name),
                   {gfx::Bold, 110}, kText3, 1);
     } else {
         art::draw(portrait, url, p.primary_blurhash, 560, 840, 22);
@@ -170,7 +160,7 @@ void Person::draw(double now, float dt)
         meta += (meta.empty() ? "" : "  \xC2\xB7  ") + p.locations[0];
     const size_t total = m_view.movies.size() + m_view.series.size();
     if (m_view.loaded)
-        meta += (meta.empty() ? "" : "  \xC2\xB7  ") + std::to_string(total) + (total == 1 ? T(" tittel her") : T(" titler her"));
+        meta += (meta.empty() ? "" : "  \xC2\xB7  ") + TN((int)total, "%d tittel her", "%d titler her");
     gfx::text(tx, 290 - off, meta, {gfx::Medium, 26, gfx::W - tx - kPad}, kText2);
     gfx::text(tx, 350 - off, p.overview.empty() ? (m_view.loaded ? T("Ingen biografi.") : "") : p.overview,
               {gfx::Regular, 25, gfx::W - tx - kPad, 6, 36}, kText2);

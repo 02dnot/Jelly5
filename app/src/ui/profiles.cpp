@@ -152,6 +152,10 @@ Action Profiles::input(uint32_t p)
         m_chosen = true;
     } else if ((p & NUVIO_BTN_TRIANGLE) && m_focus < (int)m_list.size()) {
         if (m_armed == m_focus) {
+            m_choice = Choice();
+            m_choice.removed = true;
+            m_choice.account = m_list[m_focus];
+            m_chosen = true;
             accounts::forget(m_list[m_focus].server, m_list[m_focus].user_id);
             activate();
         } else {
@@ -212,7 +216,7 @@ void Profiles::draw(double, float dt)
             const accounts::Account &a = m_list[i];
             name = a.user_name;
             glass_panel(r, dd / 2, 1.f, false);
-            gfx::text(r.x + dd / 2, r.y + dd / 2 + 32, name.substr(0, 1), {gfx::Bold, 90}, kText, 1);
+            gfx::text(r.x + dd / 2, r.y + dd / 2 + 32, first_letter(name), {gfx::Bold, 90}, kText, 1);
             if (!a.image_tag.empty())
                 art::draw(r, a.server + "/Users/" + a.user_id + "/Images/Primary?tag=" + a.image_tag + "&fillWidth=440",
                           "", 440, 440, dd / 2, 1.f, 0);   /* over the initial until it loads */

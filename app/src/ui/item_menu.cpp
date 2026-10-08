@@ -122,7 +122,31 @@ void ItemMenu::draw(float dt, bool *animating)
         std::snprintf(b, sizeof b, "S%d:E%d \xC2\xB7 %s", m_item.parent_index, m_item.index, m_item.name.c_str());
         sub = b;
     }
-    const float row_h = 68, w = 640;
+    std::vector<const char *> labels;
+    for (const Option o : m_options) {
+        const char *label = "";
+        switch (o) {
+        case Info: label = T("Mer info"); break;
+        case List: label = m_item.favorite ? T("Fjern fra Min liste") : T("Legg til i Min liste"); break;
+        case Played:
+            if (m_item.type == "Series")
+                label = m_item.played ? T("Merk hele serien som usett") : T("Merk hele serien som sett");
+            else if (m_item.type == "Season")
+                label = m_item.played ? T("Merk sesongen som usett") : T("Merk sesongen som sett");
+            else
+                label = m_item.played ? T("Merk som usett") : T("Merk som sett");
+            break;
+        case Resume: label = T("Fjern fra Fortsett \xC3\xA5 se"); break;
+        case AskSeerr: label = T("Be om flere sesonger"); break;
+        }
+        labels.push_back(label);
+    }
+    /* 640 wide, wider when a label needs it (in bold, as when focused). */
+    float w = 640;
+    for (const char *l : labels)
+        w = std::max(w, gfx::text_width(l, {gfx::Bold, 26}) + 112);
+    w = std::min(w, 1200.f);
+    const float row_h = 68;
     const float h = 60 + 52 + (sub.empty() ? 0 : 34) + 24 + m_options.size() * (row_h + 6) + 40 + 52;
     const float rise = 24 * (1.f - a);
     const gfx::Rect r{(gfx::W - w) / 2, (gfx::H - h) / 2 + rise, w, h};
@@ -140,22 +164,8 @@ void ItemMenu::draw(float dt, bool *animating)
     for (size_t i = 0; i < m_options.size(); i++) {
         const bool focus = (int)i == m_focus;
         const gfx::Rect row{r.x + 30, y, w - 60, row_h};
-        const char *label = "";
-        switch (m_options[i]) {
-        case Info: label = T("Mer info"); break;
-        case List: label = m_item.favorite ? T("Fjern fra Min liste") : T("Legg til i Min liste"); break;
-        case Played:
-            if (m_item.type == "Series")
-                label = m_item.played ? T("Merk hele serien som usett") : T("Merk hele serien som sett");
-            else if (m_item.type == "Season")
-                label = m_item.played ? T("Merk sesongen som usett") : T("Merk sesongen som sett");
-            else
-                label = m_item.played ? T("Merk som usett") : T("Merk som sett");
-            break;
-        case Resume: label = T("Fjern fra Fortsett \xC3\xA5 se"); break;
-        case AskSeerr: label = T("Be om flere sesonger"); break;
-        }
-        gfx::text(row.x + 26, row.y + 44, label, {focus ? gfx::Bold : gfx::SemiBold, 26}, alpha(focus ? kText : kText2, a));
+        gfx::text(row.x + 26, row.y + 44, labels[i], {focus ? gfx::Bold : gfx::SemiBold, 26, w - 112},
+                  alpha(focus ? kText : kText2, a));
         y += row_h + 6;
     }
     draw_pad_hints(r.x + 56, r.y + r.h - 52, {{PadButton::Cross, T("Velg")}, {PadButton::Circle, T("Lukk")}}, 0, 26,

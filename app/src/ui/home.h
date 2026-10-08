@@ -95,6 +95,7 @@ private:
     int m_hero = 0;                     /* featured title shown */
     int m_hero_button = 0;              /* 0 play, 1 more info */
     double m_hero_since = 0;
+    bool m_hero_restart = false;        /* a button on the hero: its 10 s start again at the next frame */
 
     Anim m_rows_y;                      /* focused row index, eased */
     std::vector<Anim> m_scroll;         /* per-row horizontal offset (cards) */

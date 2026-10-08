@@ -33,7 +33,9 @@ std::string runtime_label(int64_t ticks)
     if (min <= 0)
         return std::string();
     char b[32];
-    if (min >= 60)
+    if (min >= 60 && min % 60 == 0)
+        std::snprintf(b, sizeof b, T("%d t"), min / 60);
+    else if (min >= 60)
         std::snprintf(b, sizeof b, T("%d t %d min"), min / 60, min % 60);
     else
         std::snprintf(b, sizeof b, "%d min", min);
@@ -190,6 +192,8 @@ void Home::apply(const UserDataChange &c)
 Action Home::input(uint32_t p)
 {
     Action action;
+    if (m_row < 0)
+        m_hero_restart = true;   /* the viewer is busy with the title shown: its full 10 s again */
     if (m_menu.active()) {
         m_menu.input(p, &action);
         if (action.kind == Action::Changed)
@@ -285,7 +289,7 @@ void Home::draw_card_art(const jf::Item &it, const gfx::Rect &r, float radius, f
     if (it.external()) {   /* Seerr's: its name on its colours, the picture over it, where it stands */
         draw_glass_placeholder(r, radius, a);
         art::draw(r, it.ext.thumb, "", 640, 360, radius, a, 0);
-        draw_status_chip(r.x + 12, r.y + 12, seerr_service::status_of(it), a);
+        draw_status_chip(r.x + 12, r.y + 12, seerr_service::status_of(it), a, 15.f, r.w - 24);
         return;
     }
     art::draw(r, card_url(it), it.thumb_blurhash.empty() ? it.backdrop_blurhash : it.thumb_blurhash, 640, 360,
@@ -372,10 +376,11 @@ void Home::draw_info(const jf::Item &it, float bottom, bool hero, float a)
     if (episode)
         title_bottom -= 48;
 
-    /* Logo (fading in; nothing until then) or the name in large type. */
+    /* Logo (fading in; nothing until then) or the name in large type: also
+     * when the logo could not be had. */
     const std::string logo = m_client.image_url(it.logo_owner, "Logo", it.logo_tag, 800);
     const float max_lw = hero ? 640.f : 520.f, max_lh = hero ? 200.f : 150.f;
-    if (!logo.empty()) {
+    if (!logo.empty() && !art::failed(logo)) {
         if (const gfx::Texture *t = art::get(logo, 800, 800)) {
             const float iw = (float)gfx::texture_width(t), ih = (float)gfx::texture_height(t);
             const float k = std::min(max_lw / iw, max_lh / ih);
@@ -609,8 +614,13 @@ void Home::draw(double now, float dt)
     m_dt = dt;
     m_animating = false;
 
-    /* The hero rotates every 10 s while it has focus. */
-    if (m_row < 0 && m_model.hero.size() > 1 && now - m_hero_since > 10.0) {
+    /* The hero rotates every 10 s while it has focus (not under Options, which acts on it).
+     * Restarted here, at this frame's time: m_now is the last frame's, which may be long ago. */
+    if (m_hero_restart || m_menu.active()) {
+        m_hero_restart = false;
+        m_hero_since = now;
+    }
+    else if (m_row < 0 && m_model.hero.size() > 1 && now - m_hero_since > 10.0) {
         m_hero = (m_hero + 1) % (int)m_model.hero.size();
         m_hero_since = now;
         m_focus_changed = now;

@@ -6,6 +6,7 @@
 #include "app/spawn.h"
 #include "app/i18n.h"
 #include "app/seerr_service.h"
+#include "gfx/art.h"
 
 #include "nuvio_input.h"
 
@@ -69,6 +70,23 @@ std::string id_key(const std::string &id)
         if (c != '-')
             out += (char)std::tolower((unsigned char)c);
     return out;
+}
+
+/* The end of a query too long for its line: whole characters dropped from the
+ * front behind an ellipsis, so the newest letters and the caret stay in view. */
+std::string query_tail(const std::string &q, const gfx::TextStyle &st, float max_w)
+{
+    if (gfx::text_width(q, st) <= max_w)
+        return q;
+    size_t i = 0;
+    std::string s;
+    do {
+        i++;
+        while (i < q.size() && ((unsigned char)q[i] & 0xC0) == 0x80)   /* a code point's continuation bytes */
+            i++;
+        s = "\xE2\x80\xA6" + q.substr(i);
+    } while (i < q.size() && gfx::text_width(s, st) > max_w);
+    return s;
 }
 
 } // namespace
@@ -225,6 +243,7 @@ void Search::start_search()
     {
         std::lock_guard<std::mutex> g(d->lock);
         seq = ++d->seq;
+        d->pending = true;
         d->seerr_pending = sc != nullptr;
         d->seerr_failed = false;
         d->seerr_page = 1;
@@ -239,7 +258,7 @@ void Search::start_search()
                 found.push_back(seerr_service::to_item(t));
             const int status = sc->last_status();
             if (status == 401 || status == 403)
-                seerr_service::session_lost();
+                seerr_service::session_lost(sc.get());
             std::lock_guard<std::mutex> g(d->lock);
             if (seq != d->seq)
                 return;   /* the query moved on */
@@ -256,7 +275,7 @@ void Search::start_search()
             d->for_seerr = q;
         }
     }
-    jelly5::spawn([d, c, q, seq] {   /* no thread: the next keystroke searches again */
+    const bool started = jelly5::spawn([d, c, q, seq] {   /* no thread: the next keystroke searches again */
         std::vector<jf::Item> r;
         if (q.empty()) {
             r = c->library("", "Movie,Series", "Random", false, 0, 16).items;
@@ -278,8 +297,14 @@ void Search::start_search()
             return;   /* the query moved on */
         d->items = std::move(r);
         d->for_query = q;
+        d->pending = false;
         merge(*d);
     });
+    if (!started) {
+        std::lock_guard<std::mutex> g(d->lock);
+        if (seq == d->seq)
+            d->pending = false;
+    }
 }
 
 Action Search::input(uint32_t p)
@@ -371,9 +396,12 @@ void Search::draw(double now, float dt)
     more_seerr();
     std::vector<jf::Item> items, seerr;
     std::string for_query;
-    bool seerr_pending, seerr_failed, seerr_asked;
+    bool seerr_pending, seerr_failed, seerr_asked, waiting;
     {
         std::lock_guard<std::mutex> g(m_data->lock);
+        /* An answer on its way (or Seerr's next page to ask again for): frames until it is drawn. */
+        waiting = m_data->pending || m_data->seerr_more_loading || m_data->seerr_more_failed ||
+                  m_now < m_data->seerr_more_retry_at;
         items = m_data->items;
         if (seerr_service::config().enabled)   /* (see grid) */
             seerr = m_data->seerr_shown;
@@ -401,13 +429,19 @@ void Search::draw(double now, float dt)
     bool anim = false;
     m_ambient.draw(dt, 0.7f, &anim);
 
-    /* The query line with a blinking caret. */
+    /* The query line with a blinking caret; a long query shows its end. */
     const float qy = 236;
     float qx = kKbX;
-    if (m_query.empty())
+    if (m_query.empty()) {
         gfx::text(kKbX, qy, T("Filmer, serier, personer, musikk"), {gfx::Medium, 36, 640}, kText3);
-    else
-        qx += gfx::text(kKbX, qy, m_query, {gfx::Bold, 52, 600}, kText);
+    } else {
+        const gfx::TextStyle qs{gfx::Bold, 52};
+        if (m_shown_for != m_query) {
+            m_shown_for = m_query;
+            m_shown = query_tail(m_query, qs, 600);
+        }
+        qx += gfx::text(kKbX, qy, m_shown, qs, kText);
+    }
     if (std::fmod(now, 1.0) < 0.55)
         gfx::fill({qx + 6, qy - 44, 3, 52}, 0xff00a4dcu);
     gfx::fill({kKbX, qy + 22, 7 * (kKeyW + kKeyGap) - kKeyGap, 2}, 0x33ffffffu);
@@ -488,7 +522,10 @@ void Search::draw(double now, float dt)
     if (items.empty() && !for_query.empty())
         gfx::text(kResX, kResY + 60 - m_scroll.value, T("Ingen treff"), {gfx::Medium, 26}, kText3);
     gfx::pop_scissor();
-    (void)anim;
+    /* Frames only while something moves: the caret blinks while the keyboard has the focus. */
+    if (m_pending || waiting || seerr_pending || art::animating() || (m_focused && !m_in_results))
+        anim = true;
+    m_animating = anim;
 }
 
 } // namespace ui

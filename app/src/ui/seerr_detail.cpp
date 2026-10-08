@@ -26,7 +26,9 @@ std::string minutes_label(int min)
     if (min <= 0)
         return std::string();
     char b[32];
-    if (min >= 60)
+    if (min >= 60 && min % 60 == 0)
+        std::snprintf(b, sizeof b, T("%d t"), min / 60);
+    else if (min >= 60)
         std::snprintf(b, sizeof b, T("%d t %d min"), min / 60, min % 60);
     else
         std::snprintf(b, sizeof b, "%d min", min);
@@ -53,7 +55,7 @@ void SeerrDetail::activate()
         const bool ok = tv ? c->tv(id, &det) : c->movie(id, &det);
         const int status = c->last_status();
         if (!ok && (status == 401 || status == 403))
-            seerr_service::session_lost();
+            seerr_service::session_lost(c.get());
         {
             std::lock_guard<std::mutex> g(d->lock);
             if (ok) {
@@ -82,10 +84,29 @@ void SeerrDetail::activate()
     }
 }
 
+int SeerrDetail::status() const
+{
+    if (!m_loaded)
+        return seerr_service::status_of(m_item);
+    jf::Item it = m_item;
+    it.ext.status = (int)m_detail.title.status;
+    return seerr_service::status_of(it);
+}
+
 bool SeerrDetail::can_request() const
 {
     const seerr_service::Snapshot s = seerr_service::snapshot();
-    return m_loaded && s.state == seerr_service::State::Ready && RequestSheet::offers(m_detail, s.user, s.settings);
+    if (!m_loaded || s.state != seerr_service::State::Ready)
+        return false;
+    /* Asked for here: not again until the page is read since (Seerr would say
+     * it is requested already). Asked for on another screen: a film not at all;
+     * a series' page may still offer the seasons nobody asked for. */
+    if (m_loads < m_requested_until)
+        return false;
+    const int st = status();
+    if ((st == (int)seerr::Status::Pending || st == (int)seerr::Status::Processing) && m_item.type != "Series")
+        return false;
+    return RequestSheet::offers(m_detail, s.user, s.settings);
 }
 
 std::vector<int> SeerrDetail::my_waiting_requests() const
@@ -115,7 +136,7 @@ std::vector<SeerrDetail::Button> SeerrDetail::buttons() const
         b.push_back(CancelButton);
     const std::string &jid = m_loaded && !m_detail.title.jellyfin_id.empty() ? m_detail.title.jellyfin_id
                                                                              : m_item.ext.jellyfin_id;
-    if (!jid.empty())
+    if (!jid.empty() && !m_item.ext.unseen)   /* not one this account found on its server */
         b.push_back(LibraryButton);
     if (m_loaded && !m_detail.trailer_url(seerr_service::snapshot().settings.youtube_url).empty())
         b.push_back(TrailerButton);
@@ -310,6 +331,7 @@ void SeerrDetail::draw(double now, float dt)
         std::lock_guard<std::mutex> g(m_data->lock);
         m_loaded = m_data->loaded;
         m_failed = m_data->failed;
+        m_loads = m_data->loads;
         if (m_loaded)
             m_detail = m_data->detail;
         if (m_note_after_load && m_data->loads >= m_note_after_load && m_loaded) {
@@ -329,6 +351,7 @@ void SeerrDetail::draw(double now, float dt)
         m_note = request_note(done);
         m_note_dot = request_note_dot(done);
         m_note_at = now;
+        m_requested_until = m_loads + 1;
         activate();
     }
     int cancelled = 0;
@@ -353,7 +376,7 @@ void SeerrDetail::draw(double now, float dt)
     const seerr::Title &t = m_loaded ? m_detail.title : seerr::Title();
     const std::string &name = m_loaded ? t.name : m_item.name;
     const bool tv = m_item.type == "Series";
-    const int status = m_loaded ? (int)t.status : seerr_service::status_of(m_item);
+    const int status = this->status();
 
     /* Backdrop and scrims, as the library's page. */
     const gfx::Rect full{0, 0, gfx::W, gfx::H};
@@ -418,7 +441,7 @@ void SeerrDetail::draw(double now, float dt)
             n += s.number > 0;
         if (n) {
             sep();
-            x += gfx::text(x, my, std::to_string(n) + (n == 1 ? T(" sesong") : T(" sesonger")), meta, kText2);
+            x += gfx::text(x, my, TN(n, "%d sesong", "%d sesonger"), meta, kText2);
         }
     } else if (m_loaded && m_detail.runtime > 0) {
         sep();

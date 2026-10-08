@@ -14,6 +14,7 @@
 #include "platform/ime.h"
 
 #include <algorithm>
+#include <vector>
 
 #ifndef JELLY5_VERSION
 #define JELLY5_VERSION "0.0.1"
@@ -448,7 +449,29 @@ void SettingsScreen::draw(double, float dt)
         ys[r] = y;
         y += row_h + 8;
     }
-    m_scroll.to(std::max(0.f, ys[m_row] - 700));
+    /* The notes under the rows (a line each, two when a language needs them): the
+     * last row scrolls far enough to show them all. */
+    std::vector<const char *> notes = {
+        T("Lyd, undertekster og autoavspilling lagres på kontoen din på serveren og gjelder i alle appene du bruker med den."),
+        T("Språk følger PS5-en, eller velg her."),
+        T("Jelly5 er fri programvare (GPL-3.0) og bygger på EVO Player og Nuvio PS5.")};
+    if (seerr_service::config().enabled)   /* only where it means something */
+        notes.push_back(T("Seerr henter alt fra TMDB selv: PS5-en snakker bare med serveren din og Seerr."));
+    if (seerr_service::config().enabled && !m_client.features().quick_connect &&   /* Emby: why a password */
+        effective_auth(seerr_service::config().auth, m_client) == seerr_service::Auth::JellyfinPassword)
+        notes.push_back(T("Emby har ikke Quick Connect: Seerr logger inn med Emby-passordet ditt og husker innloggingen i 30 dager."));
+    auto lines_of = [&](const char *t) { return gfx::text_width(t, {gfx::Regular, 20}) > width ? 2 : 1; };
+    float notes_end = y + 40;
+    for (const char *t : notes)
+        notes_end += 32 + (lines_of(t) - 1) * 28;
+    int last_row = m_row;
+    for (int r = m_row + 1; r < RowCount; r++)
+        if (shown(r))
+            last_row = r;
+    float target = std::max(0.f, ys[m_row] - 700);
+    if (last_row == m_row)
+        target = std::max(target, notes_end - (gfx::H - 40));
+    m_scroll.to(target);
     if (m_scroll.step(dt, 11.f))
         m_animating = true;
     const float off = m_scroll.value;
@@ -489,29 +512,25 @@ void SettingsScreen::draw(double, float dt)
         const gfx::Rect rr{left, ys[r] - off, width, row_h};
         const uint32_t fg = kText, fg2 = focus ? kText : kText2;
         const float cy = rr.y + rr.h / 2 + 9;
-        gfx::text(rr.x + 32, cy, label_of(r), {focus ? gfx::Bold : gfx::SemiBold, 26}, r == SignOut ? 0xffff7a7au : fg);
+        const float lw = gfx::text(rr.x + 32, cy, label_of(r), {focus ? gfx::Bold : gfx::SemiBold, 26},
+                                   r == SignOut ? 0xffff7a7au : fg);
         const std::string v = value((Row)r);
         const bool adj = adjustable(r);
         const float vx = rr.x + rr.w - 32 - (adj && focus ? 30 : 0);
-        gfx::text(vx, cy, v, {gfx::Medium, 24, 760}, fg2, 2);
+        /* The value has what the label leaves (an error from Seerr can be long). */
+        const float vmax = std::max(300.f, vx - (rr.x + 32 + lw + 48));
+        gfx::text(vx, cy, v, {gfx::Medium, 24, vmax}, fg2, 2);
         if (adj && focus) {
             gfx::text(rr.x + rr.w - 30, cy, "\xE2\x80\xBA", {gfx::Bold, 30}, fg2, 2);
-            gfx::text(vx - gfx::text_width(v, {gfx::Medium, 24, 760}) - 14, cy, "\xE2\x80\xB9", {gfx::Bold, 30}, fg2, 2);   /* as the value's own width */
+            gfx::text(vx - gfx::text_width(v, {gfx::Medium, 24, vmax}) - 14, cy, "\xE2\x80\xB9", {gfx::Bold, 30}, fg2, 2);   /* as the value's own width */
         }
     }
-    gfx::text(left, y + 40 - off,
-              T("Lyd, undertekster og autoavspilling lagres på kontoen din på serveren og gjelder i alle appene du bruker med den."),
-              {gfx::Regular, 20, width}, kText3);
-    gfx::text(left, y + 72 - off, T("Språk følger PS5-en, eller velg her."), {gfx::Regular, 20, width}, kText3);
-    gfx::text(left, y + 104 - off, T("Jelly5 er fri programvare (GPL-3.0) og bygger på EVO Player og Nuvio PS5."),
-              {gfx::Regular, 20, width}, kText3);
-    if (seerr_service::config().enabled)   /* only where it means something */
-        gfx::text(left, y + 136 - off,
-                  T("Seerr henter alt fra TMDB selv: PS5-en snakker bare med serveren din og Seerr."),
-                  {gfx::Regular, 20, width}, kText3);
-    if (seerr_service::config().enabled && !m_client.features().quick_connect &&   /* Emby: why a password */
-        effective_auth(seerr_service::config().auth, m_client) == seerr_service::Auth::JellyfinPassword)
-        gfx::text(left, y + 168 - off, T("Emby har ikke Quick Connect: Seerr logger inn med Emby-passordet ditt og husker innloggingen i 30 dager."), {gfx::Regular, 20, width}, kText3);
+    float ny = y + 40 - off;
+    for (const char *t : notes) {
+        const int lines = lines_of(t);
+        gfx::text(left, ny, t, {gfx::Regular, 20, width, lines, 28}, kText3);
+        ny += 32 + (lines - 1) * 28;
+    }
 }
 
 } // namespace ui

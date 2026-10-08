@@ -40,7 +40,9 @@ std::string runtime_label(int64_t ticks)
     if (min <= 0)
         return std::string();
     char b[32];
-    if (min >= 60)
+    if (min >= 60 && min % 60 == 0)
+        std::snprintf(b, sizeof b, T("%d t"), min / 60);
+    else if (min >= 60)
         std::snprintf(b, sizeof b, T("%d t %d min"), min / 60, min % 60);
     else
         std::snprintf(b, sizeof b, "%d min", min);
@@ -132,7 +134,7 @@ Detail::Content Detail::fetch(jf::Client &c, const jf::Item &base)
     bool got = false;
     std::vector<jf::Item> similar, seasons, resume, next, all_episodes;
     const bool series = base.type == "Series", boxset = base.type == "BoxSet";
-    std::vector<std::thread> jobs;
+    std::vector<std::function<void()>> jobs;
     jobs.emplace_back([&] { got = c.item(base.id, &item, &detail); });
     if (boxset)   /* a collection's own titles take the place of "more like this" */
         jobs.emplace_back([&] { similar = c.children(base.id, "PremiereDate,ProductionYear,SortName", 200); });
@@ -144,8 +146,7 @@ Detail::Content Detail::fetch(jf::Client &c, const jf::Item &base)
         jobs.emplace_back([&] { next = c.next_up(1, base.id); });
         jobs.emplace_back([&] { all_episodes = c.episodes(base.id, std::string()); });
     }
-    for (auto &j : jobs)
-        j.join();
+    jelly5::run_all(jobs);
     if (got && item.special_features > 0)
         out.extras = c.special_features(base.id);
     if (got && item.local_trailers > 0) {
@@ -206,13 +207,17 @@ void Detail::prefetch(jf::Client &client, const jf::Item &item)
     }
     jf::Client *c = &client;
     const jf::Item base = item;
-    std::thread([c, base] {
+    const bool started = jelly5::spawn([c, base] {
         Content content = fetch(*c, base);
         const std::string key = cache_key(*c, base.id);
         cache_put(key, content);
         std::lock_guard<std::mutex> g(s_cache_lock);
         s_inflight.erase(key);
-    }).detach();
+    });
+    if (!started) {   /* no thread: not in flight, a later prefetch may try again */
+        std::lock_guard<std::mutex> g(s_cache_lock);
+        s_inflight.erase(cache_key(client, item.id));
+    }
 }
 
 static void cache_put(const std::string &key, const Detail::Content &content)
@@ -292,7 +297,7 @@ void Detail::look_up_in_seerr(const std::shared_ptr<Data> &d, const jf::Item &se
     seerr::Detail sd;
     const bool ok = tmdb > 0 && sc->tv(tmdb, &sd);
     if (!ok && (sc->last_status() == 401 || sc->last_status() == 403))
-        seerr_service::session_lost();
+        seerr_service::session_lost(sc.get());
     std::lock_guard<std::mutex> g(d->lock);
     d->seerr_pending = false;
     if (ok) {
@@ -415,6 +420,17 @@ void Detail::apply_local(const UserDataChange &ch, bool whole)
             e.played = ch.played;
             e.position_ticks = 0;
             e.played_percent = 0;
+        }
+    }
+    /* Play's episode as the server now has it (nothing started: the first), not
+     * the "Fortsett" of before. A refetch here could beat the write to the server. */
+    if (whole && ch.played_set && c.item.type == "Series") {
+        if (!c.all_episodes.empty()) {
+            c.target = c.all_episodes.front();
+            c.have_target = true;
+        } else {
+            c.target.position_ticks = 0;
+            c.target.played_percent = 0;
         }
     }
     for (jf::Item &t : c.similar)
@@ -588,10 +604,11 @@ void Detail::draw_top(float y0, float dt)
     const jf::Item &it = m_view.item;
     const bool series = it.type == "Series";
 
-    /* Logo (fades in; nothing until then) or the title. */
+    /* Logo (fades in; nothing until then) or the title: also when the logo
+     * could not be had. */
     const std::string logo = m_client.image_url(it.logo_owner, "Logo", it.logo_tag, 900);
     const float title_bottom = y0 + 380;
-    if (!logo.empty()) {
+    if (!logo.empty() && !art::failed(logo)) {
         if (const gfx::Texture *t = art::get(logo, 900, 900)) {
             const float iw = (float)gfx::texture_width(t), ih = (float)gfx::texture_height(t);
             const float k = std::min(800.f / iw, 210.f / ih);
@@ -626,7 +643,7 @@ void Detail::draw_top(float y0, float dt)
     if (series && !m_view.seasons.empty()) {
         sep();
         const size_t n = m_view.seasons.size();
-        x += gfx::text(x, my, std::to_string(n) + (n == 1 ? T(" sesong") : T(" sesonger")), meta, kText2);
+        x += gfx::text(x, my, TN(n, "%d sesong", "%d sesonger"), meta, kText2);
     } else if (!series && it.runtime_ticks > 0) {
         sep();
         x += gfx::text(x, my, runtime_label(it.runtime_ticks), meta, kText2);
@@ -669,7 +686,10 @@ void Detail::draw_top(float y0, float dt)
     /* Glass buttons: the panes, then the focus drop over them, then their labels. */
     if (m_zone != Buttons || m_sheet.active())
         m_btn_drop.hide();
-    for (int pass = 0; pass < 2; pass++) {
+    /* Pass -1 only measures: a row wider than the screen (a long language) drops
+     * the Play button's "12 min left" and keeps its progress bar. */
+    bool short_play = false;
+    for (int pass = -1; pass < 2; pass++) {
     if (pass == 1)
         m_btn_drop.draw(dt, 1.f, &m_animating, 16);
     float bx = kPad;
@@ -687,7 +707,8 @@ void Detail::draw_top(float y0, float dt)
             if (resume) {
                 pct = (float)t.position_ticks / (float)t.runtime_ticks;
                 const int left = (int)((t.runtime_ticks - t.position_ticks) / jf::kTicksPerSecond / 60);
-                sub = std::to_string(std::max(1, left)) + T(" min igjen");
+                if (!short_play)
+                    sub = TN(std::max(1, left), "%d min igjen", "%d min igjen");
             }
         }
         float w = 76;
@@ -698,9 +719,16 @@ void Detail::draw_top(float y0, float dt)
         if (bs[i] == TrailerButton)
             w = gfx::text_width("Trailer", st) + 64;
         if (bs[i] == PlayButton)
-            w = 40 + 30 + 14 + gfx::text_width(label, st) + (pct >= 0 ? 14 + 90 + 14 + gfx::text_width(sub, {gfx::Medium, 24}) : 0) + 40;
+            w = 40 + 30 + 14 + gfx::text_width(label, st) +
+                (pct >= 0 ? 14 + 90 + (sub.empty() ? 0 : 14 + gfx::text_width(sub, {gfx::Medium, 24})) : 0) + 40;
         const float k = 1.f;
         const gfx::Rect r{bx, by, w, 76};
+        if (pass < 0) {
+            bx += w + 20;
+            if (i + 1 == bs.size())
+                short_play = bx - 20 > gfx::W - kPad;
+            continue;
+        }
         if (pass == 0) {
             glass_panel(r, 16, 1.f, false);
             if (focus)
@@ -719,7 +747,8 @@ void Detail::draw_top(float y0, float dt)
                 tx += 14;
                 gfx::fill({tx, cy - 3, 90, 6}, 0x40ffffffu, 3);
                 gfx::fill({tx, cy - 3, 90 * pct, 6}, fg, 3);
-                gfx::text(tx + 104, cy + 8, sub, {gfx::Medium, 24}, alpha(fg, 0.75f));
+                if (!sub.empty())
+                    gfx::text(tx + 104, cy + 8, sub, {gfx::Medium, 24}, alpha(fg, 0.75f));
             }
         } else if (bs[i] == RestartButton) {
             gfx::text(r.x + r.w / 2, cy + 9, T("Fra start"), st, fg, 1);
@@ -865,8 +894,9 @@ void Detail::draw_sections(float dt)
                                   0xffffffffu, 3);
                     }
                     if (e.played) {
-                        gfx::fill({r.x + r.w - 76, r.y + 14, 62, 30}, 0xa6000000u, 15);
-                        gfx::text(r.x + r.w - 45, r.y + 36, T("Sett"), {gfx::SemiBold, 18}, kText, 1);
+                        const float bw = gfx::text_width(T("Sett"), {gfx::SemiBold, 18}) + 24;
+                        gfx::fill({r.x + r.w - 14 - bw, r.y + 14, bw, 30}, 0xa6000000u, 15);
+                        gfx::text(r.x + r.w - 14 - bw / 2, r.y + 36, T("Sett"), {gfx::SemiBold, 18}, kText, 1);
                     }
                     const float ty = y + kEpH + 44;
                     char title[300];
@@ -936,7 +966,7 @@ void Detail::draw_sections(float dt)
                     p.image_tag.empty() ? std::string() : m_client.image_url(p.id, "Primary", p.image_tag, 340);
                 if (url.empty()) {
                     gfx::fill(r, 0xff1a1a20u, d / 2);
-                    gfx::text(r.x + d / 2, r.y + d / 2 + 16, p.name.substr(0, 1), {gfx::Bold, 46}, kText3, 1);
+                    gfx::text(r.x + d / 2, r.y + d / 2 + 16, first_letter(p.name), {gfx::Bold, 46}, kText3, 1);
                 } else {
                     art::draw(r, url, p.blurhash, 340, 340, d / 2);
                 }
@@ -1057,7 +1087,7 @@ void Detail::draw(double now, float dt)
     /* The text waits for the details (and the logo) so nothing is swapped in
      * front of the viewer; at most 0.6 s, then it fades in as one. */
     const std::string logo = m_client.image_url(it.logo_owner, "Logo", it.logo_tag, 900);
-    const bool logo_ready = logo.empty() || art::get(logo, 900, 900);
+    const bool logo_ready = logo.empty() || art::get(logo, 900, 900) || art::failed(logo);
     if ((m_view.have_detail && logo_ready) || now - m_opened > 0.6)
         m_content.to(1.f);
     if (m_content.step(dt, 12.f) || m_content.target < 1.f)

@@ -13,36 +13,39 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
-#include <ctime>
 #include <vector>
 
 namespace ui {
 
 namespace {
-double mono_now()
-{
-    timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (double)ts.tv_sec + (double)ts.tv_nsec / 1e9;
-}
+/* The mini player's last track, kept through the gap before the next. */
+NuvioStatus s_mini_st;
+NuvioRequest s_mini_req;
+bool s_mini_seen = false;
 } // namespace
 
 bool NowPlaying::refresh()
 {
     NuvioRequest req;
     unsigned track = 0;
-    /* Between two tracks the player has none for a moment: the last one stays up
-     * (for up to 2 s), so the page does not go dark at every change. */
-    const double t = mono_now();
+    /* Between two tracks the player has none for a moment (seconds, on a slow
+     * server): the last one stays up while the page does, which is while the
+     * music is on (the app closes the page when it ends). */
     if (!nuvio_player_now_playing(&m_st, &req, &track))
-        return m_req && t - m_seen_at < 2.0;
-    m_seen_at = t;
+        return m_req != nullptr;
     if (track != m_track || !m_req) {   /* a new track: the interface starts over on it */
         m_req.reset(new NuvioRequest(req));
         m_ui.begin(m_req.get(), m_st.now);
         m_track = track;
     }
     return true;
+}
+
+void NowPlaying::forget()
+{
+    m_ui.end();   /* (it points at m_req) */
+    m_req.reset();
+    m_track = ~0u;
 }
 
 void NowPlaying::activate()
@@ -67,7 +70,8 @@ Action NowPlaying::input(uint32_t p)
         m_qscroll.snap(0);
         return a;
     }
-    if (p & NUVIO_BTN_CIRCLE) {   /* off the page; the music plays on */
+    /* Off the page; the music plays on. A scrub under way is only cancelled (by the PlayerUi). */
+    if ((p & NUVIO_BTN_CIRCLE) && !(m_ui.seeking() && refresh())) {
         a.kind = Action::Back;
         return a;
     }
@@ -206,7 +210,8 @@ void NowPlaying::draw_queue(float dt)
     /* The tracks after the current one, scrolled to keep the focus in view. */
     const float lt = ty + 90, row_h = 72, view_h = r.y + r.h - 40 - lt;
     const int vis = std::max(1, (int)(view_h / row_h));
-    m_qscroll.to(std::max(0.f, (float)(m_qrow - 1 - vis / 2) * row_h));
+    const float max_scroll = std::max(0.f, up.size() * row_h - view_h);   /* the last row at the bottom, no further */
+    m_qscroll.to(std::min(max_scroll, std::max(0.f, (float)(m_qrow - 1 - vis / 2) * row_h)));
     m_qscroll.step(dt, 12.f);
     bool moving = false;
     if (m_queue && m_qrow == 0)
@@ -223,7 +228,7 @@ void NowPlaying::draw_queue(float dt)
     if (m_qrow != 0)
         m_qdrop.draw(dt, a, &moving, 14.f);
     gfx::push_fade_mask(q_view, edge_fade(m_qscroll.value),
-                        edge_fade(std::max(0.f, up.size() * row_h - view_h) - m_qscroll.value));   /* the rows fade out where more lie beyond */
+                        edge_fade(max_scroll - m_qscroll.value));   /* the rows fade out where more lie beyond */
     for (int i = 0; i < (int)up.size(); i++) {
         const float y = lt + i * row_h - m_qscroll.value;
         if (y > r.y + r.h || y + row_h < lt)
@@ -246,19 +251,21 @@ void NowPlaying::draw_queue(float dt)
     (void)cur;
 }
 
+void forget_mini_player() { s_mini_seen = false; }
+
 /* A glass card at the bottom right: the cover, the track and artist, a thin bar,
  * and how to open the page. */
 void draw_mini_player(double now, float a)
 {
-    /* The last track, kept through the gap before the next (as the page does). */
-    static NuvioStatus st;
-    static NuvioRequest req;
-    static double seen_at;
+    /* The last track, kept through the gap before the next (as the page does):
+     * drawn only while the music is on, which forgets the last music's. */
+    NuvioStatus &st = s_mini_st;
+    const NuvioRequest &req = s_mini_req;
     if (a <= 0.01f)
         return;
-    if (nuvio_player_now_playing(&st, &req, nullptr))
-        seen_at = mono_now();
-    else if (seen_at == 0 || mono_now() - seen_at >= 2.0)
+    if (nuvio_player_now_playing(&st, &s_mini_req, nullptr))
+        s_mini_seen = true;
+    else if (!s_mini_seen)
         return;
     (void)now;
     const float w = 560, h = 112;
@@ -268,10 +275,10 @@ void draw_mini_player(double now, float a)
     const gfx::Rect cover{r.x + 14, r.y + 14, h - 28, h - 28};
     art::draw(cover, req.cover, req.cover_blurhash, 800, 800, 12, 1.f, 0xff2a2a30u);
     const float tx = cover.x + cover.w + 20, tw = r.x + r.w - tx - 20;
-    gfx::text(tx, r.y + 44, req.title, {gfx::SemiBold, 24, tw - 130}, kText);
-    gfx::text(tx, r.y + 76, req.artist, {gfx::Medium, 20, tw - 130}, kText2);
-    /* The touchpad opens the page: the button, then what it does. */
+    /* The touchpad opens the page: the button, then what it does; the text gives way to it. */
     const float hint_w = pad_hint_width(PadButton::Touchpad, T("Åpne"), 30);
+    gfx::text(tx, r.y + 44, req.title, {gfx::SemiBold, 24, std::min(tw - 130, tw - hint_w - 16)}, kText);
+    gfx::text(tx, r.y + 76, req.artist, {gfx::Medium, 20, std::min(tw - 130, tw - hint_w - 16)}, kText2);
     draw_pad_hint(r.x + r.w - 20 - hint_w, r.y + 36, PadButton::Touchpad, T("Åpne"), 30);
     if (st.paused) {   /* paused: two bars over the cover */
         gfx::fill(cover, 0x8c000000u, 12);
