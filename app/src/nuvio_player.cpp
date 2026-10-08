@@ -41,6 +41,7 @@
 #include "evo_boot_log.h"
 #include "evo_boot_trace.h"
 #include "evo_playback.h"
+#include "evo_stream_io.h"
 #include "evo_thread.h"
 #include "evo_vdec.h"
 #include "pp_playback.h"
@@ -71,6 +72,7 @@ extern "C" {
 extern pp_playback g_pp_pb;
 extern char nuvio_stream_headers[4096];
 extern char nuvio_stream_user_agent[512];
+extern "C" int nuvio_stream_live;   /* evo_stream_io: a live channel's open options */
 /* Which EVO screen is up. The engine's decode, audio and subtitle threads
  * park unless it is the player (2): EVO's screen manager set it on entering
  * its player screen, and nothing else does. */
@@ -785,7 +787,8 @@ void apply(Session &s, const OsdCommand &c)
         s_pb->togglePause();
         break;
     case OsdCmd::SeekTo:
-        s_pb->seekTo(std::max(0.0, c.value));
+        if (!s.req.live)   /* a live channel airs where it airs */
+            s_pb->seekTo(std::max(0.0, c.value));
         break;
     case OsdCmd::Stop:
         s.done = true;
@@ -936,6 +939,19 @@ static void reopen_software(Session &s, const char *why)
  * away: try again from where it stopped, waiting a little longer each time;
  * after six tries, say so. Without this a dropped connection looked like the
  * end of the episode and played the next. */
+/* Live HLS (a channel the server transcodes or remuxes) arrives a segment at a time,
+ * in real time: on a cushion shorter than a segment the player runs dry before each
+ * next one and stalls every few seconds (Jellyfin's default 3 s segments did, every
+ * 3.1 s). Channels ask for 1 s segments (jf::Client::playback_info), so 3 s held
+ * rides over the gaps. No more than that: the video queue holds about 4 s of a 25 fps
+ * channel, and a cushion it cannot reach parks the player until the server, asked
+ * for nothing, drops the stream (2026-10-08: 6 s after a stall did just that). A raw
+ * live TS trickles in: 2 s is enough. */
+static int64_t live_cushion_us(const Session &s)
+{
+    return evo_stream_io_url_is_playlist(s.req.url.c_str()) ? 3000000 : 2000000;
+}
+
 static bool connection_dropped(Session &s, double now, bool keep_pos = false)
 {
     if (s.drop_retries >= 6) {
@@ -944,8 +960,8 @@ static bool connection_dropped(Session &s, double now, bool keep_pos = false)
         return true;
     }
     s.drop_retries++;
-    if (!keep_pos)
-        s.drop_pos = std::max(0.0, s.st.position - 2.0);
+    if (!keep_pos)   /* live: joined again where it airs now */
+        s.drop_pos = s.req.live ? 0.0 : std::max(0.0, s.st.position - 2.0);
     s.retry_at = now + std::min(10.0, 1.5 * s.drop_retries);
     evo_bt("nuvio: stream broke off at %.1f s - retry %d", s.drop_pos, s.drop_retries);
     s_pb->stopPlayback();
@@ -980,6 +996,7 @@ extern "C" void nuvio_player_run(const char *json)
         const int session = ++s_session;
     s_audio_langs = s.req.prefs.audio_langs;
     std::snprintf(nuvio_stream_headers, sizeof nuvio_stream_headers, "%s", s.req.headers.c_str());
+    nuvio_stream_live = s.req.live ? 1 : 0;
     std::snprintf(nuvio_stream_user_agent, sizeof nuvio_stream_user_agent, "%s", s.req.user_agent.c_str());
 
     const bool headless = s_headless;
@@ -1007,7 +1024,8 @@ extern "C" void nuvio_player_run(const char *json)
     if (s.req.light_color)
         nuvio_input_set_lightbar(s.req.light_color);   /* the controller glows in the title's colour */
     evo_pb_set_av_offset(settings::get().local.audio_delay_ms / 1000.0);   /* Innstillinger: Lydforsinkelse */
-    const bool triggers = !headless && s.req.item_type != "audio";   /* the request says "audio" */
+    /* (music and live TV have nothing to scrub) */
+    const bool triggers = !headless && s.req.item_type != "audio" && !s.req.live;
     if (triggers)
         nuvio_input_trigger_resistance(1);   /* L2/R2 scrub against a resistance */
     if (headless) {
@@ -1053,6 +1071,8 @@ extern "C" void nuvio_player_run(const char *json)
                     evo_bt("nuvio: open failed");
                 } else {
                     s.opened = true;
+                    if (s.req.live)   /* (before the first picture, behind the tuning screen) */
+                        evo_demux_rebuffer(live_cushion_us(s), 8000);
                     nuvio_subs_open(play_fmt, video_stream_index);
                     refresh_audio(s);
                     restore_subtitles(s);
@@ -1147,7 +1167,12 @@ extern "C" void nuvio_player_run(const char *json)
                 static const int64_t kRefillUs[] = {3000000, 6000000, 10000000};
                 if (now - s.last_rebuffer_at > 120)
                     s.rebuffers = 0;
-                evo_demux_rebuffer(kRefillUs[std::min(s.rebuffers, 2)], 20000);
+                /* Live: the stream comes no faster than it airs, so every second of
+                 * cushion is a second more behind for as long as the channel plays. */
+                if (s.req.live)
+                    evo_demux_rebuffer(live_cushion_us(s), 8000);
+                else
+                    evo_demux_rebuffer(kRefillUs[std::min(s.rebuffers, 2)], 20000);
                 s.rebuffers++;
                 s.last_rebuffer_at = now;
                 s.vq_empty_since = 0;
@@ -1178,15 +1203,18 @@ extern "C" void nuvio_player_run(const char *json)
             }
             if (s.started && !s.st.paused && s.st.position > s.drop_pos + 20 && s.drop_retries > 0)
                 s.drop_retries = 0;   /* playing well again */
-            /* Broke off early (not near the end): the connection, not the end. */
-            const bool early = s.st.duration > 60 && s.st.position < s.st.duration - 45;
+            /* Broke off early (not near the end): the connection, not the end. A live
+             * channel has no end: whenever it stops, it broke off. */
+            const bool early = s.req.live || (s.st.duration > 60 && s.st.position < s.st.duration - 45);
             if (!s.failed && s.started && early && s.retry_at == 0 &&
                 ((seen_active && !active) || (evo_pb_is_eof() && vq == 0 && now - s.last_frame_at > 1.5))) {
                 connection_dropped(s, now);
                 continue;
             }
-            /* Ended: the engine stopped by itself, or the last frame has shown. */
-            if (!s.failed && s.started && !s_osd.post_play_active() &&
+            /* Ended: the engine stopped by itself, or the last frame has shown. (Never a
+             * live channel: above, its stop is a dropped connection once 1.5 s pass, and
+             * this, at 0.8 s, closed it first: 2026-10-08, after 200 s of Jelly News.) */
+            if (!s.req.live && !s.failed && s.started && !s_osd.post_play_active() &&
                 ((seen_active && !active) ||
                  (evo_pb_is_eof() && vq == 0 &&
                   (now - s.last_frame_at > 0.8 || (s.st.duration > 0 && s.st.position >= s.st.duration - 0.3))))) {

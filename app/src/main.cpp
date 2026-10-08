@@ -13,6 +13,7 @@
 #include "jf/jf_http.h"
 #include "jf/jf_discovery.h"
 #include "app/accounts.h"
+#include "app/livetv.h"
 #include "app/i18n.h"
 #include "app/perf.h"
 #include "app/remote.h"
@@ -31,6 +32,7 @@
 #include "ui/detail.h"
 #include "ui/home.h"
 #include "ui/library.h"
+#include "ui/livetv.h"
 #include "ui/nav.h"
 #include "ui/now_playing.h"
 #include "ui/person.h"
@@ -457,6 +459,7 @@ void check_for_update()
  * is in them: item lists only. */
 struct HomeRaw {
     std::string resume, next, favorites, views;
+    std::vector<jf::Item> live;   /* "Direkte nå": what airs changes by the minute, so never saved */
     std::vector<std::string> sections;
     std::vector<std::pair<std::string, std::string>> latest;   /* library id, its answer */
 };
@@ -575,6 +578,7 @@ ui::HomeModel build_home(jf::Client &c, const HomeRaw &raw, std::vector<jf::Item
     using Row = ui::HomeRow;
     if (!resume.empty()) m.rows.push_back({T("Fortsett å se"), std::move(resume), true, Row::Resume});
     if (!next.empty()) m.rows.push_back({T("Neste episode"), std::move(next), true, Row::NextUp});
+    if (!raw.live.empty()) m.rows.push_back({T("Direkte nå"), raw.live, true, Row::LiveNow});
     if (!mylist.empty()) m.rows.push_back({T("Min liste"), std::move(mylist), false, Row::MyList});
     for (auto &l : latest)
         if (!l.second.empty())
@@ -611,6 +615,7 @@ ui::HomeModel build_home(jf::Client &c, const HomeRaw &raw, std::vector<jf::Item
             else if (sec == "nextup") take(Row::NextUp);
             else if (sec == "latestmedia") take(Row::Latest);
             else if (sec == "smalllibrarytiles" || sec == "librarybuttons") take(Row::Libraries);
+            else if (sec == "livetv") take(Row::LiveNow);
         }
         for (auto it = m.rows.begin(); it != m.rows.end();)   /* Jellyfin's, left out: hidden */
             if (it->kind == Row::Resume || it->kind == Row::NextUp || it->kind == Row::Latest)
@@ -707,6 +712,10 @@ void load_home(jf::Client &c, unsigned session, bool keep_hero = false)
     jobs.emplace_back([&] { c.favorites(30, &raw.favorites); });
     bool sections_ok = false;
     jobs.emplace_back([&] { raw.sections = c.home_sections(&sections_ok); });
+    jobs.emplace_back([&] {   /* Live TV: once per session whether there is any, then what airs */
+        if (livetv::check())
+            raw.live = c.channels(0, 24, true).items;
+    });
     for (size_t i = 0; i < ids.size(); i++) {
         raw.latest[i].first = ids[i];
         auto *slot = &raw.latest[i].second;
@@ -1207,6 +1216,7 @@ void use_account(jf::Client &c, unsigned session, accounts::Account a)
         if (reached && c.validate()) {
             if (session != s_session)
                 return;   /* switched away meanwhile: leave "last account" and prefs alone */
+            livetv::attach(&c);   /* (asked with the home rows whether there is any) */
             a.user_name = c.user_name();
             a.image_tag = c.user_image_tag();
             if (!name.empty())   /* renamed; an answer without them keeps what was saved */
@@ -1309,6 +1319,7 @@ void *boot(void *)
 /* ---- screens --------------------------------------------------------------------- */
 std::unique_ptr<ui::Home> s_home, s_discover;   /* s_discover: Seerr's tab */
 std::unique_ptr<ui::Library> s_movies, s_shows, s_music;
+std::unique_ptr<ui::LiveTv> s_livetv;
 std::unique_ptr<ui::Search> s_search;
 std::unique_ptr<ui::SettingsScreen> s_settings;
 std::unique_ptr<ui::Profiles> s_profiles;
@@ -1513,6 +1524,8 @@ void reset_screens()
     s_movies.reset(new ui::Library(*s_client, T("Filmer"), "Movie"));
     s_shows.reset(new ui::Library(*s_client, T("Serier"), "Series"));
     s_music.reset(new ui::Library(*s_client, T("Musikk"), "MusicAlbum"));
+    livetv::attach(nullptr);   /* nothing of the last account's channels (use_account attaches the new one) */
+    s_livetv.reset(new ui::LiveTv(*s_client));
     s_search.reset(new ui::Search(*s_client));
     s_settings.reset(new ui::SettingsScreen(*s_client));
     s_tab = s_nav_tab = ui::Nav::Home;
@@ -1564,6 +1577,7 @@ void end_account(const accounts::Account &a, jf::Client *own = nullptr, bool lea
             std::lock_guard<std::mutex> g(s_home_save_lock);
             std::remove(home_file(a.user_id).c_str());
             std::remove(hero_file(a.user_id).c_str());
+            std::remove(livetv::history_file(a.user_id).c_str());
         }
     });
 }
@@ -1649,6 +1663,7 @@ ui::Screen *screen_for(int tab)
     case ui::Nav::Movies: return s_movies.get();
     case ui::Nav::Shows: return s_shows.get();
     case ui::Nav::Music: return s_music.get();
+    case ui::Nav::LiveTv: return s_livetv.get();
     case ui::Nav::Discover: return s_discover.get();
     case ui::Nav::Search: return s_search.get();
     case ui::Nav::Settings: return s_settings.get();
@@ -1966,6 +1981,8 @@ bool apply_views(const std::vector<jf::Item> &views)
     if (!movies.empty()) { tabs.push_back(ui::Nav::Movies); s_movies->set_sources(movies); }
     if (!shows.empty()) { tabs.push_back(ui::Nav::Shows); s_shows->set_sources(shows); }
     if (!music.empty()) { tabs.push_back(ui::Nav::Music); s_music->set_sources(music); }
+    if (livetv::available())
+        tabs.push_back(ui::Nav::LiveTv);
     s_tabs_shown = {!movies.empty(), !shows.empty(), !music.empty()};
     if (seerr_service::available())
         tabs.push_back(ui::Nav::Discover);
@@ -2056,6 +2073,42 @@ bool draw_frame(double t, float dt)
                         lib->preload();
                 }
         }
+        /* "Direkte nå": once a programme on it has ended, what airs is asked again (that
+         * row only; checked twice a minute). */
+        if (phase == Phase::Home) {
+            static double s_live_checked = 0, s_live_fetched = 0;
+            static std::atomic<bool> s_live_loading{false};
+            /* (asked at most every 2 minutes: a channel whose listings end there stays "ended") */
+            if (now_s() - s_live_checked > 30.0 && now_s() - s_live_fetched > 120.0 && !s_live_loading) {
+                s_live_checked = now_s();
+                bool stale = false;
+                const int64_t t = livetv::now();
+                for (const ui::HomeRow &r : s_state.model.rows)
+                    if (r.kind == ui::HomeRow::LiveNow)
+                        for (const jf::Item &ch : r.items) {
+                            const jf::Item *p = ch.now_on();   /* (nothing listed: maybe there is now) */
+                            stale = stale || !p || p->end_utc <= t;
+                        }
+                if (stale) {
+                    s_live_loading = true;
+                    s_live_fetched = now_s();
+                    jf::Client *c = s_client;
+                    const unsigned session = s_session;
+                    if (!jelly5::spawn([c, session] {
+                            std::vector<jf::Item> live = c->channels(0, 24, true).items;
+                            std::lock_guard<std::mutex> g(s_state.lock);
+                            s_live_loading = false;
+                            if (session != s_session || live.empty())
+                                return;
+                            for (ui::HomeRow &r : s_state.model.rows)
+                                if (r.kind == ui::HomeRow::LiveNow)
+                                    r.items = std::move(live);
+                            s_model_version++;
+                        }))
+                        s_live_loading = false;
+                }
+            }
+        }
         if (phase == Phase::Home && s_model_version != s_home_version) {
             s_home_version = s_model_version;
             s_home->set_model(s_state.model);
@@ -2144,6 +2197,7 @@ bool draw_frame(double t, float dt)
                                                         : (s_tab == ui::Nav::Movies   ? (ui::Screen *)s_movies.get()
                                                            : s_tab == ui::Nav::Shows  ? (ui::Screen *)s_shows.get()
                                                            : s_tab == ui::Nav::Music  ? (ui::Screen *)s_music.get()
+                                                           : s_tab == ui::Nav::LiveTv ? (ui::Screen *)s_livetv.get()
                                                            : s_tab == ui::Nav::Discover ? (ui::Screen *)s_discover.get()
                                                            : s_tab == ui::Nav::Search ? (ui::Screen *)s_search.get()
                                                                                       : (ui::Screen *)s_home.get());
@@ -2267,7 +2321,26 @@ bool draw_connection(double now)
 /* What a chosen item plays: a series starts at its next episode. */
 bool resolve_playable(jf::Item *item)
 {
+    if (item->type == "TvChannel")
+        return true;
+    if (item->type == "Program") {   /* what airs: its channel (a recording plays as itself) */
+        if (item->channel_id.empty())
+            return false;
+        jf::Item ch;
+        const livetv::GuideRef g = livetv::guide();   /* (held: a refresh may replace it meanwhile) */
+        if (const jf::Item *known = g->channel(item->channel_id)) {
+            ch = *known;
+        } else {
+            ch.id = item->channel_id;
+            ch.name = item->channel_name;
+            ch.type = "TvChannel";
+            ch.primary_tag = item->channel_primary_tag;
+        }
+        *item = ch;
+        return true;
+    }
     if (item->type == "Movie" || item->type == "Episode" || item->type == "Video" || item->type == "Trailer" ||
+        item->type == "Recording" ||   /* (a DVR recording, as older servers name it) */
         item->type == "MusicVideo" || item->type == "Audio")
         return true;
     if (item->type == "MusicAlbum") {   /* from Min liste or search: its first track */
@@ -2360,7 +2433,9 @@ void play(jf::Item item, bool from_start, bool shuffle = false, const std::vecto
     }
     if (from_start)
         item.position_ticks = 0;   /* (a series' started episode, too) */
-    if (syncplay::active() && !s_group_play) {   /* in a group: everyone plays it */
+    /* In a group: everyone plays it (not a TV channel: a group follows one timeline,
+     * which live TV has not; it plays here only). */
+    if (syncplay::active() && !s_group_play && item.type != "TvChannel") {
         syncplay::play(item);
         notify(T("Jelly5: startes for hele gruppen"));
         return;
@@ -2375,8 +2450,15 @@ void play(jf::Item item, bool from_start, bool shuffle = false, const std::vecto
      * loading screen (its colour, the title's backdrop at 92 %, its gradient),
      * and the art it is about to ask for is already being fetched. */
     const std::string backdrop = s_client->image_url(item.backdrop_owner, "Backdrop", item.backdrop_tag, 1920);
+
     if (!backdrop.empty())
         ui_image_request(backdrop.c_str(), 1920, 1080, 0);
+    if (item.type == "TvChannel") {   /* a channel: the tuning screen, as the player carries it on */
+        ui::show_tuning(item.id, item.name);
+        s_film.reset(new FilmWaiting{item, shuffle, queue ? *queue : std::vector<jf::Item>(), start});
+        start_film();
+        return;
+    }
     gfx::begin_frame();
     const gfx::Rect full{0, 0, gfx::W, gfx::H};
     if (item.type == "Audio") {   /* the music screen's ground: its colour and the cover's hues */
@@ -2487,6 +2569,7 @@ static const char *screen_label()
     }
     switch (s_tab) {
     case ui::Nav::Movies: case ui::Nav::Shows: case ui::Nav::Music: return "a library";
+    case ui::Nav::LiveTv: return s_livetv && s_livetv->modal() ? "live tv (sheet)" : "live tv";
     case ui::Nav::Search: return "search";
     case ui::Nav::Settings: return "settings";
     default: return "home";

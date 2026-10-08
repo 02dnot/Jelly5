@@ -654,4 +654,18 @@ std::string host_of(const std::string &url)
     return h.substr(0, h.find('/'));
 }
 
+bool draw_logo_fit(const std::string &url, const gfx::Rect &box, float a)
+{
+    if (url.empty() || art::failed(url))
+        return false;
+    const gfx::Texture *t = art::get(url, 320, 320);
+    if (!t)
+        return true;
+    const float iw = (float)gfx::texture_width(t), ih = (float)gfx::texture_height(t);
+    const float k = std::min(box.w / iw, box.h / ih);
+    gfx::image({box.x + (box.w - iw * k) / 2, box.y + (box.h - ih * k) / 2, iw * k, ih * k}, t, a * art::fade(url), 6,
+               false);
+    return true;
+}
+
 } // namespace ui

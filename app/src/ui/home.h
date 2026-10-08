@@ -28,7 +28,7 @@
 namespace ui {
 
 struct HomeRow {
-    enum Kind { Resume, NextUp, MyList, Latest, Recommended, Genre, Libraries };
+    enum Kind { Resume, NextUp, MyList, Latest, Recommended, Genre, Libraries, LiveNow };
     std::string title;
     std::vector<jf::Item> items;
     bool plays = false;     /* continue watching / next up: Cross plays; else it opens */
@@ -85,6 +85,10 @@ private:
     void prefetch_card(const jf::Item &it);
     std::string backdrop_url(const jf::Item &it) const;
     void draw_card_art(const jf::Item &it, const gfx::Rect &r, float radius, float opacity) const;
+    /* "Direkte nå": a channel's card is what airs on it (its picture, the channel's
+     * logo, how far it has come), its info that programme. */
+    void draw_live_card(const jf::Item &channel, const gfx::Rect &r, float radius, float opacity) const;
+    void draw_live_info(const jf::Item &channel, float bottom, float alpha);
 
     jf::Client &m_client;
     bool m_discover = false;            /* Seerr's tab */
@@ -111,6 +115,7 @@ private:
         double since = 0;   /* when it arrived: the slow drift starts there */
     };
     std::vector<BackdropLayer> m_bd;
+    Anim m_live_dim;   /* a channel's programme picture is dimmed: such pictures often carry their title */
 
     /* Info panel: fades out, swaps, fades in when focus settles on a new title. */
     std::string m_info_id;

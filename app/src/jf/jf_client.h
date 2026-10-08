@@ -56,6 +56,20 @@ struct Item {
     std::vector<std::string> locations;       /* a person's birthplace */
     std::string tmdb_id, tvdb_id;             /* ProviderIds (search and item ask for them) */
 
+    /* Live TV. A channel (TvChannel): its number and, with AddCurrentProgram, what
+     * is on now. A programme (Program): its channel, when it airs (Unix seconds,
+     * UTC), what kind it is, and the recording set for it (TimerId: this one;
+     * SeriesTimerId: every episode). Emby sends a flag only when it is true. */
+    std::string channel_number, channel_id, channel_name, channel_primary_tag;
+    std::string episode_title;
+    int64_t start_utc = 0, end_utc = 0;
+    bool is_live = false, is_new = false, is_premiere = false, is_repeat = false;
+    bool is_movie = false, is_series = false, is_sports = false, is_kids = false, is_news = false;
+    std::string timer_id, series_timer_id;
+    std::string timer_status;                 /* a scheduled recording's: New, InProgress ... (timers()) */
+    std::vector<Item> current_program;        /* a channel's programme on now (none or one) */
+    const Item *now_on() const { return current_program.empty() ? nullptr : &current_program[0]; }
+
     /* A title from Seerr rather than this server (search, Discover): its TMDB
      * id, where it stands in Seerr (a seerr::Status), its art as absolute URLs
      * (through Seerr's image cache; empty when there is none to be had), and
@@ -131,6 +145,16 @@ struct Playback {
     std::vector<MediaStream> streams;
     /* Every version, the chosen one (the best the PS5 plays, see playback_info) first. */
     std::vector<Version> versions;
+    /* A Live TV channel: the stream the server opened for it (a tuner, an IPTV
+     * connection). The reports carry it, and the stopped one closes it. */
+    std::string live_stream_id;
+    bool live = false;                        /* no end and no seeking (IsInfiniteStream) */
+};
+
+/* A recording the server will make (a timer). */
+struct Timer {
+    std::string id, program_id, series_timer_id;
+    std::string status;                       /* New, InProgress, Completed, Cancelled, Error ... */
 };
 
 struct Person {
@@ -194,6 +218,11 @@ Kind kind_of_key(const std::string &key);
 /* What the server answers to /System/Info/Public: Jellyfin names itself in
  * ProductName ("Jellyfin Server"); Emby has none and a version 4.x.y.z. */
 Kind kind_of_info(const std::string &product_name, const std::string &version);
+
+/* Unix seconds (UTC) from the servers' dates ("2026-10-08T22:15:00.0000000Z"), 0 for
+ * none, and back as a query value ("2026-10-08T22:15:00Z"). */
+int64_t utc_of(const std::string &iso);
+std::string iso_of(int64_t utc);
 
 /* What a kind of server offers beyond the shared API (the screens ask these,
  * never the kind). */
@@ -330,8 +359,9 @@ public:
     /* audio_index < 0: the server's default track; subtitle_index -2: the
      * server's default, -1: none. */
     /* max_bitrate (bits/s, 0 = no cap): above it the server transcodes down. */
+    /* channel: a Live TV channel (its server transcode is asked for short segments). */
     bool playback_info(const std::string &item_id, int64_t start_ticks, int audio_index,
-                       int subtitle_index, Playback *out, int64_t max_bitrate = 0);
+                       int subtitle_index, Playback *out, int64_t max_bitrate = 0, bool channel = false);
     std::string image_url(const std::string &owner, const char *type, const std::string &tag,
                           int width) const;
 
@@ -345,7 +375,8 @@ public:
     void stop_encoding(const Playback &pb);
 
     /* The PS5 device profile (JSON) sent with PlaybackInfo. */
-    static std::string device_profile_json(int64_t max_bitrate = 0);
+    /* segment_s > 0: the length of a transcode's HLS segments (else the server's own). */
+    static std::string device_profile_json(int64_t max_bitrate = 0, int segment_s = 0);
 
     /* "Authorization: MediaBrowser ..." with this session's token (also for the websocket). */
     std::string auth_header() const;
@@ -371,6 +402,33 @@ public:
     /* Jellyfin's Instant Mix: songs like this one (or album, artist, genre). */
     std::vector<Item> instant_mix(const std::string &id, int limit);
 
+    /* Live TV. The user may watch it and the server has channels (an M3U or
+     * HDHomeRun tuner, set up in its dashboard; Emby needs Premiere for it). */
+    /* *answered (if given): the server said so either way (false: it could not be asked). */
+    bool live_tv_available(bool *answered = nullptr);
+    /* The user's channels in the server's order, favourites first; with what is on now. */
+    Page channels(int start, int limit, bool with_current_program, bool favorites_only = false);
+    /* The guide: programmes of these channels that air between from and to (Unix
+     * seconds), by start time. */
+    /* false when a request failed (*out then holds what did come). */
+    bool programs(const std::vector<std::string> &channel_ids, int64_t from, int64_t to, std::vector<Item> *out);
+    /* One programme, fresh (its recording state after a change). */
+    bool program(const std::string &id, Item *out);
+    /* Recordings made by the server's DVR, newest first. */
+    std::vector<Item> recordings(int limit);
+    /* Recordings set for later (or under way): each as its programme, with its
+     * timer (timer_id, timer_status). */
+    std::vector<Item> timers();
+    /* Records a programme, or (series) every episode of its series on that channel:
+     * the server's defaults for it (padding, keep) as they are. */
+    bool record(const std::string &program_id, bool series);
+    bool cancel_timer(const std::string &timer_id);
+    bool cancel_series_timer(const std::string &series_timer_id);
+    /* The user may set and cancel recordings (Policy EnableLiveTvManagement). */
+    bool can_record() const { return can_record_; }
+    /* Ends a live stream the server opened for this device (also when it never played). */
+    void close_live_stream(const Playback &pb);
+
     /* A GET / POST of the API, for modules with their own endpoints (app/syncplay). */
     bool get_json(const std::string &path, std::string *body, int timeout_s = 0);
     bool post_json(const std::string &path, const std::string &json, std::string *body);
@@ -381,7 +439,7 @@ public:
 private:
     /* One PlaybackInfo; transcode: no direct play, no video copy (Dolby Vision 5). */
     bool playback_info_as(const std::string &item_id, int64_t start_ticks, int audio_index, int subtitle_index,
-                          Playback *out, int64_t max_bitrate, bool transcode);
+                          Playback *out, int64_t max_bitrate, bool transcode, bool channel = false);
     bool emby() const { return kind_ == Kind::Emby; }
     /* The signed-in user (Jellyfin's /Users/Me, Emby's /Users/{id}), and one of
      * their items with its query begun: "&fields=..." follows (Jellyfin:
@@ -395,6 +453,7 @@ private:
     std::string server_, device_id_, device_name_;
     std::string token_, user_id_, user_name_, user_image_tag_;
     bool is_admin_ = false, manages_subtitles_ = false, subtitle_search_ = false;
+    bool can_record_ = false, live_tv_access_ = false;
     std::vector<std::string> latest_excludes_;
     void set_error(std::string e) { std::lock_guard<std::mutex> g(error_lock_); error_ = std::move(e); }
     std::string error_;

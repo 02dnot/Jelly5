@@ -212,6 +212,8 @@ int evo_stream_io_url_is_playlist(const char *url)
  * player before it opens the URL; empty for a plain link. */
 char nuvio_stream_headers[4096];
 char nuvio_stream_user_agent[512];
+/* Jelly5: the stream is a live channel (the request says so; its URL may not). */
+int nuvio_stream_live;
 #endif
 
 void evo_stream_io_apply_network_options(AVDictionary **opts, const char *url)
@@ -268,7 +270,13 @@ void evo_stream_io_apply_network_options(AVDictionary **opts, const char *url)
     /* Jelly5: nor for Jellyfin's direct play (static=true): a file with a known
      * length, whose end is the end. Seeking in a FLAC reads at it, and the reconnect
      * looped there until the seek failed (7 s, "Decoder seek failed"). */
-    if (!evo_stream_io_url_is_playlist(url) && !(url && strstr(url, "static=true")))
+    /* A live channel played directly (static=true with its liveStreamId) has no
+     * end at all: its EOF is a dropped connection, as for any live MPEG-TS. */
+    int live = url && (strstr(url, "liveStreamId=") || strstr(url, "LiveStreamId="));
+#ifdef NUVIO_APP
+    live = live || nuvio_stream_live;
+#endif
+    if (!evo_stream_io_url_is_playlist(url) && (live || !(url && strstr(url, "static=true"))))
         av_dict_set(opts, "reconnect_at_eof", "1", 0);
 
     /*
@@ -346,6 +354,14 @@ int evo_stream_io_open(const char *path,
      * regression that gets blamed on the codec pass rather than on this line.
      */
     av_dict_set(&opts, "probesize", "4194304", 0);
+#ifdef NUVIO_APP
+    /* Jelly5: a Live TV channel (its URL names the server's live stream). The server
+     * probed it when it opened the tuner; 4 s here would be 4 s more of every
+     * channel change, and a live stream cannot be read ahead faster than it airs. */
+    if (nuvio_stream_live || (path && (strstr(path, "liveStreamId=") || strstr(path, "LiveStreamId="))))
+        av_dict_set(&opts, "analyzeduration", "1500000", 0);
+    else
+#endif
     av_dict_set(&opts, "analyzeduration", "4000000", 0);
     av_dict_set(&opts, "buffer_size", buf_size_str, 0);
 

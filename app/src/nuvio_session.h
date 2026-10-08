@@ -129,6 +129,9 @@ struct NuvioRequest {
     int autoplay_count = 0;       /* episodes autoplayed since the viewer's last press */
     double autoplay_idle = 0;     /* Jelly5: seconds played since the viewer's last press */
     bool not_group = false;       /* Jelly5: never a SyncPlay group's item (a theme song) */
+    /* Jelly5: a Live TV channel (id is the channel's): no end, no seeking; a dropped
+     * stream is joined again where it airs now, and the channels are app/livetv's. */
+    bool live = false;
 
     /* A UI string in the viewer's language (Nuvio's translation), else fallback. */
     const char *str(const char *key, const char *fallback) const;

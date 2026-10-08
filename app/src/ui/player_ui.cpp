@@ -19,6 +19,7 @@
 #include "gfx/gfx.h"
 #include "nuvio_subs.h"
 #include "ui/screen.h"
+#include "ui/livetv.h"
 
 #include <algorithm>
 #include <cmath>
@@ -100,6 +101,12 @@ void PlayerUi::begin(const NuvioRequest *req, double now, bool reopen)
     *this = std::move(kept);
     m_req = req;
     m_music = req && req->item_type == "audio";
+    m_live = req && req->live;
+    m_channel = m_live && req->item_type == "live";
+    if (m_live) {
+        m_guide = livetv::guide();
+        m_guide_version = livetv::version();
+    }
     if (req && !reopen) {   /* "Ser du fortsatt på?": the run so far, from the episode before */
         m_still.limit_episodes = req->prefs.still_watching_episodes;
         m_still.limit_seconds = req->prefs.still_watching_seconds;
@@ -204,6 +211,16 @@ static std::string speed_label()
 
 std::vector<PlayerUi::Button> PlayerUi::buttons() const
 {
+    if (m_live) {   /* a channel: no episodes, chapters, speed or next; the channels instead */
+        std::vector<Button> b{Button::PlayPause, Button::Tracks};
+        if (!m_channel)
+            return b;   /* (a recording still being made) */
+        b.insert(b.begin() + 1, Button::Channels);
+        const std::string prev = livetv::previous_channel();
+        if (!prev.empty() && m_req && prev != m_req->id && m_guide && m_guide->channel(prev))
+            b.push_back(Button::PrevChannel);
+        return b;
+    }
     std::vector<Button> b{Button::PlayPause};
     if (m_req && m_req->episodes.size() > 1)
         b.push_back(Button::Episodes);
@@ -248,6 +265,10 @@ void PlayerUi::open_overlay(Overlay o)
             m_col = 1;
         m_rows[1] = nuvio_subs_selected() + 1;
         m_subs_seen = nuvio_subs_count();
+    } else if (o == Overlay::Channels) {
+        livetv::refresh();   /* what airs on each, fresh when it is old */
+        m_ch_index = std::max(0, playing_channel());
+        m_ch_scroll.snap(-1);   /* placed on the first draw */
     } else if (o == Overlay::Episodes) {
         m_ep_col = 1;
         m_ep_season = m_req->season;
@@ -263,6 +284,10 @@ void PlayerUi::open_overlay(Overlay o)
 
 void PlayerUi::seek_step(int dir, const NuvioStatus &st, double now)
 {
+    if (m_live) {   /* a channel airs where it airs: the controls come up, nothing moves */
+        show_controls(now, Zone::Buttons);
+        return;
+    }
     if (!m_seeking) {
         m_seeking = true;
         m_seek_target = st.position;
@@ -663,7 +688,7 @@ void PlayerUi::analog_scrub(const nuvio_input_state &in, const NuvioStatus &st)
     if (in.pressed & ~in.repeats & (NUVIO_BTN_L2 | NUVIO_BTN_R2))
         m_trig_down_at = now;
     const bool l = (in.held & NUVIO_BTN_L2) != 0, r = (in.held & NUVIO_BTN_R2) != 0;
-    if (!m_req || m_music || !m_seeking || l == r || !st.error.empty() || m_overlay != Overlay::None ||
+    if (!m_req || m_music || m_live || !m_seeking || l == r || !st.error.empty() || m_overlay != Overlay::None ||
         now - m_trig_down_at < 0.4)
         return;
     /* A gentle curve: most of the travel is for fine scrubbing, the last part for speed. */
@@ -688,7 +713,9 @@ void PlayerUi::input_local(const nuvio_input_state &in, const NuvioStatus &st, s
     const double now = st.now;
 
     if (!st.error.empty()) {
-        if (p & (NUVIO_BTN_CROSS | NUVIO_BTN_CIRCLE))
+        if (m_channel && (p & (NUVIO_BTN_L1 | NUVIO_BTN_R1)))   /* a channel that will not open: on to the next */
+            zap_step((p & NUVIO_BTN_R1) ? 1 : -1, out);
+        else if (p & (NUVIO_BTN_CROSS | NUVIO_BTN_CIRCLE))
             out.push_back({OsdCmd::Stop});
         return;
     }
@@ -708,6 +735,28 @@ void PlayerUi::input_local(const nuvio_input_state &in, const NuvioStatus &st, s
     if (m_overlay == Overlay::Episodes) {
         episodes_input(p, out);
         return;
+    }
+    if (m_overlay == Overlay::Channels) {
+        channels_input(p, out);
+        return;
+    }
+    if (m_live) {
+        if (p & (NUVIO_BTN_L1 | NUVIO_BTN_R1)) {   /* the channel before / after, as on a TV remote */
+            if (m_channel)
+                zap_step((p & NUVIO_BTN_R1) ? 1 : -1, out);
+            return;
+        }
+        if (p & (NUVIO_BTN_L2 | NUVIO_BTN_R2))
+            return;   /* nothing to scrub */
+        if ((p & NUVIO_BTN_TRIANGLE) && m_channel) {
+            open_overlay(Overlay::Channels);
+            return;
+        }
+        if (p & (NUVIO_BTN_UP | NUVIO_BTN_DOWN)) {
+            m_zone = Zone::Buttons;   /* (no bar to stand on) */
+            show_controls(now, Zone::Buttons);
+            return;
+        }
     }
     if (m_overlay == Overlay::Chapters) {   /* left/right through them, Cross jumps, Circle closes */
         const int n = (int)m_req->chapters.size();
@@ -821,6 +870,8 @@ void PlayerUi::input_local(const nuvio_input_state &in, const NuvioStatus &st, s
                 break;
             }
             case Button::Next: out.push_back({OsdCmd::PlayNext}); break;
+            case Button::Channels: open_overlay(Overlay::Channels); break;
+            case Button::PrevChannel: zap(livetv::previous_channel(), out); break;
             }
         } else {
             out.push_back({OsdCmd::TogglePause});
@@ -877,7 +928,8 @@ bool PlayerUi::wants_frame(const NuvioStatus &st)
                         a_next.value != a_next.target || a_spinner.value != a_spinner.target ||
                         a_toast.value != a_toast.target || a_error.value != a_error.target ||
                         a_flash.value > 0.f || m_ep_scroll.value != m_ep_scroll.target ||
-                        a_stats.value != a_stats.target || a_ask.value != a_ask.target;
+                        a_stats.value != a_stats.target || a_ask.value != a_ask.target ||
+                        m_ch_scroll.value != m_ch_scroll.target;
     static double last_second = 0;
     const bool second = std::floor(st.now) != std::floor(last_second);
     last_second = st.now;
@@ -1102,6 +1154,9 @@ void PlayerUi::draw_controls(const NuvioStatus &st)
     if (m_req->prefs.show_clock)
         gfx::text(W - kPad, 104, clock_at(0), {gfx::SemiBold, 28}, alpha(kText2, a), 2);
 
+    if (m_live) {
+        draw_live_info(st, a);
+    } else {
     /* Bottom: the title line, with the end time on the right. */
     const float ty = kBarY - 52;
     float x = kPad;
@@ -1121,6 +1176,7 @@ void PlayerUi::draw_controls(const NuvioStatus &st)
                   alpha(kText3, a), 2);
 
     draw_bar(st, a);
+    }
 
     /* The button row: icon + label, on one glass bar like the top bar, the focus
      * drop on the focused one. */
@@ -1135,6 +1191,8 @@ void PlayerUi::draw_controls(const NuvioStatus &st)
         case Button::Speed: return speed_label();
         case Button::Tracks: return T("Lyd og undertekster");
         case Button::Next: return T("Neste episode");
+        case Button::Channels: return T("Kanaler");
+        case Button::PrevChannel: return T("Forrige kanal");
         }
         return "";
     };
@@ -1165,6 +1223,8 @@ void PlayerUi::draw_controls(const NuvioStatus &st)
         case Button::Speed: label = speed_label(); break;
         case Button::Tracks: label = T("Lyd og undertekster"); break;
         case Button::Next: label = T("Neste episode"); break;
+        case Button::Channels: label = T("Kanaler"); break;
+        case Button::PrevChannel: label = T("Forrige kanal"); break;
         }
         const gfx::TextStyle ls{gfx::SemiBold, 23};
         const float bw = 26 + 28 + 12 + gfx::text_width(label, ls) + 26;
@@ -1206,6 +1266,18 @@ void PlayerUi::draw_controls(const NuvioStatus &st)
             play_glyph(ix + 2, cy, 18, fg);
             gfx::fill({ix + 22, cy - 10, 4, 20}, fg, 1);
             break;
+        case Button::Channels:   /* a screen with its stand */
+            gfx::fill({ix, cy - 11, 30, 19}, fg, 4);
+            gfx::fill({ix + 3, cy - 8, 24, 13}, alpha(0xff141418u, a), 2);
+            gfx::fill({ix + 10, cy + 10, 10, 3}, fg, 1.5f);
+            break;
+        case Button::PrevChannel:   /* two chevrons back (the speed button's, turned round) */
+            for (int k2 = 0; k2 < 2; k2++)
+                for (int s2 = 0; s2 < 9; s2++) {
+                    const float yy = s2 < 5 ? (float)s2 : (float)(8 - s2);
+                    gfx::fill({ix + 22 - k2 * 11 - yy * 1.8f, cy - 9 + s2 * 2.2f, 3, 3}, fg, 1.5f);
+                }
+            break;
         }
         gfx::text(ix + 28 + 12, cy + 8, label, ls, fg);
         bx += bw + 8;
@@ -1218,14 +1290,17 @@ void PlayerUi::draw_loading(const NuvioStatus &st)
     if (a <= 0.f)
         return;
     gfx::push_opacity(a);
-    const gfx::Rect full{0, 0, W, H};
-    gfx::fill(full, 0xff080b10u);
-    if (const gfx::Texture *t = art::get(m_req->backdrop, 1920, 1080))
-        gfx::image(full, t, 0.92f, 0, true);
-    gfx::fill_vgradient({0, 0, W, 378}, 0x4d000000u, 0x99000000u);
-    gfx::fill_vgradient({0, 378, W, 378}, 0x99000000u, 0xcc000000u);
-    gfx::fill_vgradient({0, 756, W, 324}, 0xcc000000u, 0xe6000000u);
-
+    if (m_live) {
+        ui::draw_tuning(m_req->id, m_req->title, 1.f);   /* (the frame show_tuning put up, on) */
+    } else {
+        const gfx::Rect full{0, 0, W, H};
+        gfx::fill(full, 0xff080b10u);
+        if (const gfx::Texture *t = art::get(m_req->backdrop, 1920, 1080))
+            gfx::image(full, t, 0.92f, 0, true);
+        gfx::fill_vgradient({0, 0, W, 378}, 0x4d000000u, 0x99000000u);
+        gfx::fill_vgradient({0, 378, W, 378}, 0x99000000u, 0xcc000000u);
+        gfx::fill_vgradient({0, 756, W, 324}, 0xcc000000u, 0xe6000000u);
+    }
     /* Only the picture: no logo flashing up in the moment before playback. If the
      * stream is slow to open (over 2 s), quiet dots say it is still coming. */
     const float t = (float)(st.now - m_load_since);
@@ -2111,6 +2186,8 @@ void PlayerUi::draw(const NuvioStatus &st)
             draw_episodes(oa, dt);
         else if (m_overlay_drawn == Overlay::Chapters)
             draw_chapters(st, oa, dt);
+        else if (m_overlay_drawn == Overlay::Channels)
+            draw_channels(oa, dt);
         gfx::pop_opacity();
     }
 
@@ -2132,4 +2209,172 @@ void PlayerUi::draw(const NuvioStatus &st)
     }
     draw_error(st);
 }
+
+/* ---- live TV ------------------------------------------------------------------- */
+
+livetv::GuideRef PlayerUi::guide()
+{
+    if (!m_guide || livetv::version() != m_guide_version) {
+        m_guide = livetv::guide();
+        m_guide_version = livetv::version();
+    }
+    return m_guide;   /* (a copy: the caller keeps it alive while it reads) */
+}
+
+int PlayerUi::playing_channel()
+{
+    const livetv::GuideRef held = guide();
+    const livetv::Guide &g = *held;
+    for (size_t i = 0; i < g.channels.size(); i++)
+        if (m_req && g.channels[i].id == m_req->id)
+            return (int)i;
+    return -1;
+}
+
+void PlayerUi::zap(const std::string &channel_id, std::vector<OsdCommand> &out)
+{
+    if (channel_id.empty() || !m_req || channel_id == m_req->id)
+        return;
+    OsdCommand c{OsdCmd::PlayEpisode};
+    c.video_id = channel_id;
+    out.push_back(c);
+    m_overlay = Overlay::None;
+}
+
+void PlayerUi::zap_step(int dir, std::vector<OsdCommand> &out)
+{
+    const livetv::GuideRef held = guide();
+    const livetv::Guide &g = *held;
+    const int n = (int)g.channels.size();
+    const int at = playing_channel();
+    if (n < 2 || at < 0)
+        return;   /* (the guide not loaded yet, or the channel gone from it) */
+    const int to = ((at + dir) % n + n) % n;   /* round, as a TV goes */
+    zap(g.channels[to].id, out);
+}
+
+void PlayerUi::channels_input(uint32_t p, std::vector<OsdCommand> &out)
+{
+    const livetv::GuideRef held = guide();
+    const int n = (int)held->channels.size();
+    if (p & (NUVIO_BTN_CIRCLE | NUVIO_BTN_TRIANGLE)) {
+        m_overlay = Overlay::None;
+    } else if (p & (NUVIO_BTN_UP | NUVIO_BTN_DOWN | NUVIO_BTN_L2 | NUVIO_BTN_R2 | NUVIO_BTN_L1 | NUVIO_BTN_R1)) {
+        const int d = (p & NUVIO_BTN_DOWN) ? 1 : (p & NUVIO_BTN_UP) ? -1 : (p & (NUVIO_BTN_R2 | NUVIO_BTN_R1)) ? 7 : -7;
+        m_ch_index = std::max(0, std::min(n - 1, m_ch_index + d));
+    } else if ((p & NUVIO_BTN_CROSS) && m_ch_index < n) {
+        const std::string id = held->channels[m_ch_index].id;
+        if (m_req && id == m_req->id)
+            m_overlay = Overlay::None;   /* the one playing: back to it */
+        else
+            zap(id, out);
+    }
+}
+
+/* The channels over the picture: what airs on each now (how far it has come) and next. */
+void PlayerUi::draw_channels(float a, float dt)
+{
+    const livetv::GuideRef held = guide();
+    const livetv::Guide &g = *held;
+    const gfx::Rect r{80, 80, 820, H - 160};
+    glass(r, a);
+    gfx::text(r.x + 48, r.y + 78, T("Kanaler"), {gfx::Bold, 40}, alpha(kText, a));
+    gfx::text(r.x + r.w - 48, r.y + 76, clock_at(0), {gfx::SemiBold, 26}, alpha(kText3, a), 2);
+    const int n = (int)g.channels.size();
+    const float top = r.y + 120, row_h = 108, view_h = r.h - 120 - 96;
+    if (n == 0) {
+        gfx::text(r.x + 48, top + 60, livetv::loading() ? T("Henter kanalene \xE2\x80\xA6") : T("Ingen kanaler."),
+                  {gfx::Medium, 26}, alpha(kText2, a));
+        return;
+    }
+    m_ch_index = std::min(m_ch_index, n - 1);
+    const float want = std::max(0.f, std::min(n * row_h - view_h, (m_ch_index - 2) * row_h));
+    if (m_ch_scroll.value < 0)
+        m_ch_scroll.snap(want);
+    m_ch_scroll.to(want);
+    bool moving = m_ch_scroll.step(dt, 12.f);
+    const float sy = m_ch_scroll.value;
+    const gfx::Rect view{r.x + 16, top - 8, r.w - 32, view_h + 8};
+    gfx::push_scissor(view);
+    m_ch_drop.to({r.x + 24, top + m_ch_index * row_h - sy, r.w - 48, row_h - 10}, m_ch_index, r.x, r.y - sy);
+    m_ch_drop.draw(dt, a, &moving, 18);
+    if (moving)
+        m_dirty = true;
+    gfx::push_fade_mask(view, edge_fade(sy), edge_fade(std::max(0.f, n * row_h - view_h) - sy));
+    const int64_t t = livetv::now();
+    for (int i = std::max(0, (int)(sy / row_h) - 1); i < n; i++) {
+        const float y = top + i * row_h - sy;
+        if (y > top + view_h)
+            break;
+        const jf::Item &ch = g.channels[i];
+        const bool focus = i == m_ch_index, here = m_req && ch.id == m_req->id;
+        gfx::text(r.x + 48, y + 56, ch.channel_number, {gfx::SemiBold, 24, 60}, alpha(focus ? kText : kText3, a));
+        /* The logo, whole (or the name where there is none). */
+        const gfx::Rect box{r.x + 112, y + 18, 120, 62};
+        if (!draw_logo_fit(livetv::logo_url(ch, 320), box, a))
+            gfx::text(box.x, y + 56, ch.name, {gfx::SemiBold, 22, box.w}, alpha(kText2, a));
+        const float tx = box.x + box.w + 28, tw = r.x + r.w - 48 - tx;
+        const jf::Item *p = g.on_at(ch.id, t);
+        const jf::Item *next = g.after(ch.id, t);
+        float title_w = tw;
+        if (here) {   /* "SPILLER": the one on now */
+            const float pw = gfx::text_width(T("SPILLER"), {gfx::Bold, 15}) + 24;
+            gfx::fill({r.x + r.w - 48 - pw, y + 22, pw, 26}, alpha(0xe600a4dcu, a), 13);
+            gfx::text(r.x + r.w - 48 - pw / 2, y + 41, T("SPILLER"), {gfx::Bold, 15}, alpha(kText, a), 1);
+            title_w -= pw + 12;
+        }
+        gfx::text(tx, y + 44, p ? p->name : ch.name, {focus ? gfx::Bold : gfx::SemiBold, 24, title_w},
+                  alpha(focus ? kText : kText2, a));
+        if (p) {
+            const float f = (float)(t - p->start_utc) / (float)std::max<int64_t>(1, p->end_utc - p->start_utc);
+            gfx::fill({tx, y + 60, 120, 4}, alpha(0x47ffffffu, a), 2);
+            gfx::fill({tx, y + 60, 120 * std::max(0.f, std::min(1.f, f)), 4}, alpha(kText, a), 2);
+        }
+        if (next)
+            gfx::text(p ? tx + 136 : tx, y + 66, T("Neste: ") + livetv::clock(next->start_utc) + " " + next->name,
+                      {gfx::Medium, 19, p ? tw - 136 : tw}, alpha(kText3, a));
+    }
+    gfx::pop_fade_mask();
+    gfx::pop_scissor();
+    draw_pad_hints(r.x + 48, r.y + r.h - 46, {{PadButton::Cross, T("Se")}, {PadButton::Circle, T("Lukk")}}, 0, 26, a);
+}
+
+/* The controls' lower part on a channel: the channel, what airs and how far it has
+ * come (from its start to its end, by the clock), and what follows. */
+void PlayerUi::draw_live_info(const NuvioStatus &, float a)
+{
+    const livetv::GuideRef held = guide();
+    const livetv::Guide &g = *held;
+    const int64_t t = livetv::now();
+    const jf::Item *ch = g.channel(m_req->id);
+    const jf::Item *p = g.on_at(m_req->id, t);
+    const jf::Item *next = g.after(m_req->id, t);
+    const std::string name = ch ? (ch->channel_number.empty() ? "" : ch->channel_number + "  ") + ch->name : m_req->title;
+
+    float x = kPad;
+    const float cy = kBarY - 104;
+    x += gfx::text(x, cy, name, {gfx::SemiBold, 26, 800}, alpha(kText2, a));
+    {
+        const gfx::TextStyle ts{gfx::Bold, 16};
+        const float w = gfx::text_width(T("DIREKTE"), ts) + 22;
+        gfx::fill({x + 16, cy - 22, w, 28}, alpha(0xffff453au, a), 8);
+        gfx::text(x + 27, cy - 2, T("DIREKTE"), ts, alpha(kText, a));
+    }
+    const float ty = kBarY - 44;
+    gfx::text(kPad, ty, p ? p->name : name, {gfx::Bold, 36, 1100}, alpha(kText, a));
+    if (next)
+        gfx::text(W - kPad, ty, T("Neste: ") + livetv::clock(next->start_utc) + " " + next->name, {gfx::Medium, 24, 560},
+                  alpha(kText3, a), 2);
+
+    const float x0 = kPad, x1 = W - kPad, w = x1 - x0, h = 8, y = kBarY + 12;
+    gfx::fill({x0, y - h / 2, w, h}, alpha(0x38ffffffu, a), h / 2);
+    if (p) {
+        const float f = (float)(t - p->start_utc) / (float)std::max<int64_t>(1, p->end_utc - p->start_utc);
+        gfx::fill({x0, y - h / 2, w * std::max(0.f, std::min(1.f, f)), h}, alpha(kText, a), h / 2);
+        gfx::text(x0, y + 40, livetv::clock(p->start_utc), {gfx::SemiBold, 22}, alpha(kText3, a));
+        gfx::text(x1, y + 40, livetv::clock(p->end_utc), {gfx::SemiBold, 22}, alpha(kText3, a), 2);
+    }
+}
+
+
 } // namespace ui

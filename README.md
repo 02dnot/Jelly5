@@ -50,6 +50,12 @@ Jelly5 brings your Jellyfin or Emby library to the PS5 as a real app: a fast, sh
 - HDMI bitstream (optional): Dolby Digital, Dolby Digital Plus (with Atmos) and DTS go to your TV or receiver untouched
 - Resume and watched state synced with the server, and a maximum quality per server
 
+**Live TV**
+- Your server's channels (IPTV/M3U or a tuner) in a programme guide: what's on now and next, filters for favourites, films, sport, news, kids and series, and a line where it is now
+- *Live now* on the home screen, and the guide opens on the channel you watched last
+- Change channel with L1/R1 while watching, a channel list with what's on each (△), and back to the previous channel
+- Record a programme or every episode of a series, and watch your recordings (where the server records and your account may)
+
 **Music**
 - Albums, artists, playlists and Instant Mix, playing on while you browse
 - *Now playing* with a queue, shuffle, repeat and time-synced lyrics
@@ -107,15 +113,17 @@ Close Jelly5 and delete `/data/homebrew/PPSA99505`. Its accounts, settings and i
 | ✕ | Select | Play / pause, select |
 | ○ | Back | Hide the controls, then leave the player |
 | D-pad | Move | Show the controls; left/right seek 10 s |
-| L1 / R1 | Previous / next tab | Previous / next chapter |
+| L1 / R1 | Previous / next tab | Previous / next chapter (Live TV: channel) |
 | L2 / R2 | Previous / next letter (A–Z libraries) | Rewind / fast forward, faster the harder you press |
-| △ | Search | Episodes (on a film: chapters) |
-| □ | Sort and filter (libraries) | Audio and subtitles |
+| △ | Search | Episodes (on a film: chapters; Live TV: channels) |
+| □ | Sort and filter (libraries); favourite channel (guide) | Audio and subtitles |
 | Options | Options for the selected title | The controls |
 | Touchpad | *Now playing*, while music plays | The controls |
 | L3 | | Playback info |
 
 With HDMI Device Link on the PS5 and CEC on the TV, the TV remote works too: OK is ✕ and Back is ○.
+
+In the Live TV guide, ✕ on what's on now watches the channel, ✕ on a later programme offers to record it, and Options opens the same choices on anything (also on a channel). ○ goes back to now, then to the top.
 
 ## Emby
 
@@ -128,6 +136,7 @@ Jelly5 detects whether a server is Jellyfin or Emby, and the same screens work o
 - Without Premiere, Emby transcodes in software and without HDR tone mapping, so Dolby Vision profile 5 may show off colours.
 - With Premiere, each PS5 user counts as one of Emby's devices.
 - Behind a reverse proxy that serves Emby under `/emby`, the plain address is enough: Jelly5 tries `/emby` itself.
+- Live TV needs Emby Premiere: without it, Emby lists no channels and the *Live TV* tab stays away.
 
 Versions before 0.4.0 don't know Emby; update if an Emby account doesn't connect.
 
@@ -154,6 +163,7 @@ Once signed in, Seerr's results appear in Search, a *Discover* tab shows what's 
 | Audio | AAC, AC3, E-AC3, TrueHD, DTS (incl. DTS-HD MA), FLAC, Opus, MP3 and more | Played as multichannel PCM; with *HDMI bitstream* on, Dolby Digital, Dolby Digital Plus and DTS go to the TV/receiver as they are (TrueHD and DTS-HD MA stay lossless PCM) |
 | Subtitles | SRT, ASS/SSA, PGS, DVD and DVB, WebVTT | Embedded or external |
 | Containers | MKV, MP4, TS/M2TS, AVI and more | No Blu-ray folders or ISO files |
+| Live TV | Channels from the server's tuners (IPTV/M3U, HDHomeRun) as MPEG-TS or HLS | Played directly where the PS5 can; interlaced (1080i, 576i) and MPEG-2 channels are deinterlaced and converted by the server. No pausing back in time (timeshift) |
 
 Limits of the platform, not of Jelly5:
 

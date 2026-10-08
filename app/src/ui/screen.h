@@ -259,6 +259,11 @@ inline std::string first_letter(const std::string &s)
     return s.substr(0, n);
 }
 
+/* A logo (any shape) whole inside box, centred, fading in. false when there is
+ * none to be had (no url, or it failed): the caller writes the name instead.
+ * true while it is still coming (nothing drawn: no name flashing up first). */
+bool draw_logo_fit(const std::string &url, const gfx::Rect &box, float opacity);
+
 /* Landscape art for an item: an episode's still, else a thumb, else a backdrop. */
 std::string landscape_url(jf::Client &c, const jf::Item &it, int width);
 std::string landscape_blurhash(const jf::Item &it);
