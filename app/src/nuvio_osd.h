@@ -64,6 +64,7 @@ struct OsdCommand {
     double value = 0;
     int index = -1;
     int season = 0, episode = 0;
+    std::string video_id;   /* Jelly5: PlayEpisode's item (numbers can be missing or repeat) */
 };
 
 /* "English" for "eng"/"en"/"en-US"; the code itself when unknown. */

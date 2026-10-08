@@ -37,4 +37,14 @@ void nuvio_player_leave(void);
 
 #ifdef __cplusplus
 }
+
+#include <atomic>
+/* Jelly5: a stop of the caller's own (null: none), set before nuvio_player_run on
+ * the thread that runs it: the run ends once *stop is set, and returns at once when
+ * it already is. A theme song or the music stops this way, not through the shared
+ * remote queue, so a late Stop can never reach the playback after it. */
+void nuvio_player_set_stop(const std::atomic<bool> *stop);
+/* Jelly5: that stop is set (on the thread that set it): a chain checks it between
+ * its requests to the server, so a stopped theme or music lets go of the player soon. */
+bool nuvio_player_stop_requested(void);
 #endif

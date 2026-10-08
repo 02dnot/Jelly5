@@ -30,6 +30,15 @@ void jelly5_music_state(std::vector<jf::Item> *upcoming, std::vector<int> *indic
 void jelly5_music_set_shuffle(bool on);
 void jelly5_music_set_repeat(int mode);   /* 0 off, 1 all, 2 one */
 void jelly5_music_jump(int queue_index);  /* plays next; then send Next to end the current one */
+/* A phone's "Play next" / "Add to queue" while music plays: the items join the
+ * queue after the current track or at its end (fetched in the background).
+ * false when no music queue is playing. */
+bool jelly5_music_enqueue(const std::vector<std::string> &ids, bool next);
+/* Whether the music queue has a track after this one in its play order (queued
+ * ones too; repeat-all always does); fallback when no music queue plays. */
+bool jelly5_music_has_next(bool fallback);
+/* Whether the music queue has a track before this one in its play order (fallback without one). */
+bool jelly5_music_has_previous(bool fallback);
 /* A queue (a playlist, an Instant Mix, what a phone sent): plays from queue[start]
  * through the rest. */
 bool jelly5_play_queue(jf::Client &client, const std::vector<jf::Item> &queue, size_t start, std::string *error);
@@ -50,6 +59,8 @@ State download_state(int *track);
 
 extern "C" {
 /* Called by the player through the bridge stand-ins (jelly5_bridge.cpp). */
-void jelly5_playback_progress(double position, double duration);
+/* audio_stream: the container's stream index (-1 none); subtitle_track: nuvio_subs' id (-1 off). */
+void jelly5_playback_progress(double position, double duration, bool paused, int audio_stream, int subtitle_track);
 void jelly5_playback_finished(const char *result_json);
+void jelly5_playback_source(int index);   /* the player switched version */
 }

@@ -6,7 +6,9 @@
 #include "nuvio_session.h"
 
 #include "cJSON.h"
+#include "jf/json_num.h"
 
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -27,18 +29,26 @@ std::string str_of(const cJSON *o, const char *key)
     return std::string();
 }
 
+/* Jelly5: finite only (strtod takes "inf" and "nan", and 1e999 parses as inf). */
 double num_of(const cJSON *o, const char *key, double fallback)
 {
     const cJSON *v = cJSON_GetObjectItemCaseSensitive(o, key);
     if (cJSON_IsNumber(v))
-        return v->valuedouble;
+        return std::isfinite(v->valuedouble) ? v->valuedouble : fallback;
     if (cJSON_IsString(v) && v->valuestring && *v->valuestring) {
         char *end = nullptr;
         double d = std::strtod(v->valuestring, &end);
-        if (end && end != v->valuestring)
+        if (end && end != v->valuestring && std::isfinite(d))
             return d;
     }
     return fallback;
+}
+
+/* Jelly5: an integer field without an undefined cast (jf/json_num.h). */
+template <typename T>
+T int_of(const cJSON *o, const char *key, T fallback)
+{
+    return jf::to_int<T>(num_of(o, key, (double)fallback), fallback);
 }
 
 bool bool_of(const cJSON *o, const char *key, bool fallback)
@@ -74,15 +84,16 @@ uint32_t colour_of(const std::string &s, uint32_t fallback)
     if (h.size() < 6)
         return fallback;
     char *end = nullptr;
-    unsigned long v = std::strtoul(h.substr(0, 6).c_str(), &end, 16);
+    const std::string hex = h.substr(0, 6);   /* named: end points into it */
+    unsigned long v = std::strtoul(hex.c_str(), &end, 16);
     return (end && *end == 0) ? (uint32_t)v : fallback;
 }
 
 NuvioEpisode episode_of(const cJSON *e)
 {
     NuvioEpisode ep;
-    ep.season = (int)num_of(e, "season", 0);
-    ep.episode = (int)num_of(e, "episode", 0);
+    ep.season = int_of<int>(e, "season", 0);
+    ep.episode = int_of<int>(e, "episode", 0);
     ep.title = str_of(e, "title");
     ep.thumbnail = str_of(e, "thumbnail");
     ep.video_id = str_of(e, "videoId");
@@ -157,8 +168,8 @@ bool nuvio_request_parse(const char *json, NuvioRequest &r)
     r.headers = nuvio_headers_from_json(cJSON_GetObjectItemCaseSensitive(root, "headers"), &r.user_agent);
     r.title = str_of(root, "title");
     r.episode_title = str_of(root, "episodeTitle");
-    r.season = (int)num_of(root, "season", 0);
-    r.episode = (int)num_of(root, "episode", 0);
+    r.season = int_of<int>(root, "season", 0);
+    r.episode = int_of<int>(root, "episode", 0);
     r.year = str_of(root, "year");
     r.description = str_of(root, "description");
     r.genres = str_of(root, "genres");
@@ -168,7 +179,7 @@ bool nuvio_request_parse(const char *json, NuvioRequest &r)
     r.logo = str_of(root, "logo");
     r.poster = str_of(root, "poster");
     r.artist = str_of(root, "artist");
-    r.light_color = (uint32_t)num_of(root, "lightColor", 0);
+    r.light_color = int_of<uint32_t>(root, "lightColor", 0);
     r.album = str_of(root, "album");
     r.cover = str_of(root, "cover");
     r.cover_blurhash = str_of(root, "coverBlurhash");
@@ -177,7 +188,8 @@ bool nuvio_request_parse(const char *json, NuvioRequest &r)
     r.start_position = num_of(root, "startPosition", 0.0);
     if (r.start_position < 0)
         r.start_position = 0;
-    r.autoplay_count = (int)num_of(root, "autoplayCount", 0);
+    r.autoplay_count = int_of<int>(root, "autoplayCount", 0);
+    r.not_group = bool_of(root, "notGroup", false);
 
     const cJSON *stream = cJSON_GetObjectItemCaseSensitive(root, "stream");
     r.stream_title = str_of(stream, "title");
@@ -197,7 +209,7 @@ bool nuvio_request_parse(const char *json, NuvioRequest &r)
         if (!s.url.empty())
             r.sources.push_back(s);
     }
-    r.source_index = (int)num_of(root, "sourceIndex", 0);
+    r.source_index = int_of<int>(root, "sourceIndex", 0);
     if (r.source_index < 0 || r.source_index >= (int)r.sources.size())
         r.source_index = r.sources.empty() ? -1 : 0;
 
@@ -207,6 +219,7 @@ bool nuvio_request_parse(const char *json, NuvioRequest &r)
         s.lang = str_of(it, "lang");
         s.label = str_of(it, "label");
         s.headers = nuvio_headers_from_json(cJSON_GetObjectItemCaseSensitive(it, "headers"), nullptr);
+        s.source = str_of(it, "source");
         if (!s.url.empty())
             r.subtitles.push_back(s);
     }
@@ -227,7 +240,8 @@ bool nuvio_request_parse(const char *json, NuvioRequest &r)
     const cJSON *next = cJSON_GetObjectItemCaseSensitive(root, "nextEpisode");
     if (cJSON_IsObject(next)) {
         r.next = episode_of(next);
-        r.has_next = r.next.season > 0 || r.next.episode > 0;
+        /* Jelly5: or by its id (episodes without numbers are all 0) */
+        r.has_next = r.next.season > 0 || r.next.episode > 0 || !r.next.video_id.empty();
     }
 
     cJSON_ArrayForEach(it, cJSON_GetObjectItemCaseSensitive(root, "skipIntervals")) {
@@ -254,8 +268,8 @@ bool nuvio_request_parse(const char *json, NuvioRequest &r)
         cJSON_ArrayForEach(cue, cJSON_GetObjectItemCaseSensitive(it, "cues")) {
             NuvioLyric::Cue c;
             c.start = num_of(cue, "start", 0);
-            c.from = (size_t)num_of(cue, "from", 0);
-            c.to = std::min((size_t)num_of(cue, "to", 0), l.text.size());
+            c.from = int_of<size_t>(cue, "from", 0);
+            c.to = std::min(int_of<size_t>(cue, "to", 0), l.text.size());
             if (c.to > c.from)
                 l.cues.push_back(c);
         }
@@ -263,16 +277,16 @@ bool nuvio_request_parse(const char *json, NuvioRequest &r)
     }
     if (const cJSON *tp = cJSON_GetObjectItemCaseSensitive(root, "trickplay")) {
         NuvioTrickplay &t = r.trickplay;
-        t.width = (int)num_of(tp, "width", 0);
-        t.height = (int)num_of(tp, "height", 0);
-        t.tile_w = (int)num_of(tp, "tileWidth", 0);
-        t.tile_h = (int)num_of(tp, "tileHeight", 0);
-        t.count = (int)num_of(tp, "count", 0);
+        t.width = int_of<int>(tp, "width", 0);
+        t.height = int_of<int>(tp, "height", 0);
+        t.tile_w = int_of<int>(tp, "tileWidth", 0);
+        t.tile_h = int_of<int>(tp, "tileHeight", 0);
+        t.count = int_of<int>(tp, "count", 0);
         t.interval = num_of(tp, "interval", 0);
         t.url_base = str_of(tp, "urlBase");
         t.url_query = str_of(tp, "urlQuery");
-        t.sheet_ticks = (int64_t)num_of(tp, "sheetTicks", 0);
-        t.first_ticks = (int64_t)num_of(tp, "firstTicks", 0);
+        t.sheet_ticks = int_of<int64_t>(tp, "sheetTicks", 0);
+        t.first_ticks = int_of<int64_t>(tp, "firstTicks", 0);
     }
 
     const cJSON *p = cJSON_GetObjectItemCaseSensitive(root, "prefs");
@@ -294,19 +308,19 @@ bool nuvio_request_parse(const char *json, NuvioRequest &r)
         pr.skip_intro = bool_of(p, "skipIntro", true);
         pr.auto_skip = bool_of(p, "autoSkipIntro", false);           /* Jelly5 */
         pr.forced_only_when_off = bool_of(p, "forcedOnlyWhenOff", true);
-        pr.still_watching_episodes = (int)num_of(p, "stillWatchingEpisodes", 3);
+        pr.still_watching_episodes = int_of<int>(p, "stillWatchingEpisodes", 3);
         if (cJSON_IsNumber(cJSON_GetObjectItemCaseSensitive(p, "tzOffsetMinutes"))) {
             pr.has_tz = true;
-            pr.tz_offset_min = (int)num_of(p, "tzOffsetMinutes", 0);
+            pr.tz_offset_min = int_of<int>(p, "tzOffsetMinutes", 0);
         }
         const cJSON *st = cJSON_GetObjectItemCaseSensitive(p, "subtitleStyle");
         if (cJSON_IsObject(st)) {
-            pr.style.size_pct = (int)num_of(st, "size", 100);
+            pr.style.size_pct = int_of<int>(st, "size", 100);
             pr.style.color = colour_of(str_of(st, "color"), 0xffffff);
             pr.style.bold = bool_of(st, "bold", false) ? 1 : 0;
             pr.style.outline = bool_of(st, "outline", true) ? 1 : 0;
-            pr.style.background = (float)num_of(st, "background", 0.0);
-            pr.style.offset_pct = (float)num_of(st, "offset", 0.0);
+            pr.style.background = (float)std::max(0.0, std::min(1.0, num_of(st, "background", 0.0)));
+            pr.style.offset_pct = (float)std::max(0.0, std::min(40.0, num_of(st, "offset", 0.0)));
         }
     }
 
@@ -329,12 +343,16 @@ std::string nuvio_result_json(const NuvioRequest &req, const NuvioResult &res)
     cJSON_AddNumberToObject(o, "duration", res.duration);
     if (!res.error.empty())
         cJSON_AddStringToObject(o, "error", res.error.c_str());
+    if (res.group_end)
+        cJSON_AddBoolToObject(o, "groupEnd", 1);
     if (!res.action.empty()) {
         cJSON *a = cJSON_CreateObject();
         cJSON_AddStringToObject(a, "type", res.action.c_str());
         if (res.action == "episode" || res.action == "next") {
             cJSON_AddNumberToObject(a, "season", res.season);
             cJSON_AddNumberToObject(a, "episode", res.episode);
+            if (!res.video_id.empty())
+                cJSON_AddStringToObject(a, "videoId", res.video_id.c_str());
         }
         if (res.action == "source")
             cJSON_AddNumberToObject(a, "sourceIndex", res.source_index);
