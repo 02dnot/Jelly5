@@ -54,6 +54,7 @@ typedef struct strack {
     int need_flush;
     char *url, *headers;      /* external */
     int loading;
+    int font_done;            /* the cue font was decided (see track_font) */
 } strack;
 
 static pthread_mutex_t s_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -136,6 +137,99 @@ static void fonts_for_language(const char *lang)
     else if (!strncasecmp(lang, "th", 2))
         add_system_font("/preinst/common/font/SSTThai-Roman.otf");
 }
+
+/* The font a track's cues are drawn in.  The renderer runs with no system font
+ * provider (the console has none to give libass), and with
+ * ASS_FONTPROVIDER_NONE libass tries exactly two things per character: the
+ * family the style names and ass_set_fonts' default family ("Roboto").
+ * It never falls back by glyph, so a script the named font lacks is drawn as
+ * filled boxes whatever else is embedded - Arabic was, although Noto Naskh
+ * Arabic UI is in the eboot: no style ever asked for it.  A track whose
+ * language needs that font is pointed at it; Roboto stays the default, so
+ * Latin and digits in the same cue keep their own. */
+static const char *const k_arabic_family = "Noto Naskh Arabic UI";
+static const char *const k_arabic_langs[] = {
+    "ar", "ara", "fa", "fas", "per", "ur", "urd", "ps", "pus",
+    "ku", "kur", "ckb", "sd", "snd", "ug", "uig",
+};
+
+static const char *sub_family_for_lang(const char *lang)
+{
+    if (!lang || !*lang)
+        return NULL;
+    for (unsigned i = 0; i < sizeof k_arabic_langs / sizeof k_arabic_langs[0]; i++)
+        if (!strncasecmp(lang, k_arabic_langs[i], strlen(k_arabic_langs[i])))
+            return k_arabic_family;
+    return NULL;
+}
+
+/* Arabic script: the block, its supplements and the presentation forms. */
+static int utf8_has_arabic(const char *s, size_t n)
+{
+    const unsigned char *p = (const unsigned char *)s;
+    for (size_t i = 0; i < n && p[i]; i++) {
+        uint32_t cp;
+        size_t len;
+        if (p[i] < 0x80) { cp = p[i]; len = 1; }
+        else if ((p[i] & 0xe0) == 0xc0) { cp = (uint32_t)(p[i] & 0x1f); len = 2; }
+        else if ((p[i] & 0xf0) == 0xe0) { cp = (uint32_t)(p[i] & 0x0f); len = 3; }
+        else if ((p[i] & 0xf8) == 0xf0) { cp = (uint32_t)(p[i] & 0x07); len = 4; }
+        else continue;
+        int ok = 1;
+        for (size_t k = 1; k < len; k++) {
+            if (i + k >= n || (p[i + k] & 0xc0) != 0x80) { ok = 0; break; }
+            cp = (cp << 6) | (uint32_t)(p[i + k] & 0x3f);
+        }
+        i += ok ? len - 1 : 0;
+        if (!ok)
+            continue;
+        if ((cp >= 0x0600 && cp <= 0x06ff) || (cp >= 0x0750 && cp <= 0x077f) ||
+            (cp >= 0x08a0 && cp <= 0x08ff) || (cp >= 0xfb50 && cp <= 0xfdff) ||
+            (cp >= 0xfe70 && cp <= 0xfeff))
+            return 1;
+    }
+    return 0;
+}
+
+/* What the cues themselves say, for a track nothing tagged with a language. */
+static const char *cues_family(const strack *t)
+{
+    for (int i = 0; t->ass && i < t->ass->n_events; i++)
+        if (t->ass->events[i].Text && utf8_has_arabic(t->ass->events[i].Text, 4096))
+            return k_arabic_family;
+    return NULL;
+}
+
+/* Decides the track's cue font and writes it into its styles.  Decided once:
+ * it waits if an untagged track has no cues to look at yet.  Caller holds
+ * s_lock. */
+static void track_font(strack *t)
+{
+    if (!t || !t->ass || t->info.bitmap)
+        return;
+    const char *family = sub_family_for_lang(t->info.lang);
+    if (!family) {
+        if (!t->info.lang[0] && t->ass->n_events == 0)
+            return;                   /* untagged, and nothing to read yet */
+        family = cues_family(t);
+    }
+    t->font_done = 1;
+    if (!family)
+        return;                       /* Latin: Roboto already covers it */
+    for (int i = 0; i < t->ass->n_styles; i++) {
+        ASS_Style *s = &t->ass->styles[i];
+        if (s->FontName && !strcmp(s->FontName, family))
+            continue;
+        char *dup = strdup(family);
+        if (!dup)
+            return;
+        free(s->FontName);
+        s->FontName = dup;
+        s_style_gen++;                /* the frame is built again with it */
+    }
+    evo_bt("subs: %s cues drawn in %s", t->info.lang[0] ? t->info.lang : "untagged", family);
+}
+
 
 static void ass_log(int level, const char *fmt, va_list va, void *data)
 {
@@ -392,6 +486,7 @@ void nuvio_subs_open(AVFormatContext *fmt, int video_stream)
         evo_bt("subs: track %d stream %u %s lang=%s title='%s'%s%s", s_ntracks - 1, i,
                t->info.codec, t->info.lang, t->info.title, t->info.forced ? " forced" : "",
                t->info.is_default ? " default" : "");
+        track_font(t);                /* the language already says which font */
     }
     pthread_mutex_unlock(&s_lock);
 }
@@ -444,6 +539,7 @@ void nuvio_subs_select(int id)
     if (id >= 0) {
         strack *t = &s_tracks[id];
         fonts_for_language(t->info.lang);
+        track_font(t);
         if (t->info.bitmap) {
             /* Bitmap tracks decode only while selected: start clean. */
             free_events(t);
@@ -891,8 +987,10 @@ static void *ext_loader(void *arg)
                 info.bitmap = work.info.bitmap;
                 info.state = 1;
                 t->info = info;
-                if (s_selected == id)
+                if (s_selected == id) {
                     fonts_for_language(t->info.lang);
+                    track_font(t);        /* the cues are in now */
+                }
             } else {
                 free_track(&work);
                 t->info.state = -1;
@@ -955,8 +1053,12 @@ int nuvio_subs_render(ui_canvas *c, int64_t pts_us, nuvio_rect v, float lift)
 {
     pthread_mutex_lock(&s_lock);
     const int sel = s_selected;
-    const strack *t = (sel >= 0 && sel < s_ntracks) ? &s_tracks[sel] : NULL;
+    strack *t = (sel >= 0 && sel < s_ntracks) ? &s_tracks[sel] : NULL;
     const int ready = t && t->info.state == 1 && !t->loading;
+    /* A track nothing tagged with a language: once its cues are there, the
+     * first ones decide the font (see track_font). */
+    if (ready && !t->font_done)
+        track_font(t);
     const int layout_changed = s_last.sel != sel || s_last.video.x != v.x || s_last.video.y != v.y ||
                                s_last.video.w != v.w || s_last.video.h != v.h ||
                                s_last.lift != lift || s_last.style_gen != s_style_gen ||
