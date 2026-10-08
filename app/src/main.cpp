@@ -176,6 +176,16 @@ struct State {
     std::vector<DiscoverAppend> discover_appends;   /* next pages for the screen's rows, not yet taken */
     bool discover_again = false;        /* asked for while loading (the language moved on): once more */
     double discover_at = -1;            /* when it last loaded (now_s), -1 never */
+    /* A queue found off the render thread (a phone's Play, an Instant Mix): the
+     * main thread plays it, unless the viewer moved on (another account, another play). */
+    struct Resolved {
+        std::vector<jf::Item> queue;
+        size_t start = 0;
+        bool remote = false, group = false;
+        unsigned session = 0, plays = 0;
+    };
+    Resolved resolved;
+    bool resolved_set = false;
 };
 State s_state;
 unsigned s_model_version = 0, s_home_version = 0;   /* model published / taken by Home */
@@ -352,7 +362,12 @@ void request_gate(Gate kind, const std::string &server = std::string(), const st
 /* The hero's titles are cached per user between launches: the server's random
  * pick takes over a second, so a start shows the last pick at once and fetches
  * the next one behind it. */
-std::string hero_file(const jf::Client &c) { return "/download0/jelly5/hero-" + c.user_id() + ".json"; }
+std::string hero_file(const std::string &user_id) { return "/download0/jelly5/hero-" + user_id + ".json"; }
+std::string hero_file(const jf::Client &c) { return hero_file(c.user_id()); }
+
+/* Saves (home and hero) one at a time, each only while its session is current;
+ * end_account removes the files under it too, so none comes back after. */
+std::mutex s_home_save_lock;
 
 std::string read_file(const std::string &path)
 {
@@ -379,12 +394,15 @@ void write_file(const std::string &path, const std::string &data)
     }
 }
 
-void refresh_hero_cache(jf::Client &c, std::vector<jf::Item> *out)
+void refresh_hero_cache(jf::Client &c, unsigned session, std::vector<jf::Item> *out)
 {
     std::string raw;
     std::vector<jf::Item> fresh = c.featured(6, &raw);
-    if (!fresh.empty())
-        write_file(hero_file(c), raw);
+    if (!fresh.empty()) {
+        std::lock_guard<std::mutex> g(s_home_save_lock);
+        if (session == s_session)   /* (not after a sign-out removed the file) */
+            write_file(hero_file(c), raw);
+    }
     if (out)
         *out = std::move(fresh);
 }
@@ -392,6 +410,10 @@ void refresh_hero_cache(jf::Client &c, std::vector<jf::Item> *out)
 /* Loads the home rows, all requests in parallel. With keep_hero the featured
  * titles are kept (a refresh after playback only needs the rows). */
 bool draw_connection(double now);   /* below: the note when the server is out of reach */
+/* Its state, for s_client: the note shows; when it last said "Tilkoblet igjen".
+ * switch_to starts them over (a new client, its own count). */
+bool s_conn_down = false;
+double s_conn_back_at = -10;
 
 /* "00.001.001" or "v0.1.1" as one comparable number (major, minor, patch). */
 long version_number(const std::string &v)
@@ -410,7 +432,7 @@ void check_for_update()
     if (asked || !settings::get().local.check_updates)
         return;
     asked = true;
-    std::thread([] {
+    jelly5::spawn([] {
         const jf::HttpResponse r =
             jf::http_request("GET", "https://api.github.com/repos/02dnot/Jelly5/releases/latest",
                              {"Accept: application/vnd.github+json", "User-Agent: Jelly5/" JELLY5_VERSION}, "", 10);
@@ -426,7 +448,7 @@ void check_for_update()
             std::snprintf(msg, sizeof msg, T("Jelly5 %s er tilgjengelig – se GitHub"), latest.c_str());
             notify(msg);
         }
-    }).detach();
+    });   /* no thread: not asked this launch */
 }
 
 /* The home screen's ingredients: the server's answers as they came, kept per user
@@ -439,14 +461,14 @@ struct HomeRaw {
     std::vector<std::pair<std::string, std::string>> latest;   /* library id, its answer */
 };
 
-std::string home_file(const jf::Client &c) { return "/download0/jelly5/home-" + c.user_id() + ".json"; }
+std::string home_file(const std::string &user_id) { return "/download0/jelly5/home-" + user_id + ".json"; }
+std::string home_file(const jf::Client &c) { return home_file(c.user_id()); }
 
 /* The fresh rows are in (not only the saved ones): the tabs may load behind them. */
 std::atomic<bool> s_home_fresh{false};
 std::array<bool, 3> s_tabs_shown{};   /* Filmer, Serier, Musikk on the top bar (apply_views) */
-/* Saves one at a time, and only the newest load's answers (loads overlap: a
- * favourite toggled twice, a return from playback). */
-std::mutex s_home_save_lock;
+/* Only the newest load's answers are saved (loads overlap: a favourite toggled
+ * twice, a return from playback). */
 std::atomic<unsigned> s_home_load_seq{0};
 /* The saved screen as show_saved_home read it, for load_home right after (one read
  * of the file at start, not two). Taken once; for that user only. */
@@ -616,12 +638,12 @@ bool show_saved_home(jf::Client &c, unsigned session)
         s_home_read = raw;
         s_home_read_for = c.user_id();
     }
-    s_home_fresh = false;
     std::vector<jf::Item> views;
     ui::HomeModel m = build_home(c, raw, c.featured_from(read_file(hero_file(c)), 6), &views);
     std::lock_guard<std::mutex> g(s_state.lock);
     if (session != s_session || s_state.phase == Phase::Home)
         return false;
+    s_home_fresh = false;   /* (here: an old session's call must not clear the new one's) */
     s_state.model = std::move(m);
     s_state.views = std::move(views);
     s_model_version++;
@@ -633,10 +655,17 @@ bool show_saved_home(jf::Client &c, unsigned session)
 
 void load_home(jf::Client &c, unsigned session, bool keep_hero = false)
 {
+    unsigned seq;
     {
         std::lock_guard<std::mutex> g(s_state.lock);
         if (session != s_session)
             return;
+        /* (taken under the lock with the check: a newer number is never an older session's) */
+        seq = ++s_home_load_seq;
+        /* No hero yet to keep (a full load still on its way, which this one replaces):
+         * this one brings it instead. */
+        if (s_state.model.hero.empty())
+            keep_hero = false;
         if (s_state.phase != Phase::Home) {
             s_state.phase = Phase::Loading;
             s_state.message = T("Henter biblioteket \xE2\x80\xA6");
@@ -647,11 +676,10 @@ void load_home(jf::Client &c, unsigned session, bool keep_hero = false)
     if (!keep_hero) {
         hero = c.featured_from(read_file(hero_file(c)), 6);
         if (hero.empty())
-            jobs.emplace_back([&] { refresh_hero_cache(c, &hero); });
+            jobs.emplace_back([&] { refresh_hero_cache(c, session, &hero); });
         else   /* the next launch's pick (the client outlives every request) */
-            std::thread([&c] { refresh_hero_cache(c, nullptr); }).detach();
+            jelly5::spawn([&c, session] { refresh_hero_cache(c, session, nullptr); });
     }
-    const unsigned seq = ++s_home_load_seq;
     /* One round: the libraries' "Nylig lagt til" are asked alongside the rest, for
      * the libraries of the last time (they rarely change); a new one is asked after. */
     HomeRaw raw, saved;
@@ -677,7 +705,8 @@ void load_home(jf::Client &c, unsigned session, bool keep_hero = false)
     jobs.emplace_back([&] { c.next_up(20, std::string(), &raw.next); });
     jobs.emplace_back([&] { c.views(&raw.views); });
     jobs.emplace_back([&] { c.favorites(30, &raw.favorites); });
-    jobs.emplace_back([&] { raw.sections = c.home_sections(); });
+    bool sections_ok = false;
+    jobs.emplace_back([&] { raw.sections = c.home_sections(&sections_ok); });
     for (size_t i = 0; i < ids.size(); i++) {
         raw.latest[i].first = ids[i];
         auto *slot = &raw.latest[i].second;
@@ -714,6 +743,8 @@ void load_home(jf::Client &c, unsigned session, bool keep_hero = false)
     keep(raw.next, saved.next);
     keep(raw.favorites, saved.favorites);
     keep(raw.views, saved.views);
+    if (!sections_ok && have_saved)   /* (empty is an answer too: the default order) */
+        raw.sections = saved.sections;
     for (auto &l : raw.latest)
         for (const auto &s : saved.latest)
             if (l.first == s.first)
@@ -724,12 +755,12 @@ void load_home(jf::Client &c, unsigned session, bool keep_hero = false)
     ui::HomeModel m = build_home(c, raw, std::move(hero), &views);
     if (fresh) {   /* (the server answered: the next start shows this) */
         std::lock_guard<std::mutex> g(s_home_save_lock);
-        if (seq == s_home_load_seq)
+        if (seq == s_home_load_seq && session == s_session)
             save_home(c, raw);
     }
     std::lock_guard<std::mutex> g(s_state.lock);
-    if (session != s_session)
-        return;   /* the account changed while this loaded */
+    if (session != s_session || seq != s_home_load_seq)
+        return;   /* the account changed while this loaded, or a newer load publishes */
     s_state.model = std::move(m);
     s_state.views = std::move(views);
     s_model_version++;
@@ -743,11 +774,12 @@ void load_home(jf::Client &c, unsigned session, bool keep_hero = false)
  * rows. The server takes seconds over recommendations, so the home screen
  * never waits for them: they are added when they arrive. Genres are picked
  * once per session (rows should not reshuffle while browsing). */
-/* TMDB's genre names (what Jellyfin's metadata carries) in Norwegian. */
+/* TMDB's English genre names (what Jellyfin's metadata usually carries) in the
+ * interface's language: the Norwegian below, the others through T(). */
 std::string genre_title(const std::string &g)
 {
-    if (i18n::english())
-        return g;   /* the metadata's own (English) names */
+    if (i18n::lang() == i18n::Lang::English)
+        return g;
     static const std::map<std::string, std::string> no = {
         {"Action", "Action"}, {"Adventure", "Eventyr"}, {"Action & Adventure", "Action og eventyr"},
         {"Animation", "Animasjon"}, {"Comedy", "Komedie"}, {"Crime", "Krim"}, {"Documentary", "Dokumentar"},
@@ -758,7 +790,7 @@ std::string genre_title(const std::string &g)
         {"TV Movie", "TV-film"}, {"War", "Krig"}, {"War & Politics", "Krig og politikk"}, {"Western", "Western"},
         {"Soap", "Såpe"}, {"News", "Nyheter"}};
     const auto it = no.find(g);
-    return it == no.end() ? g : it->second;
+    return it == no.end() ? g : T(it->second);
 }
 
 void load_extras(jf::Client &c, unsigned session)
@@ -769,7 +801,6 @@ void load_extras(jf::Client &c, unsigned session)
     static std::vector<std::string> s_genres;
     static unsigned s_genres_for = ~0u;
     std::vector<jf::Client::Recommendation> recs;
-    std::thread rt([&] { recs = c.recommendations(4, 16); });
     std::vector<Row> genre_rows;
     {
         std::lock_guard<std::mutex> g(s_state.lock);
@@ -778,27 +809,28 @@ void load_extras(jf::Client &c, unsigned session)
                 genre_rows.push_back(r);
     }
     static unsigned s_genres_lang = ~0u;
-    if (s_genres_for != session || s_genres_lang != i18n::generation()) {   /* new session, or new language */
-        s_genres_for = session;
-        s_genres_lang = i18n::generation();
-        s_genres = c.genres();
-        std::srand((unsigned)time(nullptr));
-        for (size_t i = s_genres.size(); i > 1; i--)
-            std::swap(s_genres[i - 1], s_genres[std::rand() % i]);
-        if (s_genres.size() > 4)
-            s_genres.resize(4);
-        genre_rows.clear();
-        std::vector<std::vector<jf::Item>> items(s_genres.size());
-        std::vector<std::thread> jobs;
-        for (size_t i = 0; i < s_genres.size(); i++)
-            jobs.emplace_back([&, i] { items[i] = c.genre_items(s_genres[i], 20); });
-        for (auto &j : jobs)
-            j.join();
-        for (size_t i = 0; i < s_genres.size(); i++)
-            if (items[i].size() >= 6)
-                genre_rows.push_back({genre_title(s_genres[i]), std::move(items[i]), false, Row::Genre});
-    }
-    rt.join();
+    auto genres = [&] {
+        if (s_genres_for != session || s_genres_lang != i18n::generation()) {   /* new session, or new language */
+            s_genres_for = session;
+            s_genres_lang = i18n::generation();
+            s_genres = c.genres();
+            std::srand((unsigned)time(nullptr));
+            for (size_t i = s_genres.size(); i > 1; i--)
+                std::swap(s_genres[i - 1], s_genres[std::rand() % i]);
+            if (s_genres.size() > 4)
+                s_genres.resize(4);
+            genre_rows.clear();
+            std::vector<std::vector<jf::Item>> items(s_genres.size());
+            std::vector<std::function<void()>> jobs;
+            for (size_t i = 0; i < s_genres.size(); i++)
+                jobs.emplace_back([&, i] { items[i] = c.genre_items(s_genres[i], 20); });
+            jelly5::run_all(jobs);
+            for (size_t i = 0; i < s_genres.size(); i++)
+                if (items[i].size() >= 6)
+                    genre_rows.push_back({genre_title(s_genres[i]), std::move(items[i]), false, Row::Genre});
+        }
+    };
+    jelly5::run_all({[&] { recs = c.recommendations(4, 16); }, genres});   /* side by side */
 
     std::vector<Row> rows;
     for (auto &r : recs) {
@@ -871,7 +903,12 @@ std::vector<jf::Item> discover_items(const std::vector<seerr::Title> &list)
             it.ext.tmdb_ref = t.id;   /* the status register and "Mine forespørsler" find it by this */
             out.push_back(std::move(it));
         } else {
+            /* Not in what this account can see (a library it isn't given, another
+             * server, a failed lookup): Seerr's own page, never a server page for an id
+             * this account can't open. */
             out.push_back(seerr_service::to_item(t));
+            out.back().ext.unseen = !out.back().ext.jellyfin_id.empty();
+            out.back().ext.jellyfin_id.clear();
         }
     }
     return out;
@@ -895,12 +932,15 @@ void load_more_discover(unsigned session, int shelf, int page)
         bool ok = false;
         if (std::shared_ptr<seerr::Client> c = seerr_service::client()) {
             items = discover_items(seerr_service::visible(c->discover(shelves[shelf], page, &pages)));
-            ok = c->last_status() >= 200 && c->last_status() < 300;
+            const int st = c->last_status();
+            ok = st >= 200 && st < 300;
+            if (st == 401 || st == 403)
+                seerr_service::session_lost(c.get());   /* as load_discover: sign in again */
         }
         std::lock_guard<std::mutex> g(s_state.lock);
-        s_state.discover_more_loading = false;
         if (session != s_session)
-            return;
+            return;   /* (the flag is the new session's now: reset_screens cleared it) */
+        s_state.discover_more_loading = false;
         for (ui::HomeRow &r : s_state.discover.rows) {
             if (r.shelf != shelf || r.page + 1 != page)
                 continue;
@@ -995,7 +1035,7 @@ void refresh_mine(unsigned session)
         int status = 0;
         const std::vector<seerr::Title> mine = load_mine(*c, &state, &status);
         if (status == 401 || status == 403) {
-            seerr_service::session_lost();
+            seerr_service::session_lost(c.get());
             return;
         }
         if (status < 200 || status >= 300)
@@ -1033,6 +1073,7 @@ void load_discover(unsigned session)
     const Shelf shelves[] = {Shelf::Trending, Shelf::PopularMovies, Shelf::PopularTv, Shelf::UpcomingMovies,
                              Shelf::UpcomingTv};
     std::vector<seerr::Title> lists[5], mine;
+    int pages[5] = {0, 0, 0, 0, 0};   /* each list's totalPages (0: not said) */
     std::map<std::string, int> mine_state;   /* "tv:123" -> its request's state */
     if (c) {
         seerr_service::load_genres();
@@ -1045,7 +1086,7 @@ void load_discover(unsigned session)
         std::vector<std::function<void()>> jobs;
         for (int i = 0; i < 5; i++)
             jobs.push_back([&, i] {
-                lists[i] = seerr_service::visible(c->discover(shelves[i]));
+                lists[i] = seerr_service::visible(c->discover(shelves[i], 1, &pages[i]));
                 note();
             });
         jobs.push_back([&] {
@@ -1056,7 +1097,7 @@ void load_discover(unsigned session)
         });
         jelly5::run_all(jobs);   /* side by side; a job without a thread runs here */
         if (lost)
-            seerr_service::session_lost();
+            seerr_service::session_lost(c.get());
     }
     ui::HomeModel m;
     auto row = [&](const char *title, const std::vector<seerr::Title> &list, int shelf) {
@@ -1066,6 +1107,7 @@ void load_discover(unsigned session)
         r.title = title;
         r.kind = ui::HomeRow::Latest;
         r.shelf = shelf;
+        r.more = pages[shelf] != 1;   /* one page in all: nothing to ask for at its end */
         r.items = discover_items(list);
         m.rows.push_back(std::move(r));
     };
@@ -1079,11 +1121,11 @@ void load_discover(unsigned session)
     bool again;
     {
         std::lock_guard<std::mutex> g(s_state.lock);
-        s_state.discover_loading = false;
-        again = s_state.discover_again && session == s_session;
-        s_state.discover_again = false;
         if (session != s_session)
-            return;
+            return;   /* (the flags are the new session's now: reset_screens cleared them) */
+        s_state.discover_loading = false;
+        again = s_state.discover_again;
+        s_state.discover_again = false;
         s_state.discover_failed = m.rows.empty();
         if (!m.rows.empty()) {   /* a failed reload keeps what was there, and is tried again */
             s_state.discover = std::move(m);
@@ -1155,7 +1197,10 @@ void use_account(jf::Client &c, unsigned session, accounts::Account a)
          * error (a proxy that hides this route) is there: its token is still checked. */
         const bool answered = c.public_info(&name, &version, &id, &kind, 10);
         const bool reached = answered || c.last_error().find(" -> 0 ") == std::string::npos;
-        if (answered && kind != c.kind()) {
+        /* The kind is trusted only from a real server's answer (one with its version),
+         * not from any JSON a proxy or a sign-in gate may give that route. */
+        const bool knows_kind = answered && !version.empty();
+        if (knows_kind && kind != c.kind()) {
             evo_bt("jelly5: %s is %s, the account said %s", a.server_name.c_str(), jf::kind_key(kind), jf::kind_key(c.kind()));
             c.set_kind(kind);
         }
@@ -1168,11 +1213,15 @@ void use_account(jf::Client &c, unsigned session, accounts::Account a)
                 a.server_name = name;
             if (!id.empty())     /* saved before the Id was kept */
                 a.server_id = id;
-            if (answered)        /* (the next session's client is made for it) */
+            if (knows_kind)      /* (the next session's client is made for it) */
                 a.kind = jf::kind_key(kind);
             remember_account(a);   /* (also the last used) */
             settings::use_server(a.server_id.empty() ? a.server : a.server_id);   /* its quality cap */
-            settings::load_server(c);
+            settings::load_server(c, [session] { return session == s_session; });
+            /* Seerr, when this account has it on: before the home rows (its settings
+             * would read as off, and changes to them be dropped, until then). */
+            if (session == s_session)
+                seerr_service::attach(&c);
             c.check_subtitle_search();
             {
                 std::lock_guard<std::mutex> g(s_state.lock);
@@ -1184,8 +1233,8 @@ void use_account(jf::Client &c, unsigned session, accounts::Account a)
                    jf::kind_key(c.kind()));
             show_saved_home(c, session);   /* the last home screen at once; fresh rows replace it */
             load_home(c, session);
-            if (session == s_session)
-                seerr_service::attach(&c);   /* Seerr, when this account has it on */
+            if (session != s_session)
+                return;   /* switched away while the rows loaded: the new session's socket and SyncPlay stay */
             /* Controllable from Jellyfin's apps ("Spill på PS5") while this session lasts. */
             remote::start(&c, [session] { return session == s_session; });
             syncplay::attach(&c);
@@ -1220,12 +1269,22 @@ void use_account(jf::Client &c, unsigned session, accounts::Account a)
                 return;
             }
         }
-        if (err.find("-> 401") != std::string::npos) {
-            request_gate(Gate::Login, a.server, a.user_name, true, true);
-            return;
+        /* Checked again under the lock that sets the phase: ○ may have opened the
+         * profiles meanwhile (the search above takes seconds), and this must not hide them. */
+        const std::string failed = T("Får ikke kontakt med ") + (a.server_name.empty() ? a.server : a.server_name) +
+                                   T(" \xE2\x80\x93 prøver igjen \xE2\x80\xA6");
+        {
+            std::lock_guard<std::mutex> g(s_state.lock);
+            if (session != s_session)
+                return;
+            if (err.find("-> 401") != std::string::npos) {   /* (request_gate's, under this lock) */
+                s_state.gate = {Gate::Login, a.server, a.user_name, true, true};
+                s_state.phase = Phase::Gate;
+                return;
+            }
+            s_state.phase = Phase::Failed;
+            s_state.message = failed;
         }
-        set_phase(Phase::Failed, T("Får ikke kontakt med ") + (a.server_name.empty() ? a.server : a.server_name) +
-                                     T(" \xE2\x80\x93 prøver igjen \xE2\x80\xA6"));
         for (int i = 0; i < 50 && session == s_session; i++)
             usleep(100 * 1000);
     }
@@ -1298,22 +1357,36 @@ bool s_nav_focus = false;
 int s_nav_tab = ui::Nav::Home;     /* focused tab while s_nav_focus */
 
 /* ---- music behind the menus ------------------------------------------------------------ */
-std::atomic<bool> s_music_on{false};      /* a track (and its queue) plays headless */
+std::atomic<int> s_music_on{0};       /* a track (and its queue) plays headless: its threads */
+std::shared_ptr<std::atomic<bool>> s_music_stop;   /* the latest music's own stop (main thread) */
 bool s_group_play = false;              /* this Play came from the SyncPlay group: play it here */
+/* A queue being found (resolve_play), one at a time: the session it is for, + 1 (0: none).
+ * Another account's session is not held up by a lookup still running for the last one. */
+std::atomic<unsigned> s_resolving{0};
+bool resolving() { return s_resolving == s_session + 1; }
+unsigned s_plays = 0;                   /* play() calls (main thread): a found queue older than one is dropped */
+
+/* One playback in the player at a time: a film, the music or a theme song all run
+ * on its one static session. Whoever plays holds this from before the headless and
+ * stop settings to after its last run, so the next one waits for the last to be
+ * out of the player (a stop during an open lands only when the open does). The
+ * film takes it with try_lock from the main loop (start_film): never a frame waits. */
+std::mutex s_player_lock;
 
 /* Ends the music and waits for its thread to let go of the player. */
 /* ---- theme music --------------------------------------------------------------
  * On a film's or series' page its theme song plays quietly in the background
  * (Innstillinger: Temamusikk), as Jellyfin's own apps do; it stops when the page
  * closes or anything else plays. The player runs headless for it on its own
- * thread; s_theme_gen tells a starting theme whether it is still wanted. */
+ * thread; s_theme_stop is the latest theme's own stop: set, it never starts or
+ * ends where it is. */
 std::atomic<bool> s_theme_on{false};
-std::atomic<unsigned> s_theme_gen{0};
+std::shared_ptr<std::atomic<bool>> s_theme_stop;   /* main thread */
 std::string s_theme_for;   /* the page whose theme is wanted (main thread) */
 
-/* Stops left in the queue after a theme has ended (sent for it as it finished on
- * its own, or as it never started) - the next film or song would take them. The
- * first other command goes back where it was. */
+/* Stops left in the queue after a theme or the music has ended (a phone's or the
+ * now-playing page's, sent as it finished on its own) - the next film or song
+ * would take them. The first other command goes back where it was. */
 void drop_stale_stops()
 {
     remote::Command c;
@@ -1324,24 +1397,19 @@ void drop_stale_stops()
         }
 }
 
-void stop_theme(bool wait)
+void stop_theme()
 {
     s_theme_for.clear();
-    s_theme_gen++;
-    if (!s_theme_on)
-        return;
-    remote::Command c;
-    c.kind = remote::Command::Stop;
-    remote::send(c);
-    for (int i = 0; wait && i < 300 && s_theme_on; i++)
-        usleep(10 * 1000);
+    if (s_theme_stop)
+        *s_theme_stop = true;   /* what plays next waits for it on s_player_lock */
 }
 
 /* Each frame: the theme the open page wants, started or stopped to match. */
 void theme_follow()
 {
     std::string want;
-    if (!s_stack.empty() && !s_music_on && settings::get().local.theme_music)
+    /* (None in a SyncPlay group: what plays is the group's.) */
+    if (!s_stack.empty() && !s_music_on && settings::get().local.theme_music && !syncplay::active())
         if (const auto *d = dynamic_cast<const ui::Detail *>(s_stack.back().get())) {
             const std::string &t = d->item().type;
             if (t == "Movie" || t == "Series" || t == "Season" || t == "Episode")
@@ -1349,42 +1417,41 @@ void theme_follow()
         }
     if (want == s_theme_for)
         return;
-    stop_theme(false);
+    stop_theme();
     s_theme_for = want;
     if (want.empty())
         return;
-    const unsigned gen = s_theme_gen;
+    auto stop = std::make_shared<std::atomic<bool>>(false);
+    s_theme_stop = stop;
     jf::Client *c = s_client;
-    std::thread([c, want, gen] {
-        for (int i = 0; i < 300 && s_theme_on; i++)   /* the last one winding down */
-            usleep(10 * 1000);
+    jelly5::spawn([c, want, stop] {
         usleep(600 * 1000);   /* a page only passed through starts nothing */
-        if (gen != s_theme_gen || s_theme_on)
+        if (*stop)
             return;
         const std::vector<jf::Item> songs = c->theme_songs(want);
-        if (songs.empty() || gen != s_theme_gen || s_music_on)
+        if (songs.empty() || *stop || s_music_on)
+            return;
+        /* The last playback (a theme winding down, a film) out of the player first. */
+        std::lock_guard<std::mutex> g(s_player_lock);
+        if (*stop || s_music_on)
             return;
         s_theme_on = true;
-        /* Checked again now that it says it plays: a page closed in between either
-         * sees s_theme_on and sends its Stop (taken by this player), or bumped the
-         * gen before, which is caught here. */
-        if (gen == s_theme_gen) {
-            nuvio_player_set_headless(1);
-            jelly5_play_theme(*c, songs.front());
-            nuvio_player_set_headless(0);
-        }
-        drop_stale_stops();   /* a Stop meant for this theme must not reach the next player */
+        nuvio_player_set_headless(1);
+        nuvio_player_set_stop(stop.get());   /* a stop from here on ends this theme, wherever it is */
+        jelly5_play_theme(*c, songs.front());
+        nuvio_player_set_stop(nullptr);
+        nuvio_player_set_headless(0);
+        drop_stale_stops();   /* a phone's Stop meant for this theme must not reach the next player */
         s_theme_on = false;
-    }).detach();
+    });   /* no thread: no theme */
 }
 
-void stop_music()
+void stop_music(bool wait = true)
 {
-    if (!s_music_on)
+    if (s_music_stop)
+        *s_music_stop = true;
+    if (!s_music_on || !wait)
         return;
-    remote::Command c;
-    c.kind = remote::Command::Stop;
-    remote::send(c);
     for (int i = 0; i < 300 && s_music_on; i++)
         usleep(10 * 1000);
     if (s_music_on)
@@ -1403,20 +1470,36 @@ void open_now_playing()
 /* Music plays on the player's thread without a picture; the menus stay up. */
 void start_music(const jf::Item &item, bool shuffle, const std::vector<jf::Item> *queue, size_t start)
 {
-    stop_theme(true);
-    stop_music();
+    stop_theme();   /* the new music's thread waits for the player, not this frame */
+    stop_music(false);
     jf::Client *c = s_client;
     const std::vector<jf::Item> q = queue ? *queue : std::vector<jf::Item>();
-    s_music_on = true;
-    std::thread([c, item, shuffle, q, start] {
-        nuvio_player_set_headless(1);
+    auto stop = std::make_shared<std::atomic<bool>>(false);
+    s_music_stop = stop;
+    s_music_on++;
+    ui::forget_mini_player();
+    if (s_now_page)   /* the page, if it is up, is kept for the new music (open_now_playing) */
+        static_cast<ui::NowPlaying *>(s_now_page)->forget();
+    const bool started = jelly5::spawn([c, item, shuffle, q, start, stop] {
+        std::lock_guard<std::mutex> g(s_player_lock);   /* the last music or theme out of the player first */
         std::string error;
-        const bool ok = q.size() > 1 ? jelly5_play_queue(*c, q, start, &error) : jelly5_play(*c, item, &error, shuffle);
-        nuvio_player_set_headless(0);
-        if (!ok)
+        bool ok = true;
+        if (!*stop) {
+            nuvio_player_set_headless(1);
+            nuvio_player_set_stop(stop.get());
+            ok = q.size() > 1 ? jelly5_play_queue(*c, q, start, &error) : jelly5_play(*c, item, &error, shuffle);
+            nuvio_player_set_stop(nullptr);
+            nuvio_player_set_headless(0);
+        }
+        if (!ok && !*stop)
             notify((T("Jelly5: kunne ikke spille av\n") + error).c_str());
-        s_music_on = false;
-    }).detach();
+        drop_stale_stops();   /* the page's Stop sent as the music ended must not reach the next player */
+        s_music_on--;
+    });
+    if (!started) {   /* no thread: nothing plays */
+        s_music_on--;
+        return;
+    }
     open_now_playing();
 }
 
@@ -1451,6 +1534,40 @@ void reset_screens()
     s_discover_taken = ~0u;
 }
 
+/* An account signed out or removed from the console (already forgotten by
+ * accounts): its token is ended on the server, best effort, and what was kept
+ * for it here goes: its Seerr session and, unless another saved account is the
+ * same user, its saved home screen and hero. own: the account's own client,
+ * when it is being dropped anyway; else one is made just for this. */
+void end_account(const accounts::Account &a, jf::Client *own = nullptr, bool leave_group = false)
+{
+    seerr_service::forget_account(a.server, a.user_id);
+    bool shared = false;
+    for (const accounts::Account &x : accounts::load())
+        shared = shared || x.user_id == a.user_id;
+    jelly5::spawn([a, own, shared, leave_group] {
+        std::unique_ptr<jf::Client> mine;
+        jf::Client *c = own;
+        if (!c && !a.token.empty()) {
+            mine.reset(new jf::Client(a.server, s_device, "PlayStation 5"));
+            mine->set_kind(jf::kind_of_key(a.kind));
+            mine->set_session(a.token, a.user_id, a.user_name);
+            c = mine.get();
+        }
+        /* The group's Leave first, on the same client: after the logout it would be refused. */
+        if (leave_group && c && !c->post_json("/SyncPlay/Leave", "{}", nullptr))
+            evo_bt("syncplay: leave failed: %s", c->last_error().c_str());
+        if (c && !c->logout())
+            evo_bt("jelly5: the server did not end the session: %s", c->last_error().c_str());
+        if (!shared && !a.user_id.empty()) {
+            /* (a load still running saves only for the current session, under this lock) */
+            std::lock_guard<std::mutex> g(s_home_save_lock);
+            std::remove(home_file(a.user_id).c_str());
+            std::remove(hero_file(a.user_id).c_str());
+        }
+    });
+}
+
 /* Opens the gate screen a worker asked for (main thread). */
 void open_gate(const GateRequest &r)
 {
@@ -1471,15 +1588,21 @@ void switch_to(const accounts::Account &a)
 {
     stop_music();
     seerr_service::detach();
-    if (syncplay::active())
-        syncplay::leave();
+    syncplay::leave_async();   /* (never on this thread: the old server may be gone) */
     const unsigned session = ++s_session;
     jf::Client *c = client_for(a);
     s_client = c;
+    s_conn_down = false;   /* (the last account's server, not this one's) */
+    s_conn_back_at = -10;
     reset_screens();
     s_gate = Gate::None;
     set_phase(Phase::Connecting, T("Kobler til \xE2\x80\xA6"));
-    std::thread([c, session, a] { use_account(*c, session, a); }).detach();
+    if (!jelly5::spawn([c, session, a] { use_account(*c, session, a); })) {
+        /* No thread: not left on "Kobler til", back to the profiles to pick again. */
+        s_session++;
+        open_gate({Gate::Profiles});
+        set_phase(Phase::Gate);
+    }
 }
 
 void gate_input(uint32_t p)
@@ -1488,7 +1611,9 @@ void gate_input(uint32_t p)
         s_profiles->input(p);
         ui::Profiles::Choice ch;
         if (s_profiles->take_choice(&ch)) {
-            if (ch.add)   /* another user on that server */
+            if (ch.removed)
+                end_account(ch.account);
+            else if (ch.add)   /* another user on that server */
                 open_gate({Gate::Login, ch.account.server, "", true, true});
             else if (ch.add_server)
                 open_gate({Gate::Login, "", "", true});
@@ -1512,6 +1637,7 @@ void gate_poll()
     if (s_gate == Gate::Login && s_login && s_login->take_result(&a)) {
         remember_account(a);
         switch_to(a);
+        s_login.reset();   /* (and the password typed into it) */
     }
 }
 
@@ -1530,6 +1656,17 @@ ui::Screen *screen_for(int tab)
     }
 }
 
+/* The library grids: the tabs' and those opened over them. */
+template <typename F> void for_each_library(F f)
+{
+    for (ui::Library *lib : {s_movies.get(), s_shows.get(), s_music.get()})
+        if (lib)
+            f(lib);
+    for (const auto &page : s_stack)
+        if (auto *lib = dynamic_cast<ui::Library *>(page.get()))
+            f(lib);
+}
+
 void open_tab(int tab)
 {
     s_tab = tab;
@@ -1540,6 +1677,56 @@ void open_tab(int tab)
     if (tab == ui::Nav::Discover)
         refresh_discover(300);   /* where titles stand moves: fresh after five minutes */
     screen_for(tab)->activate();
+}
+
+/* Finds what a phone's Play (or an Instant Mix: PlayInstantMix) asks for on a worker -
+ * one request per item, each up to the client's timeout - and posts the queue for the
+ * main loop (take_resolved). Meanwhile the phone's next commands wait in their queue. */
+void resolve_play(const remote::Command &rc, bool remote)
+{
+    jf::Client *c = s_client;
+    State::Resolved r;
+    r.remote = remote;
+    r.group = rc.play_command == "SyncPlay";
+    r.session = s_session;
+    r.plays = s_plays;
+    s_resolving = r.session + 1;
+    const bool started = jelly5::spawn([c, rc, r]() mutable {
+        if (rc.item_ids.empty()) {
+            /* nothing to find: an empty queue ("not found") */
+        } else if (rc.play_command == "PlayInstantMix") {
+            r.queue = c->instant_mix(rc.item_ids.front(), 60);
+        } else {
+            for (const std::string &id : rc.item_ids) {
+                jf::Item it;
+                if (c->item(id, &it))
+                    r.queue.push_back(it);
+            }
+        }
+        if (r.remote && !r.queue.empty()) {
+            r.start = std::min((size_t)std::max(0, rc.start_index), r.queue.size() - 1);
+            if (rc.play_command == "PlayShuffle") {
+                std::srand((unsigned)time(nullptr));
+                for (size_t i = r.queue.size(); i > 1; i--)
+                    std::swap(r.queue[i - 1], r.queue[std::rand() % i]);
+                r.start = 0;
+            }
+            r.queue[r.start].position_ticks = rc.start_ticks;   /* the phone says where to start */
+        }
+        {
+            std::lock_guard<std::mutex> g(s_state.lock);
+            if (r.session == s_session) {   /* not over what a newer session found */
+                s_state.resolved = std::move(r);
+                s_state.resolved_set = true;
+            }
+        }
+        unsigned mine = r.session + 1;
+        s_resolving.compare_exchange_strong(mine, 0);   /* only its own session's mark */
+    });
+    if (!started) {
+        evo_bt("jelly5: no thread to find what to play");
+        s_resolving = 0;
+    }
 }
 
 /* Top-level input once signed in: the tab bar, or the active screen. */
@@ -1592,8 +1779,12 @@ void shell_input(uint32_t p, jf::Item *play, bool *chose, bool *from_start, bool
         return;
     }
     if (s_tab == ui::Nav::Discover && s_stack.empty() && s_discover->empty() && (p & NUVIO_BTN_CROSS)) {
-        if (seerr_service::snapshot().state == seerr_service::State::Ready)
+        const seerr_service::Snapshot sn = seerr_service::snapshot();
+        if (sn.state == seerr_service::State::Ready)
             refresh_discover(0, true);   /* the empty tab: ✕ asks Seerr again */
+        else if (sn.state == seerr_service::State::SignedOut &&
+                 (sn.why == seerr_service::Why::NeedPassword || sn.why == seerr_service::Why::WrongPassword))
+            notify(T("Seerr: logg inn igjen under Innstillinger → Seerr"));   /* a password: only the viewer has it */
         else
             seerr_service::reconnect();  /* not signed in, or not answering: connect again (the rows follow) */
         return;
@@ -1621,16 +1812,13 @@ void shell_input(uint32_t p, jf::Item *play, bool *chose, bool *from_start, bool
         s_queue = a.queue;
         s_queue_start = a.queue_start;
         break;
-    case ui::Action::PlayMix: {   /* Jellyfin's Instant Mix from an album (or song, artist) */
-        std::vector<jf::Item> mix = s_client->instant_mix(a.item.id, 60);
-        if (mix.empty()) {
-            notify(T("Jelly5: serveren fant ingen miks her"));
-            break;
-        }
-        *play = mix.front();
-        *chose = true;
-        s_queue = std::move(mix);
-        s_queue_start = 0;
+    case ui::Action::PlayMix: {   /* Jellyfin's Instant Mix from an album (or song, artist): found on a worker */
+        if (resolving())
+            break;   /* one is being found already */
+        remote::Command mix;
+        mix.play_command = "PlayInstantMix";
+        mix.item_ids.push_back(a.item.id);
+        resolve_play(mix, false);
         break;
     }
     case ui::Action::Open: {
@@ -1640,8 +1828,14 @@ void shell_input(uint32_t p, jf::Item *play, bool *chose, bool *from_start, bool
                                                       a.item.ext.status == (int)seerr::Status::PartiallyAvailable);
         ui::Screen::Card from;
         const bool have_from = screen_for(s_tab)->focused_card(&from);
-        if (s_stack.size() >= 8)
-            s_stack.erase(s_stack.begin());   /* "more like this" chains stay bounded */
+        if (s_stack.size() >= 8) {   /* "more like this" chains stay bounded */
+            ui::Screen *gone = s_stack.front().get();
+            if (gone == s_now_page)   /* a freed page's address can come back: forget it */
+                s_now_page = nullptr;
+            if (gone == s_origin.page)
+                s_origin.page = nullptr;
+            s_stack.erase(s_stack.begin());
+        }
         /* Seasons and episodes open their series' page. */
         jf::Item target = a.item;
         if (target.external() && !seerr_page) {   /* a Seerr title the server has: the server's own page */
@@ -1690,6 +1884,10 @@ void shell_input(uint32_t p, jf::Item *play, bool *chose, bool *from_start, bool
             if (s_stack.back().get() == s_now_page)
                 s_now_page = nullptr;
             s_stack.pop_back();
+            /* A grid watched from (via its title's page) shows what was watched. */
+            ui::Screen *below = s_stack.empty() ? screen_for(s_tab) : s_stack.back().get();
+            if (auto *lib = dynamic_cast<ui::Library *>(below))
+                lib->refresh_if_stale();
         }
         break;
     case ui::Action::Changed: {   /* written, then Min liste, Fortsett å se and the rest follow */
@@ -1698,17 +1896,22 @@ void shell_input(uint32_t p, jf::Item *play, bool *chose, bool *from_start, bool
         const ui::UserDataChange ch = a.change;
         if (s_tab != ui::Nav::Home || !s_stack.empty())
             s_home->apply(ch);   /* the home rows were not the screen it was made on */
-        std::thread([c, session, ch] {
+        for_each_library([&](ui::Library *lib) { lib->apply(ch); });   /* the grids, too */
+        ui::Library::write_started();
+        if (!jelly5::spawn([c, session, ch] {
             if (ch.favorite_set) c->set_favorite(ch.id, ch.favorite);
             if (ch.played_set) c->set_played(ch.id, ch.played);
             if (ch.resume_cleared) c->clear_position(ch.id);
+            ui::Library::write_done();
             load_home(*c, session, true);
-        }).detach();
+        }))
+            ui::Library::write_done();   /* no thread: nothing written, no refresh waits for it */
         break;
     }
     case ui::Action::SwitchUser:
         stop_music();
         seerr_service::detach();
+        syncplay::leave_async();
         s_session++;
         open_gate({Gate::Profiles});
         set_phase(Phase::Gate);
@@ -1716,8 +1919,14 @@ void shell_input(uint32_t p, jf::Item *play, bool *chose, bool *from_start, bool
     case ui::Action::SignOut: {
         stop_music();
         seerr_service::detach();
+        const bool in_group = syncplay::forget_here();   /* told by end_account, before its logout */
         accounts::forget(s_client->server(), s_client->user_id());
-        s_session++;
+        accounts::Account gone;
+        gone.server = s_client->server();
+        gone.user_id = s_client->user_id();
+        gone.token = s_client->token();
+        s_session++;   /* (first: a load still running no longer saves for it) */
+        end_account(gone, s_client, in_group);   /* (that client is dropped here: never used again) */
         s_client = new_client(s_client->server());   /* signed out; screens are remade on the next sign-in */
         const bool others = !accounts::load().empty();
         open_gate({others ? Gate::Profiles : Gate::Login, s_client->server(), "", false});
@@ -1732,8 +1941,9 @@ void shell_input(uint32_t p, jf::Item *play, bool *chose, bool *from_start, bool
 /* The tabs and their pills from the user's libraries (in the order they keep in
  * Jellyfin): Filmer, Serier and Musikk show when there is such a library; a tab
  * with several offers them as pills (Serier · Anime). Music: Album · Artister ·
- * Spillelister. */
-void apply_views(const std::vector<jf::Item> &views)
+ * Spillelister. True when the open tab went away: the caller then activates
+ * Home, as a tab switch does (after s_state.lock, which the caller holds here). */
+bool apply_views(const std::vector<jf::Item> &views)
 {
     using Source = ui::Library::Source;
     std::vector<Source> movies, shows, music;
@@ -1763,10 +1973,12 @@ void apply_views(const std::vector<jf::Item> &views)
     s_nav.set_tabs(tabs);
     /* A tab that went away (another account, a library removed): back home. */
     auto shown = [&](int t) { return t == ui::Nav::Settings || std::find(tabs.begin(), tabs.end(), t) != tabs.end(); };
-    if (!shown(s_tab))
+    const bool gone = !shown(s_tab);
+    if (gone)
         s_tab = ui::Nav::Home;
     if (!shown(s_nav_tab))
         s_nav_tab = s_tab;
+    return gone;
 }
 
 /* ---- drawing (GPU, src/gfx) ------------------------------------------------------ */
@@ -1823,7 +2035,7 @@ bool draw_frame(double t, float dt)
     Phase phase;
     std::string message;
     int more_shelf = 0, more_page = 0;
-    bool more = false;
+    bool more = false, tab_gone = false;
     {
         std::lock_guard<std::mutex> g(s_state.lock);
         phase = s_state.phase;
@@ -1847,7 +2059,7 @@ bool draw_frame(double t, float dt)
         if (phase == Phase::Home && s_model_version != s_home_version) {
             s_home_version = s_model_version;
             s_home->set_model(s_state.model);
-            apply_views(s_state.views);
+            tab_gone = apply_views(s_state.views);
             const std::string &tag = s_client->user_image_tag();
             s_nav.set_user(s_client->user_name(),
                            tag.empty() ? "" : s_client->server() + "/Users/" + s_client->user_id() +
@@ -1864,6 +2076,8 @@ bool draw_frame(double t, float dt)
         }
         more = s_tab == ui::Nav::Discover && s_stack.empty() && s_discover->wants_more(&more_shelf, &more_page);
     }
+    if (tab_gone)
+        s_home->activate();
     /* A request or a withdrawal here: "Mine forespørsler" and the rows read Seerr again. */
     static unsigned seen_seerr_changes = 0;
     if (seerr_service::changes() != seen_seerr_changes) {
@@ -1912,6 +2126,15 @@ bool draw_frame(double t, float dt)
     case Phase::Home:
         if (s_tab == ui::Nav::Home && s_stack.empty() && s_home->empty()) {
             draw_launch(t, 1.f, T("Ingenting å vise ennå"), T("Legg til filmer eller serier på serveren din."), false);
+            /* The bar stays: Musikk, Søk and Innstillinger are still there (↑ or ○ reach it). */
+            s_nav.draw(1.f, s_tab, s_nav_focus ? s_nav_tab : -1, dt, &animating);
+            if (s_music_on) {
+                ui::draw_mini_player(t, 1.f);
+                animating = true;
+            }
+            if (draw_connection(t))
+                animating = true;
+            theme_follow();
         } else {
             ui::Screen *scr = screen_for(s_tab);
             const float enter = scr->enter();
@@ -1996,46 +2219,47 @@ bool draw_frame(double t, float dt)
     return animating;
 }
 
-/* The server out of reach: requests get no answer at all (jf::unreachable_streak).
+/* The server out of reach: s_client's requests get no answer at all (unreachable_streak).
  * A note at the top says so while the app asks the server every 4 s; when it
  * answers, the note says so briefly and the home rows reload. Returns true while
  * it shows (frames are wanted). */
 bool draw_connection(double now)
 {
-    static bool s_down = false, s_pinging = false;
-    static double s_last_ping = 0, s_back_at = -10;
+    static bool s_pinging = false;
+    static double s_last_ping = 0;
     static std::mutex s_ping_lock;
-    const bool down = jf::unreachable_streak() >= 2;
+    const bool down = s_client->unreachable_streak() >= 2;
     if (down) {
-        s_down = true;
+        s_conn_down = true;
         std::lock_guard<std::mutex> g(s_ping_lock);
         if (!s_pinging && now - s_last_ping > 4.0) {
             s_pinging = true;
             s_last_ping = now;
             jf::Client *c = s_client;
-            std::thread([c] {
-                c->ping();
-                std::lock_guard<std::mutex> g2(s_ping_lock);
-                s_pinging = false;
-            }).detach();
+            if (!jelly5::spawn([c] {
+                    c->ping();
+                    std::lock_guard<std::mutex> g2(s_ping_lock);
+                    s_pinging = false;
+                }))
+                s_pinging = false;   /* no thread: pinged again in 4 s */
         }
-    } else if (s_down) {
-        s_down = false;
-        s_back_at = now;
+    } else if (s_conn_down) {
+        s_conn_down = false;
+        s_conn_back_at = now;
         jf::Client *c = s_client;
         const unsigned session = s_session;
-        std::thread([c, session] { load_home(*c, session, true); }).detach();
+        jelly5::spawn([c, session] { load_home(*c, session, true); });
     }
-    const bool back = now - s_back_at < 2.5;
-    if (!s_down && !back)
+    const bool back = now - s_conn_back_at < 2.5;
+    if (!s_conn_down && !back)
         return false;
-    const std::string text = s_down ? T("Ingen kontakt med serveren \xE2\x80\x93 pr\xC3\xB8ver igjen \xE2\x80\xA6")
-                                    : T("Tilkoblet igjen");
+    const std::string text = s_conn_down ? T("Ingen kontakt med serveren \xE2\x80\x93 pr\xC3\xB8ver igjen \xE2\x80\xA6")
+                                         : T("Tilkoblet igjen");
     const gfx::TextStyle ts{gfx::SemiBold, 24};
     const float w = gfx::text_width(text, ts) + 72;
     const gfx::Rect r{gfx::W / 2 - w / 2, 136, w, 60};
     ui::glass_panel(r, 30, 1.f, true);
-    gfx::fill({r.x + 26, r.y + 25, 10, 10}, s_down ? 0xffff9f0au : 0xff30d158u, 5);   /* amber: away, green: back */
+    gfx::fill({r.x + 26, r.y + 25, 10, 10}, s_conn_down ? 0xffff9f0au : 0xff30d158u, 5);   /* amber: away, green: back */
     gfx::text(r.x + 48, r.y + 39, text, ts, ui::kText);
     return true;
 }
@@ -2070,21 +2294,48 @@ bool resolve_playable(jf::Item *item)
     }
     if (item->type != "Series")
         return false;
-    std::vector<jf::Item> next = s_client->next_up(1, item->id);
-    if (next.empty())
-        next = s_client->episodes(item->id, std::string());
-    if (next.empty()) {
+    /* As the detail page's Play: a started episode, else the next one (NextUp
+     * leaves out a started one), else the first outside the specials. */
+    std::vector<jf::Item> resume, next;
+    jelly5::run_all({[&] { resume = s_client->resume(1, item->id); },
+                     [&] { next = s_client->next_up(1, item->id); }});
+    if (!resume.empty()) {
+        *item = resume.front();
+        return true;
+    }
+    if (!next.empty()) {
+        *item = next.front();
+        return true;
+    }
+    const std::vector<jf::Item> eps = s_client->episodes(item->id, std::string());
+    if (eps.empty()) {
         evo_bt("jelly5: nothing to play in %s: %s", item->name.c_str(), s_client->last_error().c_str());
         return false;
     }
-    *item = next.front();
+    for (const jf::Item &e : eps)
+        if (e.parent_index > 0) {
+            *item = e;
+            return true;
+        }
+    *item = eps.front();   /* only specials */
     return true;
 }
+
+/* A film chosen while the music or a theme still had the player (main thread). */
+struct FilmWaiting {
+    jf::Item item;
+    bool shuffle;
+    std::vector<jf::Item> queue;
+    size_t start;
+};
+std::unique_ptr<FilmWaiting> s_film;
+bool start_film();
 
 void play(jf::Item item, bool from_start, bool shuffle = false, const std::vector<jf::Item> *queue = nullptr,
           size_t start = 0)
 {
-    stop_theme(true);   /* the page's theme song makes way */
+    s_plays++;   /* a queue still being found for an earlier play is dropped */
+    stop_theme();   /* the page's theme song makes way (the film waits for it below) */
     if (queue && !queue->empty())
         item = (*queue)[std::min(start, queue->size() - 1)];
     if (from_start) {
@@ -2107,6 +2358,8 @@ void play(jf::Item item, bool from_start, bool shuffle = false, const std::vecto
         notify(T("Jelly5: fant ingenting å spille av her"));
         return;
     }
+    if (from_start)
+        item.position_ticks = 0;   /* (a series' started episode, too) */
     if (syncplay::active() && !s_group_play) {   /* in a group: everyone plays it */
         syncplay::play(item);
         notify(T("Jelly5: startes for hele gruppen"));
@@ -2117,8 +2370,7 @@ void play(jf::Item item, bool from_start, bool shuffle = false, const std::vecto
         start_music(item, shuffle, queue, start);
         return;
     }
-    stop_music();   /* a picture to show: the music ends first */
-    nuvio_player_set_headless(0);
+    stop_music(false);   /* a picture to show: the music ends first */
     /* Hand over to the player without a seam: this frame is the player's own
      * loading screen (its colour, the title's backdrop at 92 %, its gradient),
      * and the art it is about to ask for is already being fetched. */
@@ -2143,63 +2395,80 @@ void play(jf::Item item, bool from_start, bool shuffle = false, const std::vecto
     }
     gfx::end_frame();
 
+    s_film.reset(new FilmWaiting{item, shuffle, queue ? *queue : std::vector<jf::Item>(), start});
+    start_film();
+}
+
+/* The film play() handed over, once the music or theme stopped there is out of the
+ * player (their stop lands when an open in progress finishes). Until then the main
+ * loop calls this each pass with the loading frame up, and no frame waits on it. */
+bool start_film()
+{
+    if (!s_film || !s_player_lock.try_lock())
+        return false;
+    std::lock_guard<std::mutex> g(s_player_lock, std::adopt_lock);
+    const FilmWaiting w = std::move(*s_film);
+    s_film.reset();
     nuvio_input_close();
+    nuvio_player_set_headless(0);
     std::string error;
-    const bool ok = queue && queue->size() > 1 ? jelly5_play_queue(*s_client, *queue, start, &error)
-                                               : jelly5_play(*s_client, item, &error, shuffle);
+    const bool ok = w.queue.size() > 1 ? jelly5_play_queue(*s_client, w.queue, w.start, &error)
+                                       : jelly5_play(*s_client, w.item, &error, w.shuffle);
     if (!ok)
         notify((T("Jelly5: kunne ikke spille av\n") + error).c_str());
     nuvio_input_open(s_user);
     /* Back at once; positions and "next up" refresh behind the screen. */
+    for_each_library([](ui::Library *lib) { lib->mark_stale(); });   /* played marks: when next shown */
     if (!s_stack.empty())
         s_stack.back()->activate();   /* a detail page reloads its progress */
     jf::Client *c = s_client;
     const unsigned session = s_session;
-    std::thread([c, session] {
+    jelly5::spawn([c, session] {
         jelly5_wait_reports(4000);   /* the position just reported, before reading it back */
         load_home(*c, session, true);
         load_extras(*c, session);   /* what was just watched shapes "Fordi du så" */
-    }).detach();
+    });
+    return true;
 }
 
 /* A command from a phone while the menus are up: play what it sent, or show
- * its message. (During playback the player takes them itself.) */
+ * its message. (During playback the player takes them itself.) "Play next" and
+ * "Add to queue" with nothing playing play it now, as the web client does. */
 void remote_idle(const remote::Command &rc)
 {
     if (rc.kind == remote::Command::Message) {
         notify((rc.header.empty() ? rc.text : rc.header + "\n" + rc.text).c_str());
         return;
     }
-    if (rc.kind != remote::Command::Play)
+    if (rc.kind == remote::Command::Play)
+        resolve_play(rc, true);   /* played by play_resolved once found */
+}
+
+/* The queue resolve_play found, if it is still wanted. */
+bool take_resolved(State::Resolved *out)
+{
+    std::lock_guard<std::mutex> g(s_state.lock);
+    if (!s_state.resolved_set)
+        return false;
+    s_state.resolved_set = false;
+    *out = std::move(s_state.resolved);
+    return out->session == s_session && out->plays == s_plays;
+}
+
+void play_resolved(State::Resolved &r)
+{
+    if (r.queue.empty()) {
+        notify(r.remote ? T("Jelly5: fant ikke det som ble sendt") : T("Jelly5: serveren fant ingen miks her"));
         return;
-    std::vector<jf::Item> q;
-    s_group_play = rc.play_command == "SyncPlay";
-    if (rc.play_command == "PlayInstantMix") {
-        q = s_client->instant_mix(rc.item_ids.front(), 60);
-    } else {
-        for (const std::string &id : rc.item_ids) {
-            jf::Item it;
-            if (s_client->item(id, &it))
-                q.push_back(it);
-        }
     }
-    if (q.empty()) {
-        notify(T("Jelly5: fant ikke det som ble sendt"));
-        return;
+    if (r.remote) {
+        evo_bt("jelly5: remote play %s (%zu in queue)", r.queue[r.start].name.c_str(), r.queue.size());
+        s_group_play = r.group;
+        s_stack.clear();   /* back from playback on the home screen */
+        s_tab = s_nav_tab = ui::Nav::Home;
+        s_nav_focus = false;
     }
-    size_t start = std::min((size_t)std::max(0, rc.start_index), q.size() - 1);
-    if (rc.play_command == "PlayShuffle") {
-        std::srand((unsigned)time(nullptr));
-        for (size_t i = q.size(); i > 1; i--)
-            std::swap(q[i - 1], q[std::rand() % i]);
-        start = 0;
-    }
-    q[start].position_ticks = rc.start_ticks;   /* the phone says where to start */
-    evo_bt("jelly5: remote play %s (%zu in queue)", q[start].name.c_str(), q.size());
-    s_stack.clear();   /* back from playback on the home screen */
-    s_tab = s_nav_tab = ui::Nav::Home;
-    s_nav_focus = false;
-    play(q[start], false, false, &q, start);
+    play(r.queue[r.start], false, false, &r.queue, r.start);
 }
 
 } // namespace
@@ -2272,6 +2541,7 @@ int main()
     bool animating = true;
     Phase last_phase = Phase::Connecting;
     unsigned last_model = ~0u, last_discover = ~0u, last_appended = 0;
+    time_t last_minute = time(nullptr) / 60;   /* the top bar's clock: a frame when the minute turns */
     int idle_frames = 0;
     unsigned frames = 0;
     unsigned lang_gen = i18n::generation();
@@ -2284,6 +2554,19 @@ int main()
         ime::poll();
         if (ime::active())
             in.pressed = 0;   /* the system keyboard has the controller */
+        if (s_film) {   /* a film waits, its loading frame up, for the player to be free */
+            if (in.pressed & NUVIO_BTN_CIRCLE) {
+                s_film.reset();   /* not after all: back to the page */
+                in.pressed = 0;
+                animating = true;
+            } else {
+                if (!start_film())
+                    usleep(8000);
+                last = now_s();
+                waited = true;
+                continue;
+            }
+        }
 
         Phase phase;
         GateRequest gate;
@@ -2344,24 +2627,36 @@ int main()
             s_movies->set_title(T("Filmer"));
             s_shows->set_title(T("Serier"));
             s_music->set_title(T("Musikk"));
+            bool tab_gone;
             {
                 std::lock_guard<std::mutex> g(s_state.lock);
-                apply_views(s_state.views);   /* the pills' labels */
+                tab_gone = apply_views(s_state.views);   /* the pills' labels */
             }
+            if (tab_gone)
+                s_home->activate();
             if (phase == Phase::Home) {
                 jf::Client *c = s_client;
                 const unsigned session = s_session;
-                std::thread([c, session] {
+                jelly5::spawn([c, session] {
                     load_home(*c, session, true);
                     load_extras(*c, session);
-                }).detach();
+                });
                 seerr_service::set_language();   /* Seerr's titles and rows in the new language */
                 refresh_discover(0, true);
             }
         }
+        State::Resolved resolved;   /* a phone's Play or an Instant Mix, found */
+        if (!chose && phase == Phase::Home && s_home_version == s_model_version && take_resolved(&resolved)) {
+            play_resolved(resolved);
+            last = now_s();
+            waited = true;
+            continue;
+        }
         /* (Not while a theme plays: its headless player takes the commands - a Stop
-         * taken here was lost, and the theme played on everywhere.) */
-        if (!chose && !s_music_on && !s_theme_on && phase == Phase::Home && s_home_version == s_model_version) {
+         * taken here was lost, and the theme played on everywhere. Nor while a Play
+         * is being found: what follows it waits.) */
+        if (!chose && !s_music_on && !s_theme_on && !resolving() && phase == Phase::Home &&
+            s_home_version == s_model_version) {
             remote::Command rc;
             if (remote::take(&rc)) {
                 remote_idle(rc);
@@ -2385,11 +2680,15 @@ int main()
         seerr_gen = seerr_service::generation();
         if (seerr_moved && seerr_service::take_sign_in_notice())   /* else Discover just goes */
             notify(T("Seerr: logg inn igjen under Innstillinger → Seerr"));
-        if (seerr_moved && phase == Phase::Home) {   /* Seerr's tab comes and goes with it */
+        /* Seerr's tab comes and goes with it (and it may have come before the home rows). */
+        if ((seerr_moved || phase != last_phase) && phase == Phase::Home) {
+            bool tab_gone;
             {
                 std::lock_guard<std::mutex> g(s_state.lock);
-                apply_views(s_state.views);
+                tab_gone = apply_views(s_state.views);
             }
+            if (tab_gone)
+                s_home->activate();
             bool failed;
             {
                 std::lock_guard<std::mutex> g(s_state.lock);
@@ -2399,9 +2698,10 @@ int main()
             const bool again = failed && seerr_service::snapshot().state == seerr_service::State::Ready;
             refresh_discover(again ? 0 : 1e9, again);
         }
+        const time_t minute = time(nullptr) / 60;
         const bool changed = in.pressed || phase != last_phase || s_model_version != last_model ||
                              gate.kind != Gate::None || seerr_moved || s_discover_version != last_discover ||
-                             s_discover_appended != last_appended;
+                             s_discover_appended != last_appended || minute != last_minute;
         if (changed || animating || idle_frames < 2) {
             const double now = now_s();
             const float dt = (float)std::min(0.1, now - last);
@@ -2427,6 +2727,7 @@ int main()
             last_model = s_model_version;
             last_discover = s_discover_version;
             last_appended = s_discover_appended;
+            last_minute = minute;
             if ((++frames % 120) == 0)
                 gfx::collect();
         } else {
