@@ -5,6 +5,7 @@
 #include "jf_client.h"
 
 #include "jf_http.h"
+#include "json_num.h"
 
 #include <algorithm>
 #include <atomic>
@@ -20,24 +21,24 @@ extern "C" {
 namespace jf {
 namespace {
 
-std::atomic<int> g_unreachable{0};   /* requests in a row that got no answer at all */
-
 /* Every request of the client goes through here, so the app can tell when the
  * server has gone away (no answer, not an HTTP error) and when it is back. */
-HttpResponse tracked_request(const std::string &method, const std::string &url,
+HttpResponse tracked_request(std::atomic<int> &streak, const std::string &method, const std::string &url,
                              const std::vector<std::string> &headers, const std::string &body, int timeout_s)
 {
     HttpResponse r = http_request(method, url, headers, body, timeout_s);
     if (r.status == 0)
-        g_unreachable++;
+        streak++;
     else
-        g_unreachable = 0;
+        streak = 0;
     return r;
 }
 
 constexpr int kTimeout = 15;
 constexpr const char *kVersion = "0.0.1";
 constexpr const char *kFields = "Overview,Genres";            /* rows: what the UI shows */
+/* Rows: only the image types the UI draws (and their BlurHashes), one of each. */
+constexpr const char *kImages = "&enableImageTypes=Primary,Backdrop,Thumb,Logo&imageTypeLimit=1";
 constexpr const char *kItemFields =
     "Overview,Genres,MediaStreams,Taglines,People,Studios,ChildCount,ProductionLocations,SpecialFeatureCount,"
     "ProviderIds";   /* a series' TMDB/TVDB ids: Seerr finds it by them */
@@ -52,6 +53,23 @@ double num_of(const cJSON *o, const char *key, double fallback = 0)
 {
     const cJSON *v = cJSON_GetObjectItemCaseSensitive(o, key);
     return cJSON_IsNumber(v) ? v->valuedouble : fallback;
+}
+
+/* Whether a number from the server lies in [lo, hi] (and so casts to int safely). */
+bool in_range(double v, double lo, double hi)
+{
+    return v >= lo && v <= hi;
+}
+
+/* An integer field (json_num.h: no undefined cast of a number out of range). */
+int int_of(const cJSON *o, const char *key, int fallback = 0)
+{
+    return to_int<int>(num_of(o, key, fallback), fallback);
+}
+
+int64_t i64_of(const cJSON *o, const char *key, int64_t fallback = 0)
+{
+    return to_int<int64_t>(num_of(o, key, (double)fallback), fallback);
 }
 
 bool bool_of(const cJSON *o, const char *key)
@@ -119,19 +137,19 @@ Item item_of(const cJSON *o)
     it.series_name = str_of(o, "SeriesName");
     it.season_id = str_of(o, "SeasonId");
     it.season_name = str_of(o, "SeasonName");
-    it.index = (int)num_of(o, "IndexNumber", -1);
-    it.parent_index = (int)num_of(o, "ParentIndexNumber", -1);
-    it.year = (int)num_of(o, "ProductionYear", 0);
+    it.index = int_of(o, "IndexNumber", -1);
+    it.parent_index = int_of(o, "ParentIndexNumber", -1);
+    it.year = int_of(o, "ProductionYear", 0);
     it.community_rating = num_of(o, "CommunityRating", 0);
-    it.runtime_ticks = (int64_t)num_of(o, "RunTimeTicks", 0);
+    it.runtime_ticks = i64_of(o, "RunTimeTicks", 0);
     const cJSON *ud = cJSON_GetObjectItemCaseSensitive(o, "UserData");
-    it.position_ticks = (int64_t)num_of(ud, "PlaybackPositionTicks", 0);
+    it.position_ticks = i64_of(ud, "PlaybackPositionTicks", 0);
     it.played_percent = num_of(ud, "PlayedPercentage", 0);
     it.played = bool_of(ud, "Played");
     it.favorite = bool_of(ud, "IsFavorite");
-    it.unplayed = (int)num_of(ud, "UnplayedItemCount", 0);
-    it.local_trailers = (int)num_of(o, "LocalTrailerCount", 0);
-    it.special_features = (int)num_of(o, "SpecialFeatureCount", 0);
+    it.unplayed = int_of(ud, "UnplayedItemCount", 0);
+    it.local_trailers = int_of(o, "LocalTrailerCount", 0);
+    it.special_features = int_of(o, "SpecialFeatureCount", 0);
     const cJSON *g;
     cJSON_ArrayForEach(g, cJSON_GetObjectItemCaseSensitive(o, "Genres"))
         if (cJSON_IsString(g))
@@ -181,10 +199,37 @@ Item item_of(const cJSON *o)
     return it;
 }
 
+/* How a TranscodingUrl plays, from the TranscodeReasons the server put in it (both
+ * Jellyfin and Emby do; neither sets SupportsDirectStream for an HLS remux). The video
+ * is copied when only the container, the codec tag or, beside a picture, the sound
+ * needs changing: DirectStream (jellyfin-web's dashboard: Remux / Direct stream).
+ * Anything else, or no reasons at all, is a transcode. */
+std::string method_of(const std::string &url, bool has_video)
+{
+    const size_t r = url.find("TranscodeReasons=");
+    if (r == std::string::npos)
+        return "Transcode";
+    std::string list = url.substr(r + 17, url.find('&', r) - r - 17);
+    for (size_t at; (at = list.find("%2C")) != std::string::npos || (at = list.find("%2c")) != std::string::npos;)
+        list.replace(at, 3, ",");
+    size_t start = 0;
+    for (;;) {
+        const size_t end = list.find(',', start);
+        const std::string why = list.substr(start, end - start);
+        const bool copied = why == "ContainerNotSupported" || why == "VideoCodecTagNotSupported" ||
+                            (has_video && (why.rfind("Audio", 0) == 0 || why == "SecondaryAudioNotSupported"));
+        if (!copied)
+            return "Transcode";
+        if (end == std::string::npos)
+            return "DirectStream";
+        start = end + 1;
+    }
+}
+
 MediaStream stream_of(const cJSON *s, const std::string &server)
 {
     MediaStream m;
-    m.index = (int)num_of(s, "Index", -1);
+    m.index = int_of(s, "Index", -1);
     m.type = str_of(s, "Type");
     m.codec = str_of(s, "Codec");
     m.language = str_of(s, "Language");
@@ -198,11 +243,17 @@ MediaStream stream_of(const cJSON *s, const std::string &server)
          * SubType. Said the way Jellyfin does, so the badges and the Dolby Vision
          * check below read one language. */
         const std::string ext = str_of(s, "ExtendedVideoType"), sub = str_of(s, "ExtendedVideoSubType");
-        if (ext == "DolbyVision")
-            m.video_range_type = sub == "DoviProfile50"   ? "DOVI"   /* no compatible base layer */
-                                 : sub == "DoviProfile84" ? "DOVIWithHLG"
-                                 : sub == "DoviProfile82" ? "DOVIWithSDR"
-                                                          : "DOVIWithHDR10";
+        if (ext == "DolbyVision") {
+            /* "DoviProfile<profile><compatibility id>": the last digit is the base
+             * layer's (0 none, 1 and 6 HDR10, 2 SDR, 4 HLG); an unknown digit is
+             * treated as having none, so it is never played as HDR10 by mistake. No
+             * subtype at all keeps the old reading (HDR10). */
+            const char c = sub.size() == 13 && sub.compare(0, 11, "DoviProfile") == 0 ? sub[12] : '1';
+            m.video_range_type = c == '1' || c == '6' ? "DOVIWithHDR10"
+                                 : c == '2'           ? "DOVIWithSDR"
+                                 : c == '4'           ? "DOVIWithHLG"
+                                                      : "DOVI";
+        }
         else if (ext == "Hdr10")
             m.video_range_type = "HDR10";
         else if (ext == "Hdr10Plus")
@@ -214,14 +265,15 @@ MediaStream stream_of(const cJSON *s, const std::string &server)
         if (!ext.empty())
             m.video_range = m.video_range_type == "SDR" || m.video_range_type == "DOVIWithSDR" ? "SDR" : "HDR";
     }
-    m.width = (int)num_of(s, "Width", 0);
-    m.height = (int)num_of(s, "Height", 0);
-    m.channels = (int)num_of(s, "Channels", 0);
-    m.bit_depth = (int)num_of(s, "BitDepth", 0);
+    m.width = int_of(s, "Width", 0);
+    m.height = int_of(s, "Height", 0);
+    m.channels = int_of(s, "Channels", 0);
+    m.bit_depth = int_of(s, "BitDepth", 0);
     m.is_default = bool_of(s, "IsDefault");
     m.is_forced = bool_of(s, "IsForced");
     m.is_external = bool_of(s, "IsExternal");
     m.is_text = bool_of(s, "IsTextSubtitleStream");
+    m.delivery_method = str_of(s, "DeliveryMethod");
     const std::string d = str_of(s, "DeliveryUrl");
     if (!d.empty())
         m.delivery_url = d.rfind("http", 0) == 0 ? d : server + d;
@@ -310,8 +362,8 @@ std::string Client::auth_header() const
 
 bool Client::get_json(const std::string &path, std::string *body, int timeout_s)
 {
-    HttpResponse r = tracked_request("GET", server_ + path, {auth_header(), "Accept: application/json"}, "",
-                                     timeout_s > 0 ? timeout_s : kTimeout);
+    HttpResponse r = tracked_request(unreachable_, "GET", server_ + path, {auth_header(), "Accept: application/json"},
+                                     "", timeout_s > 0 ? timeout_s : kTimeout);
     if (!r.ok()) {
         set_error("GET " + path + " -> " + std::to_string(r.status) + " " + r.error);
         return false;
@@ -322,7 +374,7 @@ bool Client::get_json(const std::string &path, std::string *body, int timeout_s)
 
 bool Client::post_json(const std::string &path, const std::string &json, std::string *body)
 {
-    HttpResponse r = tracked_request("POST", server_ + path, {auth_header(), "Accept: application/json"},
+    HttpResponse r = tracked_request(unreachable_, "POST", server_ + path, {auth_header(), "Accept: application/json"},
                                   json.empty() ? "{}" : json, kTimeout);
     if (!r.ok()) {
         set_error("POST " + path + " -> " + std::to_string(r.status) + " " + r.error);
@@ -504,9 +556,15 @@ bool Client::set_prefs(const UserPrefs &p)
     cJSON *j = cJSON_Parse(body.c_str());
     cJSON *cfg = cJSON_DetachItemFromObjectCaseSensitive(j, "Configuration");
     cJSON_Delete(j);
-    if (!cfg)
+    if (!cJSON_IsObject(cfg)) {
+        cJSON_Delete(cfg);
         return false;
-    auto put = [cfg](const char *k, cJSON *v) { cJSON_ReplaceItemInObjectCaseSensitive(cfg, k, v); };
+    }
+    /* A key the server left out is added; replace alone would fail and leak v. */
+    auto put = [cfg](const char *k, cJSON *v) {
+        if (!cJSON_ReplaceItemInObjectCaseSensitive(cfg, k, v) && !cJSON_AddItemToObject(cfg, k, v))
+            cJSON_Delete(v);
+    };
     put("AudioLanguagePreference", cJSON_CreateString(p.audio_language.c_str()));
     put("SubtitleLanguagePreference", cJSON_CreateString(p.subtitle_language.c_str()));
     put("SubtitleMode", cJSON_CreateString(p.subtitle_mode.empty() ? "Default" : p.subtitle_mode.c_str()));
@@ -539,7 +597,7 @@ std::vector<Item> Client::resume(int limit, const std::string &parent_id, std::s
     std::string body;
     if (!get_json((emby() ? "/Users/" + user_id_ + "/Items/Resume?UserId=" : "/UserItems/Resume?userId=") +
                       user_id_ + "&limit=" + std::to_string(limit) +
-                      "&mediaTypes=Video&enableTotalRecordCount=false&fields=" + kFields +
+                      "&mediaTypes=Video&enableTotalRecordCount=false&fields=" + kFields + kImages +
                       (parent_id.empty() ? std::string() : "&parentId=" + parent_id), &body))
         return {};
     if (raw)
@@ -551,7 +609,7 @@ std::vector<Item> Client::next_up(int limit, const std::string &series_id, std::
 {
     std::string body;
     std::string path = "/Shows/NextUp?userId=" + user_id_ + "&limit=" + std::to_string(limit) +
-                       "&enableResumable=false&fields=" + kFields;
+                       "&enableResumable=false&fields=" + kFields + kImages;
     if (!series_id.empty())
         path += "&seriesId=" + series_id;
     if (!get_json(path, &body))
@@ -579,7 +637,7 @@ std::vector<Item> Client::featured(int limit, std::string *raw)
     std::string body;
     if (!get_json("/Items?userId=" + user_id_ + "&IncludeItemTypes=Movie,Series&Recursive=true&SortBy=Random"
                   "&ImageTypes=Logo,Backdrop&EnableTotalRecordCount=false&Limit=" + std::to_string(limit * 2) +
-                  "&fields=" + kFields, &body))
+                  "&fields=" + kFields + kImages, &body))
         return {};
     if (raw)
         *raw = body;
@@ -601,7 +659,7 @@ std::vector<Item> Client::latest(const std::string &parent_id, int limit, std::s
     std::string body;
     if (!get_json((emby() ? "/Users/" + user_id_ + "/Items/Latest?UserId=" : "/Items/Latest?userId=") + user_id_ +
                       "&parentId=" + parent_id + "&limit=" +
-                      std::to_string(limit) + "&fields=" + kFields, &body))
+                      std::to_string(limit) + "&fields=" + kFields + kImages, &body))
         return {};
     if (raw)
         *raw = body;
@@ -628,12 +686,12 @@ Page Client::library(const std::string &parent_id, const std::string &types, con
                       "&IncludeItemTypes=" + types +
                       "&Recursive=true&SortBy=" + sort_by + "&SortOrder=" + (descending ? "Descending" : "Ascending") +
                       "&StartIndex=" + std::to_string(start) + "&Limit=" + std::to_string(limit) +
-                      "&fields=" + kFields + "&EnableTotalRecordCount=true" + filter, &body))
+                      "&fields=" + kFields + kImages + "&EnableTotalRecordCount=true" + filter, &body))
         return page;
     page.ok = true;
     page.items = items_of(body);
     if (cJSON *j = cJSON_Parse(body.c_str())) {
-        page.total = (int)num_of(j, "TotalRecordCount", (double)page.items.size());
+        page.total = int_of(j, "TotalRecordCount", (int)page.items.size());
         cJSON_Delete(j);
     }
     return page;
@@ -644,7 +702,7 @@ std::vector<Item> Client::search(const std::string &term, const std::string &typ
     std::string body;
     if (!get_json("/Items?userId=" + user_id_ + "&searchTerm=" + url_escape(term) + "&IncludeItemTypes=" + types +
                       "&Recursive=true&EnableTotalRecordCount=false&Limit=" + std::to_string(limit) +
-                      "&fields=" + kFields + ",ProviderIds", &body))   /* TMDB ids: Seerr's results match them */
+                      "&fields=" + kFields + ",ProviderIds" + kImages, &body))   /* TMDB ids: Seerr's results match them */
         return {};
     return items_of(body);
 }
@@ -654,7 +712,7 @@ std::vector<Client::Recommendation> Client::recommendations(int categories, int 
     std::vector<Recommendation> out;
     std::string body;
     if (!get_json("/Movies/Recommendations?userId=" + user_id_ + "&categoryLimit=" + std::to_string(categories) +
-                      "&itemLimit=" + std::to_string(items) + "&fields=" + kFields, &body))
+                      "&itemLimit=" + std::to_string(items) + "&fields=" + kFields + kImages, &body))
         return out;
     cJSON *j = cJSON_Parse(body.c_str());
     const cJSON *c;
@@ -685,16 +743,19 @@ std::vector<std::string> Client::genres()
 
 std::string Client::escape(const std::string &s) { return url_escape(s); }
 
-int unreachable_streak() { return g_unreachable.load(); }
-
-std::vector<std::string> Client::home_sections()
+std::vector<std::string> Client::home_sections(bool *ok)
 {
     std::vector<std::string> out;
+    if (ok)
+        *ok = true;
     if (!features().home_sections)
         return out;   /* Emby keeps its home elsewhere: the default order */
     std::string body;
-    if (!get_json("/DisplayPreferences/usersettings?userId=" + user_id_ + "&client=emby", &body))
+    if (!get_json("/DisplayPreferences/usersettings?userId=" + user_id_ + "&client=emby", &body)) {
+        if (ok)
+            *ok = false;
         return out;
+    }
     cJSON *j = cJSON_Parse(body.c_str());
     const cJSON *prefs = cJSON_GetObjectItemCaseSensitive(j, "CustomPrefs");
     for (int i = 0; i < 10; i++) {
@@ -709,7 +770,8 @@ std::vector<std::string> Client::home_sections()
 
 bool Client::ping()
 {
-    return tracked_request("GET", server_ + "/System/Info/Public", {"Accept: application/json"}, "", 5).ok();
+    return tracked_request(unreachable_, "GET", server_ + "/System/Info/Public", {"Accept: application/json"}, "", 5)
+        .ok();
 }
 
 std::vector<std::string> Client::genres_in(const std::string &parent_id, const std::string &types)
@@ -736,7 +798,7 @@ int Client::count_before(const std::string &parent_id, const std::string &types,
         return -1;
     int n = -1;
     if (cJSON *j = cJSON_Parse(body.c_str())) {
-        n = (int)num_of(j, "TotalRecordCount", -1);
+        n = int_of(j, "TotalRecordCount", -1);
         cJSON_Delete(j);
     }
     return n;
@@ -747,7 +809,7 @@ std::vector<Item> Client::genre_items(const std::string &genre, int limit)
     std::string body;
     if (!get_json("/Items?userId=" + user_id_ + "&Genres=" + url_escape(genre) +
                       "&IncludeItemTypes=Movie,Series&Recursive=true&SortBy=Random&EnableTotalRecordCount=false"
-                      "&Limit=" + std::to_string(limit) + "&fields=" + kFields, &body))
+                      "&Limit=" + std::to_string(limit) + "&fields=" + kFields + kImages, &body))
         return {};
     return items_of(body);
 }
@@ -817,7 +879,7 @@ std::vector<Item> Client::similar(const std::string &id, int limit)
 {
     std::string body;
     if (!get_json("/Items/" + id + "/Similar?userId=" + user_id_ + "&limit=" + std::to_string(limit) +
-                      "&fields=" + kFields, &body))
+                      "&fields=" + kFields + kImages, &body))
         return {};
     return items_of(body);
 }
@@ -828,14 +890,14 @@ std::vector<Item> Client::person_items(const std::string &person_id, const std::
     if (!get_json("/Items?userId=" + user_id_ + "&PersonIds=" + person_id + "&IncludeItemTypes=" + types +
                       "&Recursive=true&SortBy=PremiereDate,ProductionYear,SortName&SortOrder=Descending"
                       "&EnableTotalRecordCount=false&Limit=" +
-                      std::to_string(limit) + "&fields=" + kFields, &body))
+                      std::to_string(limit) + "&fields=" + kFields + kImages, &body))
         return {};
     return items_of(body);
 }
 
 bool Client::set_favorite(const std::string &id, bool favorite)
 {
-    HttpResponse r = tracked_request(favorite ? "POST" : "DELETE",
+    HttpResponse r = tracked_request(unreachable_, favorite ? "POST" : "DELETE",
                                   server_ + (emby() ? "/Users/" + user_id_ + "/FavoriteItems/" + id
                                                     : "/UserFavoriteItems/" + id + "?userId=" + user_id_),
                                   {auth_header()}, "", kTimeout);
@@ -901,7 +963,7 @@ std::vector<RemoteSubtitle> Client::search_subtitles(const std::string &item_id,
         x.provider = str_of(r, "ProviderName");
         x.language = str_of(r, "ThreeLetterISOLanguageName");
         x.format = str_of(r, "Format");
-        x.downloads = (int)num_of(r, "DownloadCount", 0);
+        x.downloads = int_of(r, "DownloadCount", 0);
         x.hash_match = bool_of(r, "IsHashMatch");
         x.forced = bool_of(r, "Forced");
         x.hearing_impaired = bool_of(r, "HearingImpaired");
@@ -914,7 +976,7 @@ std::vector<RemoteSubtitle> Client::search_subtitles(const std::string &item_id,
 
 bool Client::download_subtitle(const std::string &item_id, const std::string &subtitle_id)
 {
-    HttpResponse r = tracked_request("POST", server_ + "/Items/" + item_id + "/RemoteSearch/Subtitles/" +
+    HttpResponse r = tracked_request(unreachable_, "POST", server_ + "/Items/" + item_id + "/RemoteSearch/Subtitles/" +
                                               url_escape(subtitle_id),
                                   {auth_header()}, "", 60);
     if (!r.ok())
@@ -930,13 +992,13 @@ Page Client::album_artists(const std::string &parent_id, const std::string &sort
     if (!get_json("/Artists/AlbumArtists?userId=" + user_id_ +
                       (parent_id.empty() ? std::string() : "&parentId=" + parent_id) + "&SortBy=" + sort_by +
                       "&SortOrder=" + (descending ? "Descending" : "Ascending") + "&StartIndex=" +
-                      std::to_string(start) + "&Limit=" + std::to_string(limit) + "&fields=" + kFields +
+                      std::to_string(start) + "&Limit=" + std::to_string(limit) + "&fields=" + kFields + kImages +
                       "&EnableTotalRecordCount=true", &body))
         return page;
     page.ok = true;
     page.items = items_of(body);
     if (cJSON *j = cJSON_Parse(body.c_str())) {
-        page.total = (int)num_of(j, "TotalRecordCount", (double)page.items.size());
+        page.total = int_of(j, "TotalRecordCount", (int)page.items.size());
         cJSON_Delete(j);
     }
     return page;
@@ -945,7 +1007,7 @@ Page Client::album_artists(const std::string &parent_id, const std::string &sort
 std::vector<Item> Client::playlist_items(const std::string &playlist_id)
 {
     std::string body;
-    if (!get_json("/Playlists/" + playlist_id + "/Items?userId=" + user_id_ + "&fields=" + kFields, &body))
+    if (!get_json("/Playlists/" + playlist_id + "/Items?userId=" + user_id_ + "&fields=" + kFields + kImages, &body))
         return {};
     return items_of(body);
 }
@@ -955,7 +1017,7 @@ std::vector<LyricLine> Client::lyrics(const std::string &item_id)
     std::vector<LyricLine> out;
     if (!features().lyrics)
         return out;
-    HttpResponse r = tracked_request("GET", server_ + "/Audio/" + item_id + "/Lyrics",
+    HttpResponse r = tracked_request(unreachable_, "GET", server_ + "/Audio/" + item_id + "/Lyrics",
                                   {auth_header(), "Accept: application/json"}, "", kTimeout);
     if (!r.ok())
         return out;   /* 404: no lyrics, not an error */
@@ -1006,18 +1068,20 @@ bool Client::post_capabilities()
                      nullptr);
 }
 
+bool Client::logout() { return post_json("/Sessions/Logout", "", nullptr); }
+
 std::vector<Item> Client::instant_mix(const std::string &id, int limit)
 {
     std::string body;
     if (!get_json("/Items/" + id + "/InstantMix?userId=" + user_id_ + "&limit=" + std::to_string(limit) +
-                      "&fields=" + kFields, &body))
+                      "&fields=" + kFields + kImages, &body))
         return {};
     return items_of(body);
 }
 
 bool Client::set_played(const std::string &id, bool played)
 {
-    HttpResponse r = tracked_request(played ? "POST" : "DELETE",
+    HttpResponse r = tracked_request(unreachable_, played ? "POST" : "DELETE",
                                   server_ + (emby() ? "/Users/" + user_id_ + "/PlayedItems/" + id
                                                     : "/UserPlayedItems/" + id + "?userId=" + user_id_),
                                   {auth_header()}, "", kTimeout);
@@ -1038,7 +1102,7 @@ std::vector<Item> Client::favorites(int limit, std::string *raw)
     std::string body;
     if (!get_json("/Items?userId=" + user_id_ + "&Filters=IsFavorite&IncludeItemTypes=Movie,Series,BoxSet"
                   "&Recursive=true&SortBy=DateCreated,SortName&SortOrder=Descending&EnableTotalRecordCount=false"
-                  "&Limit=" + std::to_string(limit) + "&fields=" + kFields, &body))
+                  "&Limit=" + std::to_string(limit) + "&fields=" + kFields + kImages, &body))
         return {};
     if (raw)
         *raw = body;
@@ -1049,7 +1113,7 @@ std::vector<Item> Client::children(const std::string &parent_id, const std::stri
 {
     std::string body;
     if (!get_json("/Items?userId=" + user_id_ + "&parentId=" + parent_id + "&SortBy=" + sort_by +
-                      "&EnableTotalRecordCount=false&Limit=" + std::to_string(limit) + "&fields=" + kFields, &body))
+                      "&EnableTotalRecordCount=false&Limit=" + std::to_string(limit) + "&fields=" + kFields + kImages, &body))
         return {};
     return items_of(body);
 }
@@ -1085,18 +1149,24 @@ bool Client::media_extras(const std::string &item_id, const std::string &media_s
     int best_w = 0;
     const cJSON *w;
     cJSON_ArrayForEach(w, src) {
-        const int width = (int)num_of(w, "Width");
+        const int width = in_range(num_of(w, "Width"), 1, 2048) ? (int)num_of(w, "Width") : 0;
         if (width > 0 && (!best || std::abs(width - 320) < std::abs(best_w - 320))) {
             best = w;
             best_w = width;
         }
     }
+    /* The scrub preview divides by the tiles and the interval, and sizes a sheet as
+     * width x tiles: numbers out of these bounds leave the item without trickplay. */
+    if (best && !(in_range(num_of(best, "Height"), 1, 2048) && in_range(num_of(best, "TileWidth"), 1, 32) &&
+                  in_range(num_of(best, "TileHeight"), 1, 32) && in_range(num_of(best, "ThumbnailCount"), 1, 100000) &&
+                  num_of(best, "Interval") >= 100))
+        best = nullptr;
     if (best) {
         tp->width = best_w;
-        tp->height = (int)num_of(best, "Height");
-        tp->tile_w = (int)num_of(best, "TileWidth");
-        tp->tile_h = (int)num_of(best, "TileHeight");
-        tp->count = (int)num_of(best, "ThumbnailCount");
+        tp->height = int_of(best, "Height");
+        tp->tile_w = int_of(best, "TileWidth");
+        tp->tile_h = int_of(best, "TileHeight");
+        tp->count = int_of(best, "ThumbnailCount");
         tp->interval = num_of(best, "Interval") / 1000.0;
         /* The sheets need the session: ApiKey (Jellyfin 12 refuses the legacy api_key). */
         tp->url_base = server_ + "/Videos/" + item_id + "/Trickplay/" + std::to_string(best_w) + "/";
@@ -1123,7 +1193,8 @@ void Client::emby_thumbnails(const std::string &item_id, Trickplay *tp)
     const int count = cJSON_GetArraySize(thumbs);
     const double aspect = num_of(j, "AspectRatio", 16.0 / 9.0);
     const cJSON *first = cJSON_GetArrayItem(thumbs, 0), *second = cJSON_GetArrayItem(thumbs, 1);
-    const int64_t step = (int64_t)(num_of(second, "PositionTicks") - num_of(first, "PositionTicks"));
+    const double first_ticks = num_of(first, "PositionTicks"), step_ticks = num_of(second, "PositionTicks") - first_ticks;
+    const int64_t step = in_range(step_ticks, 0, 1e12) ? (int64_t)step_ticks : 0;
     const std::string tag = str_of(first, "ImageTag");
     /* One tag for the set (as Emby gives it); thumbnails with tags of their own
      * could not be found by time alone: then none rather than wrong ones. */
@@ -1131,14 +1202,17 @@ void Client::emby_thumbnails(const std::string &item_id, Trickplay *tp)
     const cJSON *th;
     cJSON_ArrayForEach(th, thumbs)
         one_tag = one_tag && str_of(th, "ImageTag") == tag;
-    if (count >= 2 && step > 0 && aspect > 0 && !tag.empty() && one_tag) {
+    /* As for Jellyfin's sheets: a sane thumbnail size, count, start and interval (0.1 s and up). */
+    const double height = aspect > 0 ? kWidth / aspect + 0.5 : 0;
+    if (count >= 2 && count <= 100000 && step >= kTicksPerSecond / 10 && in_range(height, 1, 2048) &&
+        in_range(first_ticks, 0, 1e15) && !tag.empty() && one_tag) {
         tp->width = kWidth;
-        tp->height = (int)(kWidth / aspect + 0.5);
+        tp->height = (int)height;
         tp->tile_w = tp->tile_h = 1;
         tp->count = count;
         tp->interval = (double)step / kTicksPerSecond;
         tp->sheet_ticks = step;
-        tp->first_ticks = (int64_t)num_of(first, "PositionTicks");
+        tp->first_ticks = (int64_t)first_ticks;
         tp->url_base = server_ + "/Items/" + item_id + "/Images/Thumbnail?maxWidth=" + std::to_string(kWidth) +
                        "&quality=90&tag=" + url_escape(tag) + "&PositionTicks=";
         tp->url_query.clear();
@@ -1242,7 +1316,7 @@ std::string Client::image_url(const std::string &owner, const char *type, const 
       {"Condition": "LessThanEqual", "Property": "VideoBitDepth", "Value": "10", "IsRequired": false},
       {"Condition": "EqualsAny", "Property": "VideoProfile", "Value": "main", "IsRequired": false},
       {"Condition": "EqualsAny", "Property": "VideoRangeType",
-       "Value": "SDR|HDR10|HLG|DOVIWithHDR10|DOVIWithHLG|DOVIWithSDR|HDR10Plus", "IsRequired": false}]},
+       "Value": "SDR|HDR10|HLG|DOVIWithHDR10|DOVIWithHLG|DOVIWithSDR|DOVIWithEL|DOVIWithHDR10Plus|DOVIWithELHDR10Plus|HDR10Plus", "IsRequired": false}]},
     {"Type": "Video", "Codec": "av1",
      "ApplyConditions": [
       {"Condition": "GreaterThanEqual", "Property": "Width", "Value": "2560", "IsRequired": false}],
@@ -1265,7 +1339,7 @@ std::string Client::device_profile_json(int64_t max_bitrate)
      "Container": "mkv,webm,mp4,m4v,mov,ts,mpegts,m2ts,mts,avi,wmv,asf,flv,3gp,ogv,mpg,mpeg,vob",
      "VideoCodec": "h264,hevc,)" JELLY5_AV1_CODEC R"(vp9,mpeg2video,mpeg4,vc1,vp8,msmpeg4v3,wmv3,mpeg1video",
      "AudioCodec": "aac,ac3,eac3,truehd,dts,dca,flac,mp3,mp2,opus,vorbis,alac,pcm_s16le,pcm_s24le,pcm_s32le,pcm_bluray,wmav2,wmapro"},
-    {"Type": "Audio", "Container": "mp3,flac,aac,m4a,m4b,ogg,oga,opus,wav,alac,ape,wv,wma"}
+    {"Type": "Audio", "Container": "mp3,flac,aac,m4a,m4b,ogg,oga,opus,wav,alac,ape,wv,wma,asf,mka,mkv,aiff,dsf"}
   ],
   "TranscodingProfiles": [
     {"Type": "Video", "Container": "ts", "Protocol": "hls", "Context": "Streaming",
@@ -1276,13 +1350,17 @@ std::string Client::device_profile_json(int64_t max_bitrate)
   "CodecProfiles": [)" JELLY5_AV1_PROFILES R"(
     {"Type": "Video", "Codec": "h264", "Conditions": [
       {"Condition": "LessThanEqual", "Property": "Width", "Value": "3840", "IsRequired": false},
-      {"Condition": "LessThanEqual", "Property": "VideoLevel", "Value": "52", "IsRequired": false}]},
+      {"Condition": "LessThanEqual", "Property": "VideoLevel", "Value": "52", "IsRequired": false},
+      {"Condition": "NotEquals", "Property": "IsInterlaced", "Value": "true", "IsRequired": false}]},
     {"Type": "Video", "Codec": "hevc", "Conditions": [
       {"Condition": "LessThanEqual", "Property": "Width", "Value": "3840", "IsRequired": false},
+      {"Condition": "NotEquals", "Property": "IsInterlaced", "Value": "true", "IsRequired": false},
       {"Condition": "LessThanEqual", "Property": "VideoBitDepth", "Value": "10", "IsRequired": false},
       {"Condition": "EqualsAny", "Property": "VideoProfile", "Value": "main|main 10", "IsRequired": false},
       {"Condition": "EqualsAny", "Property": "VideoRangeType",
-       "Value": "SDR|HDR10|HLG|DOVIWithHDR10|DOVIWithHLG|DOVIWithSDR|HDR10Plus", "IsRequired": false}]},
+       "Value": "SDR|HDR10|HLG|DOVIWithHDR10|DOVIWithHLG|DOVIWithSDR|DOVIWithEL|DOVIWithHDR10Plus|DOVIWithELHDR10Plus|HDR10Plus", "IsRequired": false}]},
+    {"Type": "Video", "Codec": "mpeg2video,vc1", "Conditions": [
+      {"Condition": "NotEquals", "Property": "IsInterlaced", "Value": "true", "IsRequired": false}]},
     {"Type": "Video", "Codec": "vp9", "Conditions": [
       {"Condition": "LessThanEqual", "Property": "Width", "Value": "3840", "IsRequired": false}]}
   ],
@@ -1348,10 +1426,13 @@ bool Client::playback_info_as(const std::string &item_id, int64_t start_ticks, i
         req += ",\"AudioStreamIndex\":" + std::to_string(audio_index);
     if (subtitle_index >= -1)
         req += ",\"SubtitleStreamIndex\":" + std::to_string(subtitle_index);
+    if (!emby())   /* Jellyfin 12: the userId query is deprecated for the body's UserId */
+        req += ",\"UserId\":\"" + user_id_ + "\"";
     req += "}";
 
     std::string body;
-    if (!post_json("/Items/" + item_id + "/PlaybackInfo?userId=" + user_id_, req, &body))
+    if (!post_json("/Items/" + item_id + "/PlaybackInfo" + (emby() ? "?userId=" + user_id_ : std::string()), req,
+                   &body))
         return false;
     cJSON *j = cJSON_Parse(body.c_str());
     const std::string session = str_of(j, "PlaySessionId");
@@ -1370,17 +1451,25 @@ bool Client::playback_info_as(const std::string &item_id, int64_t start_ticks, i
         Candidate c{ms, Version(), 0, false};
         c.v.id = str_of(ms, "Id");
         c.v.name = str_of(ms, "Name");
-        c.v.bitrate = (int64_t)num_of(ms, "Bitrate", 0);
+        c.v.bitrate = i64_of(ms, "Bitrate", 0);
+        c.v.default_audio = int_of(ms, "DefaultAudioStreamIndex", -1);
+        c.v.default_subtitle = int_of(ms, "DefaultSubtitleStreamIndex", -1);
         std::string codec, range;
         bool dv5 = false;
         const cJSON *s;
-        cJSON_ArrayForEach(s, cJSON_GetObjectItemCaseSensitive(ms, "MediaStreams"))
+        cJSON_ArrayForEach(s, cJSON_GetObjectItemCaseSensitive(ms, "MediaStreams")) {
+            c.v.streams.push_back(stream_of(s, server_));
             if (str_of(s, "Type") == "Video" && c.v.height == 0) {
-                c.v.height = (int)num_of(s, "Height", 0);
+                c.v.height = int_of(s, "Height", 0);
                 codec = str_of(s, "Codec");
                 range = str_of(s, "VideoRange");
-                dv5 = stream_of(s, server_).video_range_type == "DOVI";
+                dv5 = c.v.streams.back().video_range_type == "DOVI";
+            } else if (str_of(s, "Type") == "Subtitle" && str_of(s, "DeliveryMethod") == "External" &&
+                       !bool_of(s, "IsExternal")) {
+                if (!c.v.streams.back().delivery_url.empty())
+                    c.v.served_subtitles.push_back(c.v.streams.back());
             }
+        }
         const std::string transcoding = str_of(ms, "TranscodingUrl");
         if (bool_of(ms, "SupportsDirectPlay") && !transcode) {
             c.v.play_method = "DirectPlay";
@@ -1390,7 +1479,7 @@ bool Client::playback_info_as(const std::string &item_id, int64_t start_ticks, i
                       "&playSessionId=" + session + "&" + token_param() + "=" + token_;
             c.rank = 3;
         } else if (!transcoding.empty()) {
-            c.v.play_method = transcoding.find("/stream") != std::string::npos ? "DirectStream" : "Transcode";
+            c.v.play_method = transcode ? "Transcode" : method_of(transcoding, !codec.empty());
             c.v.url = server_ + transcoding;
             c.rank = c.v.play_method == "DirectStream" ? 2 : 1;
         } else {
@@ -1427,11 +1516,9 @@ bool Client::playback_info_as(const std::string &item_id, int64_t start_ticks, i
     pb.media_source_id = str_of(ms, "Id");
     pb.play_session_id = session;
     pb.container = str_of(ms, "Container");
-    pb.default_audio = (int)num_of(ms, "DefaultAudioStreamIndex", -1);
-    pb.default_subtitle = (int)num_of(ms, "DefaultSubtitleStreamIndex", -1);
-    const cJSON *s;
-    cJSON_ArrayForEach(s, cJSON_GetObjectItemCaseSensitive(ms, "MediaStreams"))
-        pb.streams.push_back(stream_of(s, server_));
+    pb.default_audio = found.front().v.default_audio;
+    pb.default_subtitle = found.front().v.default_subtitle;
+    pb.streams = found.front().v.streams;
     pb.play_method = found.front().v.play_method;
     pb.url = found.front().v.url;
     const std::string transcoding = str_of(ms, "TranscodingUrl");
@@ -1445,15 +1532,28 @@ bool Client::playback_info_as(const std::string &item_id, int64_t start_ticks, i
     return true;
 }
 
-static std::string report_body(const Playback &pb, int64_t position_ticks, bool paused, bool with_method)
+/* With cJSON: the ids come from the server and are escaped, not pasted in. */
+static std::string report_body(const Playback &pb, int64_t position_ticks, bool paused, bool with_method,
+                               int audio_index = -1, int subtitle_index = -2)
 {
-    std::string b = "{\"ItemId\":\"" + pb.item_id + "\",\"MediaSourceId\":\"" + pb.media_source_id +
-                    "\",\"PlaySessionId\":\"" + pb.play_session_id +
-                    "\",\"PositionTicks\":" + std::to_string(position_ticks) +
-                    ",\"IsPaused\":" + (paused ? "true" : "false") + ",\"CanSeek\":true";
+    cJSON *o = cJSON_CreateObject();
+    cJSON_AddStringToObject(o, "ItemId", pb.item_id.c_str());
+    cJSON_AddStringToObject(o, "MediaSourceId", pb.media_source_id.c_str());
+    cJSON_AddStringToObject(o, "PlaySessionId", pb.play_session_id.c_str());
+    cJSON_AddRawToObject(o, "PositionTicks", std::to_string(position_ticks).c_str());   /* exact, past 2^53 too */
+    cJSON_AddBoolToObject(o, "IsPaused", paused);
+    cJSON_AddTrueToObject(o, "CanSeek");
     if (with_method)
-        b += ",\"PlayMethod\":\"" + pb.play_method + "\"";
-    return b + "}";
+        cJSON_AddStringToObject(o, "PlayMethod", pb.play_method.c_str());
+    if (audio_index >= 0)
+        cJSON_AddNumberToObject(o, "AudioStreamIndex", audio_index);
+    if (subtitle_index >= -1)   /* -1: off */
+        cJSON_AddNumberToObject(o, "SubtitleStreamIndex", subtitle_index);
+    char *text = cJSON_PrintUnformatted(o);
+    std::string b = text ? text : "{}";
+    cJSON_free(text);
+    cJSON_Delete(o);
+    return b;
 }
 
 void Client::report_start(const Playback &pb, int64_t position_ticks)
@@ -1461,9 +1561,11 @@ void Client::report_start(const Playback &pb, int64_t position_ticks)
     post_json("/Sessions/Playing", report_body(pb, position_ticks, false, true), nullptr);
 }
 
-void Client::report_progress(const Playback &pb, int64_t position_ticks, bool paused)
+void Client::report_progress(const Playback &pb, int64_t position_ticks, bool paused, int audio_index,
+                             int subtitle_index)
 {
-    post_json("/Sessions/Playing/Progress", report_body(pb, position_ticks, paused, true), nullptr);
+    post_json("/Sessions/Playing/Progress",
+              report_body(pb, position_ticks, paused, true, audio_index, subtitle_index), nullptr);
 }
 
 void Client::report_stopped(const Playback &pb, int64_t position_ticks)
@@ -1475,7 +1577,7 @@ void Client::stop_encoding(const Playback &pb)
 {
     if (pb.play_method == "DirectPlay")
         return;
-    tracked_request("DELETE",
+    tracked_request(unreachable_, "DELETE",
                  server_ + "/Videos/ActiveEncodings?deviceId=" + url_escape(device_id_) +
                      "&playSessionId=" + pb.play_session_id,
                  {auth_header()}, "", kTimeout);

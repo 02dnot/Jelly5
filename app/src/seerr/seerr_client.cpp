@@ -5,6 +5,7 @@
 #include "seerr/seerr_client.h"
 
 #include "jf/jf_http.h"
+#include "jf/json_num.h"
 
 #include <atomic>
 #include <cctype>
@@ -33,7 +34,10 @@ double num_of(const cJSON *o, const char *key, double fallback = 0)
     return cJSON_IsNumber(v) ? v->valuedouble : fallback;
 }
 
-int int_of(const cJSON *o, const char *key, int fallback = 0) { return (int)num_of(o, key, fallback); }
+int int_of(const cJSON *o, const char *key, int fallback = 0)
+{
+    return jf::to_int<int>(num_of(o, key, fallback), fallback);
+}
 
 bool bool_of(const cJSON *o, const char *key, bool fallback = false)
 {
@@ -400,7 +404,7 @@ bool Client::user_from(const std::string &body, User *out)
         for (const char *k : {"username", "jellyfinUsername", "email"})
             if (out->name.empty())
                 out->name = str_of(j, k);
-        out->permissions = (uint32_t)(int64_t)num_of(j, "permissions");
+        out->permissions = (uint32_t)jf::to_int<int64_t>(num_of(j, "permissions"));
     }
     cJSON_Delete(j);
     if (id <= 0)
@@ -672,7 +676,7 @@ bool Client::server_details(bool tv, int server_id, Server *out)
     cJSON_ArrayForEach(v, cJSON_GetObjectItemCaseSensitive(j, "profiles"))
         out->profiles.push_back({int_of(v, "id"), str_of(v, "name")});
     cJSON_ArrayForEach(v, cJSON_GetObjectItemCaseSensitive(j, "rootFolders"))
-        out->folders.push_back({int_of(v, "id"), str_of(v, "path"), (int64_t)num_of(v, "freeSpace")});
+        out->folders.push_back({int_of(v, "id"), str_of(v, "path"), jf::to_int<int64_t>(num_of(v, "freeSpace"))});
     cJSON_Delete(j);
     return out->id == server_id;
 }
@@ -723,14 +727,11 @@ std::string Client::request_json(const RequestOptions &o)
     if (o.tv) {
         if (o.tvdb_id > 0)
             cJSON_AddNumberToObject(j, "tvdbId", o.tvdb_id);
-        if (o.seasons.empty()) {
-            cJSON_AddStringToObject(j, "seasons", "all");
-        } else {
-            cJSON *s = cJSON_CreateArray();
-            for (int n : o.seasons)
-                cJSON_AddItemToArray(s, cJSON_CreateNumber(n));
-            cJSON_AddItemToObject(j, "seasons", s);
-        }
+        /* Always the list, never "all": Seerr's "all" leaves out the specials. */
+        cJSON *s = cJSON_CreateArray();
+        for (int n : o.seasons)
+            cJSON_AddItemToArray(s, cJSON_CreateNumber(n));
+        cJSON_AddItemToObject(j, "seasons", s);
     }
     if (o.server_id >= 0)
         cJSON_AddNumberToObject(j, "serverId", o.server_id);
@@ -748,6 +749,10 @@ std::string Client::request_json(const RequestOptions &o)
 RequestResult Client::request(const RequestOptions &o)
 {
     RequestResult res;
+    if (o.tv && o.seasons.empty()) {   /* no season picked: nothing to send */
+        res.outcome = RequestResult::NothingToRequest;
+        return res;
+    }
     Reply r = call("POST", "/request", request_json(o));
     if (r.status >= 200 && r.status < 300) {
         /* 201 with the request; 202 (nothing left to ask for) carries only a
