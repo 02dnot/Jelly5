@@ -580,8 +580,8 @@ void Library::draw_filters(float dt)
         if (!value.empty()) {
             const int fr = i - kNumSorts;
             const bool on = value != T("Av") && value != T("Alle");
-            gfx::text(r.x + w - 60 - (focus && fr >= FGenre ? 30 : 0), cy, value, {gfx::Medium, 23, 330},
-                      alpha(on ? kText : kText3, a), 2);
+            marquee_text(r.x + w - 60 - (focus && fr >= FGenre ? 30 : 0), cy, value, {gfx::Medium, 23, 330},
+                         alpha(on ? kText : kText3, a), focus, 2);
             if (focus && (fr == FGenre || fr == FDecade))
                 gfx::text(r.x + w - 56, cy, "\xE2\x80\xBA", {gfx::Bold, 30}, alpha(kText2, a), 2);
         }

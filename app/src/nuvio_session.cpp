@@ -165,6 +165,7 @@ bool nuvio_request_parse(const char *json, NuvioRequest &r)
     r.id = str_of(root, "id");
     r.url = str_of(root, "url");
     r.play_method = str_of(root, "playMethod");
+    r.sync_stop_url = str_of(root, "syncStop");
     r.transcode_reasons = str_of(root, "transcodeReasons");
     r.headers = nuvio_headers_from_json(cJSON_GetObjectItemCaseSensitive(root, "headers"), &r.user_agent);
     r.title = str_of(root, "title");
@@ -209,6 +210,11 @@ bool nuvio_request_parse(const char *json, NuvioRequest &r)
         s.url = str_of(it, "url");
         s.quality = str_of(it, "quality");
         s.headers = nuvio_headers_from_json(cJSON_GetObjectItemCaseSensitive(it, "headers"), &s.user_agent);
+        const cJSON *e;
+        cJSON_ArrayForEach(e, cJSON_GetObjectItemCaseSensitive(it, "syncAudio"))
+            s.sync_audio[int_of<int>(e, "stream", -1)] = str_of(e, "url");
+        cJSON_ArrayForEach(e, cJSON_GetObjectItemCaseSensitive(it, "syncSubtitles"))
+            s.sync_subtitles[int_of<int>(e, "stream", -1)] = str_of(e, "url");
         if (!s.url.empty())
             r.sources.push_back(s);
     }

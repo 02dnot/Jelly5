@@ -170,10 +170,11 @@ void SyncPlayScreen::draw(double now, float dt)
         const bool focus = (int)r == m_row;
         const gfx::Rect rr{left, ys[r], width, 84};
         const uint32_t fg = rows[r].danger ? 0xffff7a7au : kText;
-        gfx::text(rr.x + 32, rr.y + rr.h / 2 + 9, rows[r].label, {focus ? gfx::Bold : gfx::SemiBold, 26, width - 500}, fg);
+        marquee_text(rr.x + 32, rr.y + rr.h / 2 + 9, rows[r].label, {focus ? gfx::Bold : gfx::SemiBold, 26, width - 500},
+                     fg, focus);
         if (!rows[r].value.empty())
-            gfx::text(rr.x + rr.w - 32, rr.y + rr.h / 2 + 9, rows[r].value, {gfx::Medium, 22, 440},
-                      focus ? kText : kText2, 2);
+            marquee_text(rr.x + rr.w - 32, rr.y + rr.h / 2 + 9, rows[r].value, {gfx::Medium, 22, 440},
+                         focus ? kText : kText2, focus, 2);
     }
     if (clip)
         gfx::pop_scissor();

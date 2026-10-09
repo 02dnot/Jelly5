@@ -234,10 +234,10 @@ void NowPlaying::draw_queue(float dt)
         if (y > r.y + r.h || y + row_h < lt)
             continue;
         const bool focus = m_queue && m_qrow == i + 1;
-        gfx::text(r.x + 64, y + 32, up[i].name, {focus ? gfx::Bold : gfx::SemiBold, 24, w - 140},
-                  alpha(focus ? kText : kText2, a));
-        gfx::text(r.x + 64, y + 58, up[i].album_artist.empty() ? up[i].album : up[i].album_artist,
-                  {gfx::Medium, 19, w - 140}, alpha(kText3, a));
+        marquee_text(r.x + 64, y + 32, up[i].name, {focus ? gfx::Bold : gfx::SemiBold, 24, w - 140},
+                     alpha(focus ? kText : kText2, a), focus);
+        marquee_text(r.x + 64, y + 58, up[i].album_artist.empty() ? up[i].album : up[i].album_artist,
+                     {gfx::Medium, 19, w - 140}, alpha(kText3, a), focus);
     }
     gfx::pop_fade_mask();
     gfx::pop_scissor();

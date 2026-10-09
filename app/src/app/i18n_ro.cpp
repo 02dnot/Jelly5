@@ -152,7 +152,7 @@ const std::unordered_map<std::string, const char *> &romanian_table()
         {"Henter …", "Se încarcă …"},
         {"Ingenting her ennå", "Nimic aici încă"},
         {"Filmer, serier, personer, musikk", "Filme, seriale, persoane, muzică"},
-        {"mellomrom", "spațiu"},
+        {"mellomrom", "spațiu"}, {"Mellomrom", "Spațiu"},
         {"⌫ slett", "⌫ șterge"},
         {"▢ sletter", "▢ șterge"},
         {"Forslag", "Sugestii"},
@@ -536,6 +536,13 @@ const std::unordered_map<std::string, const char *> &romanian_table()
         {"Oppskalering: bruker et mindre AI-nett, GPU-en rakk ikke mer", "Scalare: rețea IA mai mică, GPU-ul nu a ținut pasul"},
         {"Oppskalering: bruker Skarp, GPU-en rakk ikke AI", "Scalare: Clar, GPU-ul nu a ținut pasul cu IA"},
         {"Oppskalering er slått av: GPU-en rakk det ikke", "Scalarea e dezactivată: GPU-ul nu a ținut pasul"},
+        {"Kunne ikke starte", "Nu s-a putut porni"},
+        {"Undertekstene er synkronisert (%+.1f s)", "Subtitrări sincronizate (%+.1f s)"},
+        {"Ingen sikker match", "Nicio potrivire sigură"},
+        {"Fant ingen sikker match – juster forsinkelsen selv", "Nu s-a găsit o potrivire sigură – ajustați singur întârzierea"},
+        {"Kunne ikke lese lyden", "Nu s-a putut citi sunetul"},
+        {"Synkroniser automatisk", "Sincronizare automată"},
+        {"Lytter … %d %%", "Ascult … %d %%"},
     };
     return t;
 }

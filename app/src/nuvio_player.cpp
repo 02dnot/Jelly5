@@ -42,6 +42,7 @@
 #include "evo_boot_trace.h"
 #include "evo_playback.h"
 #include "evo_stream_io.h"
+#include "evo_subsync.h"
 #include "evo_thread.h"
 #include "evo_vdec.h"
 #include "pp_playback.h"
@@ -435,6 +436,14 @@ struct Session {
     int64_t last_pts = INT64_MIN;
     NuvioStatus st;
     std::vector<int> audio_streams;   /* status.audio index -> stream */
+    int sync_track = -1;              /* subtitle auto-sync: the track it runs (or ran) on */
+    bool sync_external = false;       /* ... an external one (only those take a rate) */
+    std::string sync_result;
+    /* Auto-sync's rate belongs to the external file it was found for (by URL, as
+     * resub_url): another track on screen runs at 1.0 (sync_scale_follow). */
+    std::string scale_url;
+    double scale_value = 1.0;
+    int scale_sel = -2;               /* the track the rate was last set for */
 };
 
 void update_hdr(bool playing)
@@ -740,8 +749,11 @@ std::string playing_source(const NuvioRequest &req)
  * an addon or a search added, the delay, and which track was on (found again by
  * restore_subtitles; an embedded one only when the same file opens again). Indices
  * change: embedded tracks come after the externals once the stream is open. */
+void sync_cancel(Session &s);
+
 static void reset_subtitles(Session &s, bool same_file, const std::string &source_id)
 {
+    sync_cancel(s);   /* the tracks are made anew: a run's result would land on another */
     std::vector<NuvioSubtitleRef> ext;
     const int sel = nuvio_subs_selected(), n = nuvio_subs_count();
     if (!s.resub_pending) {   /* not still waiting from a reopen that never opened */
@@ -769,8 +781,11 @@ static void reset_subtitles(Session &s, bool same_file, const std::string &sourc
         s.resub_stream = -1;   /* another file: its stream indices are other tracks */
     s.resub_pending = !s.resub_url.empty() || s.resub_stream >= 0;
     const int delay = nuvio_subs_delay_ms();
-    nuvio_subs_close();
+    nuvio_subs_close();   /* (the rate back to 1.0: sync_scale_follow sets it again) */
     nuvio_subs_set_delay_ms(delay);
+    s.scale_sel = -2;
+    if (!same_file)
+        s.scale_url.clear();   /* another file: other timing */
     add_request_subtitles(s.req, source_id);
     for (const NuvioSubtitleRef &r : ext) {
         bool requested = false;   /* the request's own: added above, or another version's */
@@ -841,6 +856,152 @@ void open_source(Session &s, int index, double at)
     evo_bt("nuvio: opening source %d at %.1f s", index, at);
 }
 
+/* Subtitle auto-sync listens to the film's dialogue: on direct play only (a transcode's
+ * timeline is the server's, a live channel has none), for a text track. The audio
+ * comes from the server alone (jf::Client::sync_audio_url, a few MB a window), an
+ * embedded track's cues as the server's file of it. The film's own file is read
+ * instead only when it is small (<= 10 Mbit/s): a 4K remux would be gigabytes. */
+struct SyncPlan {
+    std::string audio_url, cue_url;
+    bool file_ok = false;   /* the file itself may be read (also when the server's audio fails) */
+};
+
+bool sync_plan(const Session &s, SyncPlan *plan)
+{
+    const std::string &u = s.job.src.url;
+    if (!s.started || u.find("static=true") == std::string::npos || u.find("liveStreamId=") != std::string::npos ||
+        evo_stream_io_url_is_playlist(u.c_str()) || !evo_subsync_path_supported(u.c_str()))
+        return false;
+    nuvio_sub_track t;
+    const int sel = nuvio_subs_selected();
+    if (sel < 0 || nuvio_subs_track(sel, &t) != 0 || t.bitmap || t.state != 1 || (!t.external && t.stream < 0))
+        return false;
+    const NuvioSource *src = s.req.source_index >= 0 && s.req.source_index < (int)s.req.sources.size()
+                                 ? &s.req.sources[s.req.source_index]
+                                 : nullptr;
+    plan->file_ok = play_fmt && play_fmt->bit_rate > 0 && play_fmt->bit_rate <= 10000000;
+    if (src) {
+        const auto a = src->sync_audio.find(s_pb->getActiveAudioStream());
+        const auto c = t.external ? src->sync_subtitles.end() : src->sync_subtitles.find(t.stream);
+        if (a != src->sync_audio.end() && (t.external || c != src->sync_subtitles.end())) {
+            plan->audio_url = a->second;
+            if (!t.external)
+                plan->cue_url = c->second;
+        }
+    }
+    return !plan->audio_url.empty() || plan->file_ok;
+}
+
+bool sync_possible(const Session &s)
+{
+    SyncPlan plan;
+    return sync_plan(s, &plan);
+}
+
+void sync_cancel(Session &s)
+{
+    if (evo_subsync_running())
+        evo_subsync_cancel();
+    s.sync_track = -1;
+    s.sync_result.clear();
+}
+
+void sync_start(Session &s)
+{
+    if (evo_subsync_running()) {   /* a second press stops it */
+        sync_cancel(s);
+        return;
+    }
+    SyncPlan plan;
+    if (!sync_plan(s, &plan))
+        return;
+    const int sel = nuvio_subs_selected();
+    nuvio_sub_track t;
+    if (nuvio_subs_track(sel, &t) != 0)
+        return;
+    evo_subsync_set_request_headers(s.req.headers.c_str(), s.req.user_agent.c_str());
+    evo_subsync_set_server_source(plan.audio_url.c_str(), plan.cue_url.c_str(), s.req.sync_stop_url.c_str(),
+                                  s_pb->getDurationSeconds(), plan.file_ok ? 1 : 0);
+    const int audio = s_pb->getActiveAudioStream();
+    int ok = 0;
+    if (t.external) {
+        double *cs = nullptr, *ce = nullptr;
+        const int n = nuvio_subs_cues(sel, &cs, &ce);
+        ok = n > 0 && evo_subsync_start(s.job.src.url.c_str(), audio, -1, cs, ce, n);
+        std::free(cs);
+        std::free(ce);
+    } else {
+        ok = evo_subsync_start(s.job.src.url.c_str(), audio, t.stream, nullptr, nullptr, 0);
+    }
+    s.sync_track = sel;
+    s.sync_external = t.external != 0;
+    s.sync_result = ok ? std::string() : std::string(T("Kunne ikke starte"));
+    evo_bt("subsync: %s for subtitle track %d (%s, audio %s)", ok ? "started" : "not started", sel,
+           t.external ? "external" : "embedded", plan.audio_url.empty() ? "from the file" : "from the server");
+}
+
+/* A finished run: its delay (and rate) for the track it ran on, if that is still on.
+ * The row in Tilpass undertekster keeps a short outcome; a toast says it in full. */
+void sync_poll(Session &s, double now)
+{
+    evo_subsync_result_t r;
+    if (!evo_subsync_take_result(&r))
+        return;
+    evo_bt("subsync: status %d, %+.2f s, scale %.5f, %d windows", r.status, r.delay_s, r.scale, r.windows_used);
+    char b[160];
+    /* An embedded track is offset only (its rate is the film's; render stretches
+     * only external ones): a rate found for one is no trustworthy answer. */
+    if (r.status == EVO_SUBSYNC_OK && !s.sync_external && std::fabs(r.scale - 1.0) > 1e-6)
+        r.status = EVO_SUBSYNC_LOW_CONF;
+    if (r.status == EVO_SUBSYNC_OK && s.sync_track == nuvio_subs_selected()) {
+        nuvio_subs_set_delay_ms((int)std::lround(r.delay_s * 1000.0));
+        if (s.sync_external) {
+            char *url = nullptr, *headers = nullptr;
+            int stream = -1;
+            if (nuvio_subs_track_source(s.sync_track, &url, &headers, &stream) == 0 && url) {
+                s.scale_url = url;
+                s.scale_value = r.scale;
+                s.scale_sel = -2;   /* set now, by sync_scale_follow */
+            }
+            std::free(url);
+            std::free(headers);
+        }
+        const char *ratio = evo_subsync_ratio_label(r.scale);   /* "25->23.976 fps" */
+        std::snprintf(b, sizeof b, "%+.1f s%s%s", r.delay_s, ratio ? "  \xC2\xB7  " : "", ratio ? ratio : "");
+        s.sync_result = b;
+        std::snprintf(b, sizeof b, T("Undertekstene er synkronisert (%+.1f s)"), r.delay_s);
+        s_osd.toast(b, now);
+    } else if (r.status == EVO_SUBSYNC_LOW_CONF) {
+        s.sync_result = T("Ingen sikker match");
+        s_osd.toast(T("Fant ingen sikker match \xE2\x80\x93 juster forsinkelsen selv"), now);
+    } else if (r.status == EVO_SUBSYNC_ERROR) {
+        s.sync_result = T("Kunne ikke lese lyden");
+        s_osd.toast(s.sync_result, now);
+    } else {
+        s.sync_result.clear();   /* stopped, or another track since: nothing to apply */
+    }
+}
+
+/* The rate auto-sync found applies to its own external file only: each time the
+ * track on screen changes (or the tracks were made anew), 1.0 unless it is that one. */
+void sync_scale_follow(Session &s)
+{
+    const int sel = nuvio_subs_selected();
+    if (sel == s.scale_sel)
+        return;
+    s.scale_sel = sel;
+    double scale = 1.0;
+    if (sel >= 0 && !s.scale_url.empty()) {
+        char *url = nullptr, *headers = nullptr;
+        int stream = -1;
+        if (nuvio_subs_track_source(sel, &url, &headers, &stream) == 0 && url && s.scale_url == url)
+            scale = s.scale_value;
+        std::free(url);
+        std::free(headers);
+    }
+    nuvio_subs_set_scale(scale);
+}
+
 void apply(Session &s, const OsdCommand &c)
 {
     switch (c.cmd) {
@@ -887,6 +1048,8 @@ void apply(Session &s, const OsdCommand &c)
         }
         break;
     case OsdCmd::SelectSubtitle:
+        if (c.index != s.sync_track)
+            sync_cancel(s);   /* it ran for the other track */
         s.user_picked_subs = true;
         s.keep_subs_pending = false;
         s.res.subtitle_picked = true;
@@ -899,6 +1062,9 @@ void apply(Session &s, const OsdCommand &c)
         break;
     case OsdCmd::SetViewMode:
         s_pb->setViewMode((evo::ViewMode)c.index);
+        break;
+    case OsdCmd::SubtitleAutoSync:
+        sync_start(s);
         break;
     case OsdCmd::SwitchSource:
         if (c.index >= 0 && c.index < (int)s.req.sources.size() && !s.job.running) {
@@ -1210,6 +1376,12 @@ extern "C" void nuvio_player_run(const char *json)
             int vq = 0, aq = 0, ab = 0;
             evo_pb_queue_depth(&vq, &aq, &ab);
             s.st.buffered = s.st.position + evo_demux_buffered_s();
+            sync_poll(s, now);
+            sync_scale_follow(s);
+            s.st.sync_running = evo_subsync_running() != 0;
+            s.st.sync_progress = evo_subsync_progress();
+            s.st.sync_possible = s.st.sync_running || sync_possible(s);
+            s.st.sync_result = s.sync_track == nuvio_subs_selected() ? s.sync_result : std::string();
             static double s_stats_at = 0;
             if (s_osd.stats_shown() && now - s_stats_at >= 1.0) {
                 s_stats_at = now;
@@ -1466,6 +1638,7 @@ extern "C" void nuvio_player_run(const char *json)
     evo_bt("nuvio: %s at %.1f / %.1f s%s%s%s%s", s.res.state.c_str(), s.res.position, s.res.duration,
            s.res.action.empty() ? "" : " -> ", s.res.action.c_str(), s.res.error.empty() ? "" : " - ",
            s.res.error.c_str());
+    sync_cancel(s);
     s_pb->stopPlayback();
     screen = kScreenNone;
     nuvio_subs_close();

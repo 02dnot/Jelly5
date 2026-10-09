@@ -152,7 +152,7 @@ const std::unordered_map<std::string, const char *> &chinese_simplified_table()
         {"Henter …", "正在加载 …"},
         {"Ingenting her ennå", "暂无内容"},
         {"Filmer, serier, personer, musikk", "电影、剧集、人物、音乐"},
-        {"mellomrom", "空格"},
+        {"mellomrom", "空格"}, {"Mellomrom", "空格"},
         {"⌫ slett", "⌫ 删除"},
         {"▢ sletter", "▢ 删除"},
         {"Forslag", "建议"},
@@ -536,6 +536,13 @@ const std::unordered_map<std::string, const char *> &chinese_simplified_table()
         {"Oppskalering: bruker et mindre AI-nett, GPU-en rakk ikke mer", "超分辨率：GPU 跟不上，改用较小的 AI 网络"},
         {"Oppskalering: bruker Skarp, GPU-en rakk ikke AI", "超分辨率：GPU 跟不上 AI，改用锐利"},
         {"Oppskalering er slått av: GPU-en rakk det ikke", "超分辨率已关闭：GPU 跟不上"},
+        {"Kunne ikke starte", "无法开始"},
+        {"Undertekstene er synkronisert (%+.1f s)", "字幕已同步（%+.1f 秒）"},
+        {"Ingen sikker match", "无可靠匹配"},
+        {"Fant ingen sikker match – juster forsinkelsen selv", "未找到可靠匹配 – 请手动调整延迟"},
+        {"Kunne ikke lese lyden", "无法读取音频"},
+        {"Synkroniser automatisk", "自动同步"},
+        {"Lytter … %d %%", "正在聆听 … %d %%"},
     };
     return t;
 }

@@ -152,7 +152,7 @@ const std::unordered_map<std::string, const char *> &turkish_table()
         {"Henter …", "Yükleniyor …"},
         {"Ingenting her ennå", "Burada henüz bir şey yok"},
         {"Filmer, serier, personer, musikk", "Filmler, diziler, kişiler, müzik"},
-        {"mellomrom", "boşluk"},
+        {"mellomrom", "boşluk"}, {"Mellomrom", "Boşluk"},
         {"⌫ slett", "⌫ sil"},
         {"▢ sletter", "▢ siler"},
         {"Forslag", "Öneriler"},
@@ -536,6 +536,13 @@ const std::unordered_map<std::string, const char *> &turkish_table()
         {"Oppskalering: bruker et mindre AI-nett, GPU-en rakk ikke mer", "Ölçekleme: daha küçük YZ ağı, GPU yetişemedi"},
         {"Oppskalering: bruker Skarp, GPU-en rakk ikke AI", "Ölçekleme: Keskin, GPU YZ'ye yetişemedi"},
         {"Oppskalering er slått av: GPU-en rakk det ikke", "Ölçekleme kapatıldı: GPU yetişemedi"},
+        {"Kunne ikke starte", "Başlatılamadı"},
+        {"Undertekstene er synkronisert (%+.1f s)", "Altyazılar eşitlendi (%+.1f sn)"},
+        {"Ingen sikker match", "Kesin eşleşme yok"},
+        {"Fant ingen sikker match – juster forsinkelsen selv", "Kesin eşleşme bulunamadı – gecikmeyi kendiniz ayarlayın"},
+        {"Kunne ikke lese lyden", "Ses okunamadı"},
+        {"Synkroniser automatisk", "Otomatik eşitle"},
+        {"Lytter … %d %%", "Dinleniyor … %d %%"},
     };
     return t;
 }

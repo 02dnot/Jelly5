@@ -167,7 +167,7 @@ const std::unordered_map<std::string, const char *> &spanish_table()
         {"Henter …", "Cargando …"},
         {"Ingenting her ennå", "Aún no hay nada aquí"},
         {"Filmer, serier, personer, musikk", "Películas, series, personas, música"},
-        {"mellomrom", "espacio"},
+        {"mellomrom", "espacio"}, {"Mellomrom", "Espacio"},
         {"⌫ slett", "⌫ borrar"},
         {"▢ sletter", "▢ borra"},
         {"Forslag", "Sugerencias"},
@@ -531,6 +531,13 @@ const std::unordered_map<std::string, const char *> &spanish_table()
         {"Oppskalering: bruker et mindre AI-nett, GPU-en rakk ikke mer", "Escalado: red de IA más pequeña, la GPU no daba abasto"},
         {"Oppskalering: bruker Skarp, GPU-en rakk ikke AI", "Escalado: Nítido, la GPU no daba abasto con la IA"},
         {"Oppskalering er slått av: GPU-en rakk det ikke", "Escalado desactivado: la GPU no daba abasto"},
+        {"Kunne ikke starte", "No se pudo iniciar"},
+        {"Undertekstene er synkronisert (%+.1f s)", "Subtítulos sincronizados (%+.1f s)"},
+        {"Ingen sikker match", "Sin coincidencia segura"},
+        {"Fant ingen sikker match – juster forsinkelsen selv", "No se encontró una coincidencia segura – ajusta el retraso tú mismo"},
+        {"Kunne ikke lese lyden", "No se pudo leer el audio"},
+        {"Synkroniser automatisk", "Sincronizar automáticamente"},
+        {"Lytter … %d %%", "Escuchando … %d %%"},
     };
     return t;
 }

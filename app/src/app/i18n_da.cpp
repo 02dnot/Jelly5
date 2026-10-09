@@ -152,7 +152,7 @@ const std::unordered_map<std::string, const char *> &danish_table()
         {"Henter …", "Henter …"},
         {"Ingenting her ennå", "Intet her endnu"},
         {"Filmer, serier, personer, musikk", "Film, serier, personer, musik"},
-        {"mellomrom", "mellemrum"},
+        {"mellomrom", "mellemrum"}, {"Mellomrom", "Mellemrum"},
         {"⌫ slett", "⌫ slet"},
         {"▢ sletter", "▢ sletter"},
         {"Forslag", "Forslag"},
@@ -536,6 +536,13 @@ const std::unordered_map<std::string, const char *> &danish_table()
         {"Oppskalering: bruker et mindre AI-nett, GPU-en rakk ikke mer", "Opskalering: bruger et mindre AI-net, GPU'en kunne ikke følge med"},
         {"Oppskalering: bruker Skarp, GPU-en rakk ikke AI", "Opskalering: bruger Skarp, GPU'en kunne ikke følge med AI"},
         {"Oppskalering er slått av: GPU-en rakk det ikke", "Opskalering er slået fra: GPU'en kunne ikke følge med"},
+        {"Kunne ikke starte", "Kunne ikke starte"},
+        {"Undertekstene er synkronisert (%+.1f s)", "Underteksterne er synkroniseret (%+.1f s)"},
+        {"Ingen sikker match", "Intet sikkert match"},
+        {"Fant ingen sikker match – juster forsinkelsen selv", "Fandt intet sikkert match – juster forsinkelsen selv"},
+        {"Kunne ikke lese lyden", "Kunne ikke læse lyden"},
+        {"Synkroniser automatisk", "Synkroniser automatisk"},
+        {"Lytter … %d %%", "Lytter … %d %%"},
     };
     return t;
 }

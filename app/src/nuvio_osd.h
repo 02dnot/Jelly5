@@ -43,6 +43,11 @@ struct NuvioStatus {
     /* Jelly5: the L3 playback info panel, refreshed once a second while it is up.
      * Rows of label and value; a label starting with '#' is a section heading. */
     std::vector<std::pair<std::string, std::string>> stats;
+    /* Jelly5: subtitle auto-sync (evo_subsync) for the selected text track. */
+    bool sync_possible = false;   /* direct play, a text track on */
+    bool sync_running = false;
+    int sync_progress = 0;        /* 0-100 */
+    std::string sync_result;      /* the last run's outcome, for the track it ran on */
 };
 
 enum class OsdCmd {
@@ -57,6 +62,7 @@ enum class OsdCmd {
     PlayEpisode,     /* season, episode */
     PlayNext,
     SetViewMode,     /* index = mode */
+    SubtitleAutoSync,/* Jelly5: start auto-sync for the selected track, or stop a run */
 };
 
 struct OsdCommand {

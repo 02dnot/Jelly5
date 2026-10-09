@@ -152,7 +152,7 @@ const std::unordered_map<std::string, const char *> &finnish_table()
         {"Henter …", "Haetaan …"},
         {"Ingenting her ennå", "Ei vielä mitään"},
         {"Filmer, serier, personer, musikk", "Elokuvat, sarjat, henkilöt, musiikki"},
-        {"mellomrom", "välilyönti"},
+        {"mellomrom", "välilyönti"}, {"Mellomrom", "Välilyönti"},
         {"⌫ slett", "⌫ poista"},
         {"▢ sletter", "▢ poistaa"},
         {"Forslag", "Ehdotukset"},
@@ -536,6 +536,13 @@ const std::unordered_map<std::string, const char *> &finnish_table()
         {"Oppskalering: bruker et mindre AI-nett, GPU-en rakk ikke mer", "Skaalaus: pienempi tekoälyverkko, GPU ei pysynyt mukana"},
         {"Oppskalering: bruker Skarp, GPU-en rakk ikke AI", "Skaalaus: Terävä, GPU ei pysynyt tekoälyn mukana"},
         {"Oppskalering er slått av: GPU-en rakk det ikke", "Skaalaus on pois: GPU ei pysynyt mukana"},
+        {"Kunne ikke starte", "Ei voitu käynnistää"},
+        {"Undertekstene er synkronisert (%+.1f s)", "Tekstitys synkronoitu (%+.1f s)"},
+        {"Ingen sikker match", "Ei varmaa osumaa"},
+        {"Fant ingen sikker match – juster forsinkelsen selv", "Varmaa osumaa ei löytynyt – säädä viivettä itse"},
+        {"Kunne ikke lese lyden", "Ääntä ei voitu lukea"},
+        {"Synkroniser automatisk", "Synkronoi automaattisesti"},
+        {"Lytter … %d %%", "Kuunnellaan … %d %%"},
     };
     return t;
 }

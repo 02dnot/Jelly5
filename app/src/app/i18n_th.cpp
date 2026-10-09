@@ -152,7 +152,7 @@ const std::unordered_map<std::string, const char *> &thai_table()
         {"Henter …", "กำลังโหลด …"},
         {"Ingenting her ennå", "ยังไม่มีอะไรที่นี่"},
         {"Filmer, serier, personer, musikk", "ภาพยนตร์ รายการทีวี บุคคล เพลง"},
-        {"mellomrom", "เว้นวรรค"},
+        {"mellomrom", "เว้นวรรค"}, {"Mellomrom", "เว้นวรรค"},
         {"⌫ slett", "⌫ ลบ"},
         {"▢ sletter", "▢ ลบ"},
         {"Forslag", "คำแนะนำ"},
@@ -536,6 +536,13 @@ const std::unordered_map<std::string, const char *> &thai_table()
         {"Oppskalering: bruker et mindre AI-nett, GPU-en rakk ikke mer", "การขยายภาพ: ใช้เครือข่าย AI ที่เล็กลง เพราะ GPU ทำงานไม่ทัน"},
         {"Oppskalering: bruker Skarp, GPU-en rakk ikke AI", "การขยายภาพ: ใช้คมชัด เพราะ GPU ทำ AI ไม่ทัน"},
         {"Oppskalering er slått av: GPU-en rakk det ikke", "ปิดการขยายภาพแล้ว: GPU ทำงานไม่ทัน"},
+        {"Kunne ikke starte", "เริ่มไม่ได้"},
+        {"Undertekstene er synkronisert (%+.1f s)", "ซิงค์คำบรรยายแล้ว (%+.1f วินาที)"},
+        {"Ingen sikker match", "ไม่พบการจับคู่ที่แน่ชัด"},
+        {"Fant ingen sikker match – juster forsinkelsen selv", "ไม่พบการจับคู่ที่แน่ชัด – ปรับดีเลย์เอง"},
+        {"Kunne ikke lese lyden", "อ่านเสียงไม่ได้"},
+        {"Synkroniser automatisk", "ซิงค์อัตโนมัติ"},
+        {"Lytter … %d %%", "กำลังฟัง … %d %%"},
     };
     return t;
 }

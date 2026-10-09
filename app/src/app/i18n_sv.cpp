@@ -152,7 +152,7 @@ const std::unordered_map<std::string, const char *> &swedish_table()
         {"Henter …", "Hämtar …"},
         {"Ingenting her ennå", "Inget här än"},
         {"Filmer, serier, personer, musikk", "Filmer, serier, personer, musik"},
-        {"mellomrom", "mellanslag"},
+        {"mellomrom", "mellanslag"}, {"Mellomrom", "Mellanslag"},
         {"⌫ slett", "⌫ radera"},
         {"▢ sletter", "▢ raderar"},
         {"Forslag", "Förslag"},
@@ -536,6 +536,13 @@ const std::unordered_map<std::string, const char *> &swedish_table()
         {"Oppskalering: bruker et mindre AI-nett, GPU-en rakk ikke mer", "Uppskalning: mindre AI-nät, GPU:n hann inte med"},
         {"Oppskalering: bruker Skarp, GPU-en rakk ikke AI", "Uppskalning: Skarp, GPU:n hann inte med AI"},
         {"Oppskalering er slått av: GPU-en rakk det ikke", "Uppskalning är avstängd: GPU:n hann inte med"},
+        {"Kunne ikke starte", "Kunde inte starta"},
+        {"Undertekstene er synkronisert (%+.1f s)", "Undertexterna är synkade (%+.1f s)"},
+        {"Ingen sikker match", "Ingen säker matchning"},
+        {"Fant ingen sikker match – juster forsinkelsen selv", "Hittade ingen säker matchning – justera fördröjningen själv"},
+        {"Kunne ikke lese lyden", "Kunde inte läsa ljudet"},
+        {"Synkroniser automatisk", "Synka automatiskt"},
+        {"Lytter … %d %%", "Lyssnar … %d %%"},
     };
     return t;
 }

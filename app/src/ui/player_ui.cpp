@@ -547,8 +547,13 @@ void PlayerUi::tracks_input(uint32_t p, const NuvioStatus &st, std::vector<OsdCo
     const int na = (int)st.audio.size(), ns = nuvio_subs_count();
     const int nv = m_req->sources.size() > 1 ? (int)m_req->sources.size() : 0;   /* versions, under the audio */
     const bool find = jelly5_subs::available();
-    const int rows[3] = {na + nv, ns + 2 + (find ? 1 : 0), 5};   /* subtitles: Av, tracks, Tilpass, Søk */
+    /* subtitles: Av, tracks, Tilpass, Søk; Tilpass: 5 rows, + Synkroniser automatisk */
+    const int rows[3] = {na + nv, ns + 2 + (find ? 1 : 0), 5 + (st.sync_possible ? 1 : 0)};
     int &r = m_rows[m_col];
+    /* A row can go under the focus (Synkroniser automatisk, when a track stops
+     * allowing it): the focus stays on the last one there is. */
+    if (!(m_col == 2 && m_find_open))
+        r = std::max(0, std::min(r, rows[m_col] - 1));
     if (m_col == 2 && m_find_open && !(p & (NUVIO_BTN_CIRCLE | NUVIO_BTN_LEFT)) ) {
         find_input(p);
         return;
@@ -570,6 +575,11 @@ void PlayerUi::tracks_input(uint32_t p, const NuvioStatus &st, std::vector<OsdCo
         r = std::min(std::max(0, rows[m_col] - 1), r + 1);
     } else if (m_col == 2 && m_style_open && (p & (NUVIO_BTN_LEFT | NUVIO_BTN_RIGHT | NUVIO_BTN_CROSS))) {
         const int d = (p & NUVIO_BTN_LEFT) ? -1 : 1;
+        if (r == 5) {   /* Synkroniser automatisk: ✕ starts it, or stops a run */
+            if (p & NUVIO_BTN_CROSS)
+                out.push_back({OsdCmd::SubtitleAutoSync});
+            return;
+        }
         nuvio_sub_style s;
         nuvio_subs_get_style(&s);
         switch (r) {
@@ -1014,7 +1024,9 @@ bool PlayerUi::wants_frame(const NuvioStatus &st)
     const bool second = std::floor(st.now) != std::floor(last_second);
     last_second = st.now;
     /* art::animating(): an image still loading or fading in (the episode stills). */
-    return moving || m_seeking || m_music || (second && (m_controls || m_card_since >= 0 || m_stats)) ||
+    /* (Auto-sync's progress in Tilpass undertekster moves on its own.) */
+    const bool syncing = st.sync_running && m_overlay == Overlay::Tracks && m_style_open;
+    return moving || m_seeking || m_music || (second && (m_controls || m_card_since >= 0 || m_stats || syncing)) ||
            a_loading.value > 0.f ||
            st.buffering || ((m_overlay != Overlay::None || a_next.value > 0.f || m_music) && art::animating());
 }
@@ -1609,9 +1621,16 @@ void PlayerUi::draw_tracks(const NuvioStatus &st, float a)
     if (m_style_open) {
         nuvio_sub_style s;
         nuvio_subs_get_style(&s);
-        column(2, 5, [&](int i, std::string &label, std::string &right, bool &, bool &) {
-            char v[48];
+        column(2, 5 + (st.sync_possible ? 1 : 0), [&](int i, std::string &label, std::string &right, bool &, bool &) {
+            char v[96];
             switch (i) {
+            case 5:   /* the film's dialogue against the cues (evo_subsync) */
+                label = T("Synkroniser automatisk");
+                if (st.sync_running)
+                    std::snprintf(v, sizeof v, T("Lytter \xE2\x80\xA6 %d %%"), st.sync_progress);
+                else
+                    std::snprintf(v, sizeof v, "%s", st.sync_result.empty() ? "\xE2\x9C\x95" : st.sync_result.c_str());
+                break;
             case 0: label = T("Forsinkelse"); std::snprintf(v, sizeof v, "\xE2\x80\xB9 %+.1f s \xE2\x80\xBA", nuvio_subs_delay_ms() / 1000.0); break;
             case 1: label = T("Størrelse"); std::snprintf(v, sizeof v, "\xE2\x80\xB9 %d %% \xE2\x80\xBA", s.size_pct); break;
             case 2: label = T("Posisjon"); std::snprintf(v, sizeof v, "\xE2\x80\xB9 %.0f %% \xE2\x80\xBA", s.offset_pct); break;

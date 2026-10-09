@@ -220,6 +220,16 @@ float pill_bar_center(const std::vector<std::string> &labels, int i, float max_w
 /* A row of row_w in room: how far it has slid (eased) to keep the focused item,
  * centred at c in the row, in the middle of the room; 0 while the row fits. */
 float row_scroll(Anim &a, float row_w, float room, float c, float dt, bool *animating);
+/* A one-line label that ends in an ellipsis past st.max_w (as gfx::text). While it is
+ * focused and cut, it waits a moment, then runs as a ticker for as long as it has
+ * focus: out to the left, its start following a gap behind, a rest each time the
+ * start is back in place. Unfocused, or when it fits, it is plain gfx::text.
+ * Returns the width drawn. */
+float marquee_text(float x, float baseline, const std::string &s, const gfx::TextStyle &st, uint32_t color,
+                   bool focused, int align = 0);
+/* True when a marquee moved in the frame just drawn (the shell draws another).
+ * Read once per frame; it clears. */
+bool marquee_take_animating();
 /* "jf.example.net:8096" from "https://jf.example.net:8096/path". */
 std::string host_of(const std::string &url);
 

@@ -152,7 +152,7 @@ const std::unordered_map<std::string, const char *> &hungarian_table()
         {"Henter …", "Betöltés …"},
         {"Ingenting her ennå", "Még nincs itt semmi"},
         {"Filmer, serier, personer, musikk", "Filmek, sorozatok, személyek, zene"},
-        {"mellomrom", "szóköz"},
+        {"mellomrom", "szóköz"}, {"Mellomrom", "Szóköz"},
         {"⌫ slett", "⌫ törlés"},
         {"▢ sletter", "▢ töröl"},
         {"Forslag", "Javaslatok"},
@@ -536,6 +536,13 @@ const std::unordered_map<std::string, const char *> &hungarian_table()
         {"Oppskalering: bruker et mindre AI-nett, GPU-en rakk ikke mer", "Felskálázás: kisebb MI-háló, a GPU nem bírta"},
         {"Oppskalering: bruker Skarp, GPU-en rakk ikke AI", "Felskálázás: Éles, a GPU nem bírta az MI-t"},
         {"Oppskalering er slått av: GPU-en rakk det ikke", "A felskálázás kikapcsolva: a GPU nem bírta"},
+        {"Kunne ikke starte", "Nem sikerült elindítani"},
+        {"Undertekstene er synkronisert (%+.1f s)", "Feliratok szinkronizálva (%+.1f s)"},
+        {"Ingen sikker match", "Nincs biztos egyezés"},
+        {"Fant ingen sikker match – juster forsinkelsen selv", "Nincs biztos egyezés – állítsa be a késleltetést saját maga"},
+        {"Kunne ikke lese lyden", "Nem sikerült beolvasni a hangot"},
+        {"Synkroniser automatisk", "Automatikus szinkronizálás"},
+        {"Lytter … %d %%", "Figyelés … %d %%"},
     };
     return t;
 }

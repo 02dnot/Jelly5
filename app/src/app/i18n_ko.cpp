@@ -152,7 +152,7 @@ const std::unordered_map<std::string, const char *> &korean_table()
         {"Henter …", "불러오는 중 …"},
         {"Ingenting her ennå", "아직 아무것도 없습니다"},
         {"Filmer, serier, personer, musikk", "영화, 시리즈, 인물, 음악"},
-        {"mellomrom", "스페이스"},
+        {"mellomrom", "스페이스"}, {"Mellomrom", "스페이스"},
         {"⌫ slett", "⌫ 삭제"},
         {"▢ sletter", "▢ 삭제"},
         {"Forslag", "추천 검색어"},
@@ -536,6 +536,13 @@ const std::unordered_map<std::string, const char *> &korean_table()
         {"Oppskalering: bruker et mindre AI-nett, GPU-en rakk ikke mer", "업스케일링: GPU가 따라가지 못해 더 작은 AI 네트워크 사용"},
         {"Oppskalering: bruker Skarp, GPU-en rakk ikke AI", "업스케일링: GPU가 AI를 따라가지 못해 선명 사용"},
         {"Oppskalering er slått av: GPU-en rakk det ikke", "업스케일링 꺼짐: GPU가 따라가지 못함"},
+        {"Kunne ikke starte", "시작할 수 없음"},
+        {"Undertekstene er synkronisert (%+.1f s)", "자막 동기화됨 (%+.1f초)"},
+        {"Ingen sikker match", "확실한 일치 없음"},
+        {"Fant ingen sikker match – juster forsinkelsen selv", "확실한 일치를 찾지 못함 – 지연을 직접 조정하세요"},
+        {"Kunne ikke lese lyden", "오디오를 읽을 수 없음"},
+        {"Synkroniser automatisk", "자동 동기화"},
+        {"Lytter … %d %%", "듣는 중 … %d %%"},
     };
     return t;
 }

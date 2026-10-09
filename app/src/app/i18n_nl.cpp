@@ -152,7 +152,7 @@ const std::unordered_map<std::string, const char *> &dutch_table()
         {"Henter …", "Laden …"},
         {"Ingenting her ennå", "Nog niets hier"},
         {"Filmer, serier, personer, musikk", "Films, series, personen, muziek"},
-        {"mellomrom", "spatie"},
+        {"mellomrom", "spatie"}, {"Mellomrom", "Spatie"},
         {"⌫ slett", "⌫ wissen"},
         {"▢ sletter", "▢ wist"},
         {"Forslag", "Suggesties"},
@@ -536,6 +536,13 @@ const std::unordered_map<std::string, const char *> &dutch_table()
         {"Oppskalering: bruker et mindre AI-nett, GPU-en rakk ikke mer", "Opschalen: kleiner AI-netwerk, de GPU kon het niet bijhouden"},
         {"Oppskalering: bruker Skarp, GPU-en rakk ikke AI", "Opschalen: Scherp, de GPU kon AI niet bijhouden"},
         {"Oppskalering er slått av: GPU-en rakk det ikke", "Opschalen staat uit: de GPU kon het niet bijhouden"},
+        {"Kunne ikke starte", "Kon niet starten"},
+        {"Undertekstene er synkronisert (%+.1f s)", "Ondertiteling gesynchroniseerd (%+.1f s)"},
+        {"Ingen sikker match", "Geen zekere match"},
+        {"Fant ingen sikker match – juster forsinkelsen selv", "Geen zekere match gevonden – pas de vertraging zelf aan"},
+        {"Kunne ikke lese lyden", "Kon het geluid niet lezen"},
+        {"Synkroniser automatisk", "Automatisch synchroniseren"},
+        {"Lytter … %d %%", "Luisteren … %d %%"},
     };
     return t;
 }

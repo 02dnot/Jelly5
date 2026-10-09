@@ -152,7 +152,7 @@ const std::unordered_map<std::string, const char *> &vietnamese_table()
         {"Henter …", "Đang tải …"},
         {"Ingenting her ennå", "Chưa có gì ở đây"},
         {"Filmer, serier, personer, musikk", "Phim, phim bộ, người, âm nhạc"},
-        {"mellomrom", "dấu cách"},
+        {"mellomrom", "dấu cách"}, {"Mellomrom", "Dấu cách"},
         {"⌫ slett", "⌫ xóa"},
         {"▢ sletter", "▢ xóa"},
         {"Forslag", "Gợi ý"},
@@ -536,6 +536,13 @@ const std::unordered_map<std::string, const char *> &vietnamese_table()
         {"Oppskalering: bruker et mindre AI-nett, GPU-en rakk ikke mer", "Nâng cấp: dùng mạng AI nhỏ hơn, GPU không theo kịp"},
         {"Oppskalering: bruker Skarp, GPU-en rakk ikke AI", "Nâng cấp: dùng Sắc nét, GPU không theo kịp AI"},
         {"Oppskalering er slått av: GPU-en rakk det ikke", "Đã tắt nâng cấp: GPU không theo kịp"},
+        {"Kunne ikke starte", "Không thể bắt đầu"},
+        {"Undertekstene er synkronisert (%+.1f s)", "Đã đồng bộ phụ đề (%+.1f giây)"},
+        {"Ingen sikker match", "Không có khớp chắc chắn"},
+        {"Fant ingen sikker match – juster forsinkelsen selv", "Không tìm thấy khớp chắc chắn – hãy tự chỉnh độ trễ"},
+        {"Kunne ikke lese lyden", "Không thể đọc âm thanh"},
+        {"Synkroniser automatisk", "Đồng bộ tự động"},
+        {"Lytter … %d %%", "Đang nghe … %d %%"},
     };
     return t;
 }

@@ -152,7 +152,7 @@ const std::unordered_map<std::string, const char *> &greek_table()
         {"Henter …", "Φόρτωση …"},
         {"Ingenting her ennå", "Τίποτα εδώ ακόμα"},
         {"Filmer, serier, personer, musikk", "Ταινίες, σειρές, πρόσωπα, μουσική"},
-        {"mellomrom", "διάστημα"},
+        {"mellomrom", "διάστημα"}, {"Mellomrom", "Διάστημα"},
         {"⌫ slett", "⌫ διαγραφή"},
         {"▢ sletter", "▢ διαγράφει"},
         {"Forslag", "Προτάσεις"},
@@ -536,6 +536,13 @@ const std::unordered_map<std::string, const char *> &greek_table()
         {"Oppskalering: bruker et mindre AI-nett, GPU-en rakk ikke mer", "Κλιμάκωση: μικρότερο δίκτυο AI, η GPU δεν πρόλαβε"},
         {"Oppskalering: bruker Skarp, GPU-en rakk ikke AI", "Κλιμάκωση: Ευκρινής, η GPU δεν πρόλαβε το AI"},
         {"Oppskalering er slått av: GPU-en rakk det ikke", "Η κλιμάκωση απενεργοποιήθηκε: η GPU δεν πρόλαβε"},
+        {"Kunne ikke starte", "Δεν ήταν δυνατή η έναρξη"},
+        {"Undertekstene er synkronisert (%+.1f s)", "Οι υπότιτλοι συγχρονίστηκαν (%+.1f δ)"},
+        {"Ingen sikker match", "Καμία σίγουρη αντιστοίχιση"},
+        {"Fant ingen sikker match – juster forsinkelsen selv", "Δεν βρέθηκε σίγουρη αντιστοίχιση – ρυθμίστε μόνοι σας την καθυστέρηση"},
+        {"Kunne ikke lese lyden", "Δεν ήταν δυνατή η ανάγνωση του ήχου"},
+        {"Synkroniser automatisk", "Αυτόματος συγχρονισμός"},
+        {"Lytter … %d %%", "Ακρόαση … %d %%"},
     };
     return t;
 }

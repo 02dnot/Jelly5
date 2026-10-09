@@ -683,19 +683,20 @@ void Home::draw_rows(float dt)
             const bool ep = it.type == "Episode";
             if (it.type == "TvChannel") {   /* what airs, then where and when */
                 const jf::Item *p = it.now_on();
-                gfx::text(cr.x, cr.y + cr.h + 38, p ? p->name : it.name, {gfx::SemiBold, 22, cr.w}, alpha(kText, la));
+                marquee_text(cr.x, cr.y + cr.h + 38, p ? p->name : it.name, {gfx::SemiBold, 22, cr.w}, alpha(kText, la),
+                             true);
                 std::string sub = (it.channel_number.empty() ? std::string() : it.channel_number + "  ") + it.name;
                 if (p)
                     sub += " \xC2\xB7 " + livetv::clock(p->start_utc) + "\xE2\x80\x93" + livetv::clock(p->end_utc);
-                gfx::text(cr.x, cr.y + cr.h + 66, sub, {gfx::Medium, 19, cr.w}, alpha(kText3, la));
+                marquee_text(cr.x, cr.y + cr.h + 66, sub, {gfx::Medium, 19, cr.w}, alpha(kText3, la), true);
                 continue;
             }
-            gfx::text(cr.x, cr.y + cr.h + 38, ep ? it.series_name : it.name, {gfx::SemiBold, 22, cr.w},
-                      alpha(kText, la));
+            marquee_text(cr.x, cr.y + cr.h + 38, ep ? it.series_name : it.name, {gfx::SemiBold, 22, cr.w},
+                         alpha(kText, la), true);
             if (ep) {
                 char sub[256];
                 std::snprintf(sub, sizeof sub, "S%d:E%d \xC2\xB7 %s", it.parent_index, it.index, it.name.c_str());
-                gfx::text(cr.x, cr.y + cr.h + 66, sub, {gfx::Medium, 19, cr.w}, alpha(kText3, la));
+                marquee_text(cr.x, cr.y + cr.h + 66, sub, {gfx::Medium, 19, cr.w}, alpha(kText3, la), true);
             }
         }
     }

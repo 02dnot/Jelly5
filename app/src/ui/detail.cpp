@@ -901,7 +901,7 @@ void Detail::draw_sections(float dt)
                     const float ty = y + kEpH + 44;
                     char title[300];
                     std::snprintf(title, sizeof title, "%d. %s", e.index, e.name.c_str());
-                    gfx::text(x, ty, title, {gfx::SemiBold, 22, kEpW}, focus ? kText : kText2);
+                    marquee_text(x, ty, title, {gfx::SemiBold, 22, kEpW}, focus ? kText : kText2, focus);
                     gfx::text(x, ty + 30, runtime_label(e.runtime_ticks), {gfx::Medium, 19}, kText3);
                     gfx::text(x, ty + 62, e.overview, {gfx::Regular, 19, kEpW, 3, 27}, kText3);
                 }
@@ -938,7 +938,7 @@ void Detail::draw_sections(float dt)
                     else
                         art::draw(r, m_client.image_url(it.backdrop_owner, "Backdrop", it.backdrop_tag, 640),
                                   it.backdrop_blurhash, 640, 360, 14 * k);
-                    gfx::text(x, cy + kSimH + 40, e.name, {gfx::SemiBold, 21, kSimW}, focus ? kText : kText2);
+                    marquee_text(x, cy + kSimH + 40, e.name, {gfx::SemiBold, 21, kSimW}, focus ? kText : kText2, focus);
                 }
         }
     }
@@ -970,10 +970,10 @@ void Detail::draw_sections(float dt)
                 } else {
                     art::draw(r, url, p.blurhash, 340, 340, d / 2);
                 }
-                gfx::text(x + kCastD / 2, y + 56 + kCastD + 40, p.name, {gfx::SemiBold, 19, kCastD + 20},
-                          focus ? kText : kText2, 1);
-                gfx::text(x + kCastD / 2, y + 56 + kCastD + 66, p.role.empty() ? p.type : p.role,
-                          {gfx::Medium, 17, kCastD + 20}, kText3, 1);
+                marquee_text(x + kCastD / 2, y + 56 + kCastD + 40, p.name, {gfx::SemiBold, 19, kCastD + 20},
+                             focus ? kText : kText2, focus, 1);
+                marquee_text(x + kCastD / 2, y + 56 + kCastD + 66, p.role.empty() ? p.type : p.role,
+                             {gfx::Medium, 17, kCastD + 20}, kText3, focus, 1);
             }
         }
     }
@@ -1003,7 +1003,7 @@ void Detail::draw_sections(float dt)
                         gfx::shadow(r, 14 * k, 26, 0.3f * lift, 10 * lift);
                     art::draw(r, landscape_url(m_client, s, 640), landscape_blurhash(s), 640, 360, 14 * k);
                     if (lift > 0.01f)
-                        gfx::text(r.x, r.y + r.h + 36, s.name, {gfx::SemiBold, 22, r.w}, alpha(kText, lift));
+                        marquee_text(r.x, r.y + r.h + 36, s.name, {gfx::SemiBold, 22, r.w}, alpha(kText, lift), focus);
                 }
         }
     }

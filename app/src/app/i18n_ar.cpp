@@ -152,7 +152,7 @@ const std::unordered_map<std::string, const char *> &arabic_table()
         {"Henter …", "جارٍ التحميل …"},
         {"Ingenting her ennå", "لا يوجد شيء هنا بعد"},
         {"Filmer, serier, personer, musikk", "أفلام، مسلسلات، أشخاص، موسيقى"},
-        {"mellomrom", "مسافة"},
+        {"mellomrom", "مسافة"}, {"Mellomrom", "مسافة"},
         {"⌫ slett", "⌫ حذف"},
         {"▢ sletter", "▢ للحذف"},
         {"Forslag", "اقتراحات"},
@@ -536,6 +536,13 @@ const std::unordered_map<std::string, const char *> &arabic_table()
         {"Oppskalering: bruker et mindre AI-nett, GPU-en rakk ikke mer", "رفع الدقة: شبكة ذكاء اصطناعي أصغر، لم تواكب وحدة GPU"},
         {"Oppskalering: bruker Skarp, GPU-en rakk ikke AI", "رفع الدقة: حاد، لم تواكب وحدة GPU الذكاء الاصطناعي"},
         {"Oppskalering er slått av: GPU-en rakk det ikke", "تم إيقاف رفع الدقة: لم تواكب وحدة GPU"},
+        {"Kunne ikke starte", "تعذّر البدء"},
+        {"Undertekstene er synkronisert (%+.1f s)", "تمت مزامنة الترجمة (%+.1f ث)"},
+        {"Ingen sikker match", "لا تطابق مؤكد"},
+        {"Fant ingen sikker match – juster forsinkelsen selv", "لم يُعثر على تطابق مؤكد – اضبط التأخير بنفسك"},
+        {"Kunne ikke lese lyden", "تعذّرت قراءة الصوت"},
+        {"Synkroniser automatisk", "مزامنة تلقائية"},
+        {"Lytter … %d %%", "جارٍ الاستماع … %d %%"},
     };
     return t;
 }

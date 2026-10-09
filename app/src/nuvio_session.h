@@ -22,6 +22,9 @@ struct NuvioSource {
     std::string id, title, description, addon, url, quality;
     std::string headers;          /* "Name: value\r\n" lines */
     std::string user_agent;
+    /* Jelly5: subtitle auto-sync's server sources by the file's stream index: an audio
+     * track alone, an embedded text track as a file (jf::Client::sync_audio_url ...). */
+    std::map<int, std::string> sync_audio, sync_subtitles;
 };
 
 struct NuvioEpisode {
@@ -123,6 +126,7 @@ struct NuvioRequest {
     double start_position = 0;
     std::string stream_title, stream_description, stream_addon;
     std::string play_method, transcode_reasons;         /* Jelly5: PlaybackInfo's decision, for the L3 panel */
+    std::string sync_stop_url;                          /* Jelly5: ends auto-sync's encoders (jf::Client::sync_stop_url) */
     std::vector<NuvioSource> sources;
     int source_index = 0;
     std::vector<NuvioSubtitleRef> subtitles;
