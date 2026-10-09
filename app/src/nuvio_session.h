@@ -112,6 +112,9 @@ struct NuvioPrefs {
                                               * keep_subtitle_at (its place among them), 3 the
                                               * container's stream keep_subtitle_at */
     int keep_subtitle_at = -1;
+    int server_subtitle = 0;                 /* the server's default subtitle (its user's settings),
+                                              * coded as keep_subtitle: 0 none, 2 external, 3 stream */
+    int server_subtitle_at = -1;
     bool has_tz = false;                     /* the page's UTC offset, for the clock */
     int tz_offset_min = 0;
 };

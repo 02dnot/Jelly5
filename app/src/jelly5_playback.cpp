@@ -602,6 +602,25 @@ std::string request_json(jf::Client &c, const jf::Item &it, const jf::Playback &
         else
             cJSON_Delete(k);
     }
+    /* The subtitle the server picked by its user's settings (as the web clients start on):
+     * the player falls back to it when its language rule finds none - an Always with no
+     * language set, or an external file the server named no language for. */
+    if (pb.default_subtitle >= 0 && mode != "None") {
+        cJSON *k = cJSON_CreateObject();
+        const std::vector<int> files = request_subtitle_indices(pb);
+        const auto file = std::find(files.begin(), files.end(), pb.default_subtitle);
+        if (file != files.end()) {
+            cJSON_AddNumberToObject(k, "external", (double)(file - files.begin()));
+        } else if (direct) {
+            for (const jf::MediaStream &m : pb.streams)
+                if (m.type == "Subtitle" && !m.is_external && m.index == pb.default_subtitle)
+                    cJSON_AddNumberToObject(k, "stream", container_index(pb, m.index));
+        }
+        if (k->child)
+            cJSON_AddItemToObject(prefs, "serverSubtitle", k);
+        else
+            cJSON_Delete(k);
+    }
     cJSON_AddItemToObject(o, "prefs", prefs);
 
     /* The player's interface text, in the interface's language (built per playback). */

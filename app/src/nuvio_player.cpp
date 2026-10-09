@@ -699,6 +699,24 @@ void auto_select_subtitles(Session &s)
     } else if (p.forced_only_when_off && s.st.audio_active >= 0) {
         pick = find(s.st.audio[s.st.audio_active].lang, true);
     }
+    /* Jelly5: nothing by the rule - the server's own pick by its user's settings, once
+     * every subtitle file is in (one still loading may be the language asked for). */
+    if (pick < 0 && p.server_subtitle != 0) {
+        int external = 0, found = -1;
+        bool loading = false;
+        for (int i = 0; i < n; i++) {
+            nuvio_sub_track t{};
+            if (nuvio_subs_track(i, &t) != 0)
+                continue;
+            loading = loading || (t.external && t.state == 0);
+            if (p.server_subtitle == 2 && t.external && external++ == p.server_subtitle_at && t.state == 1)
+                found = i;
+            else if (p.server_subtitle == 3 && !t.external && t.stream == p.server_subtitle_at && t.state == 1)
+                found = i;
+        }
+        if (!loading)
+            pick = found;
+    }
     if (pick >= 0) {
         nuvio_subs_select(pick);
         s_osd.note_subtitle_choice();

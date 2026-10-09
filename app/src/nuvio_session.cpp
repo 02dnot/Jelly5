@@ -337,6 +337,17 @@ bool nuvio_request_parse(const char *json, NuvioRequest &r)
             if (pr.keep_subtitle > 1 && pr.keep_subtitle_at < 0)
                 pr.keep_subtitle = 0;
         }
+        if (const cJSON *k = cJSON_GetObjectItemCaseSensitive(p, "serverSubtitle")) {
+            if (cJSON_IsNumber(cJSON_GetObjectItemCaseSensitive(k, "external"))) {
+                pr.server_subtitle = 2;
+                pr.server_subtitle_at = int_of<int>(k, "external", -1);
+            } else if (cJSON_IsNumber(cJSON_GetObjectItemCaseSensitive(k, "stream"))) {
+                pr.server_subtitle = 3;
+                pr.server_subtitle_at = int_of<int>(k, "stream", -1);
+            }
+            if (pr.server_subtitle_at < 0)
+                pr.server_subtitle = 0;
+        }
         if (cJSON_IsNumber(cJSON_GetObjectItemCaseSensitive(p, "tzOffsetMinutes"))) {
             pr.has_tz = true;
             pr.tz_offset_min = int_of<int>(p, "tzOffsetMinutes", 0);
