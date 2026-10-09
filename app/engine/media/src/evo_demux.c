@@ -65,6 +65,9 @@ extern AVPacket *video_video_pending_pkt;
 extern volatile int video_thread_running;  /* evo_playback.c */
 extern volatile int video_decode_parked;
 extern volatile int video_decode_hold;
+extern volatile int audio_decode_hold;          /* evo_audio_out.c: the same handshake for audio */
+extern volatile int audio_decode_parked;
+extern volatile int audio_decode_thread_running;
 
 extern int      playback_profile;
 extern int      video_packet_cap;
@@ -240,6 +243,22 @@ static int prospero_process_seek_request(void) {
             snprintf(d, sizeof d, "parked=%d waited_ms=%d",
                      (int)video_decode_parked, waited_ms);
             pp_stage_bc("SEEK_PARK", d);
+        }
+    }
+    /* Audio too: the flush below empties the audio decoder and the PCM ring,
+     * and a decode still in flight would push sound from before the seek
+     * into the emptied ring - the sound then ran behind the picture. */
+    audio_decode_hold = 1;
+    if (audio_decode_thread_running) {
+        int waited_ms = 0;
+        while (!audio_decode_parked && waited_ms < 2000) {
+            usleep(1000);
+            waited_ms++;
+        }
+        if (!audio_decode_parked || waited_ms > 50) {
+            char d[64];
+            snprintf(d, sizeof d, "parked=%d waited_ms=%d", (int)audio_decode_parked, waited_ms);
+            pp_stage_bc("SEEK_AUDIO_PARK", d);
         }
     }
 
@@ -455,6 +474,7 @@ packet_queue_clear(
     prospero_seek_in_progress = 0;
     s_seek_done_ms = now_ms();
     video_decode_hold = 0;
+    audio_decode_hold = 0;
 
     pp_playback_notify_seek_end(
         &g_pp_pb,
