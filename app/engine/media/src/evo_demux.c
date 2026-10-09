@@ -778,11 +778,13 @@ static void demux_wait_for_room(PacketQueue *q, int is_video, PacketQueue *other
  * a parser split from one PES) are told apart by timestamp.
  * ------------------------------------------------------------------------ */
 #define DEMUX_RECOVER_TRIES       10
+#define DEMUX_RECOVER_MAX_US      (25 * 1000000LL)   /* then the player's own reconnect takes over */
 #define DEMUX_RECOVER_MAX_STREAMS 64
 
 static int     s_recover_allowed;        /* this source may recover (set per file) */
 static int     s_recover_tries;          /* failures since the last new anchor packet */
 static int     s_recover_gave_up;        /* logged once per outage */
+static int64_t s_recover_since;          /* when this outage began (av_gettime_relative), 0 none */
 static int     s_recover_catching;       /* some stream is dropping what it has already */
 static int64_t s_last_ts[DEMUX_RECOVER_MAX_STREAMS];   /* last timestamp handed on */
 static int64_t s_last_pos[DEMUX_RECOVER_MAX_STREAMS];  /* and file position, -1 unknown */
@@ -811,6 +813,7 @@ static void demux_recover_reset(void)
     }
     s_recover_tries = 0;
     s_recover_gave_up = 0;
+    s_recover_since = 0;
     s_recover_catching = 0;
 }
 
@@ -847,6 +850,15 @@ static int demux_recover_allowed_for(const AVFormatContext *fmt)
     return (fmt->pb->seekable & AVIO_SEEKABLE_NORMAL) != 0;
 }
 
+/* The input stopped short: a latched error, or an end before the file's size. */
+static int demux_pb_broke(AVIOContext *pb)
+{
+    if (pb->error)
+        return 1;
+    const int64_t size = pb->eof_reached ? avio_size(pb) : -1;
+    return size > 0 && avio_tell(pb) < size;
+}
+
 /* 1 when the read ended the stream for good (or recovery is not ours to try). */
 static int demux_read_is_final(int read_result)
 {
@@ -855,21 +867,26 @@ static int demux_read_is_final(int read_result)
         a < 0 || s_seek_ts[a] == AV_NOPTS_VALUE)
         return 1;
     /* Stop (evo_stream_io_abort) or a deadline: not the network's doing. */
-    if (read_result == AVERROR_EXIT)
+    if (read_result == AVERROR_EXIT || play_fmt->pb->error == AVERROR_EXIT)
         return 1;
-    if (read_result == AVERROR_EOF) {
-        /* A clean end of the file: the http layer reports a connection that
-         * closed early as an error (and has already tried to reconnect). */
-        if (!play_fmt->pb->error)
+    /* A clean end of the file. A failed read latches pb->error; a connection
+     * that closed early after the http layer's own reconnects may only set
+     * eof_reached, short of the file's size. */
+    if (read_result == AVERROR_EOF && !demux_pb_broke(play_fmt->pb))
+        return 1;
+    /* Any other failure may be the network's even with no latch (MP4 seeks to
+     * each sample, and a failed seek reads as "partial file"), except in the
+     * last seconds, where it is the file's own end (a truncated last sample,
+     * trailing junk): the next episode must not wait for ten tries. */
+    if (media_duration_sec > 0.0) {
+        const AVStream *st = play_fmt->streams[a];
+        const double start = st->start_time != AV_NOPTS_VALUE
+                                 ? st->start_time * av_q2d(st->time_base) : 0.0;
+        if (s_seek_ts[a] * av_q2d(st->time_base) - start >= media_duration_sec - 3.0)
             return 1;
-        if (media_duration_sec > 0.0) {
-            const AVStream *st = play_fmt->streams[a];
-            const double start = st->start_time != AV_NOPTS_VALUE
-                                     ? st->start_time * av_q2d(st->time_base) : 0.0;
-            if (s_seek_ts[a] * av_q2d(st->time_base) - start >= media_duration_sec - 3.0)
-                return 1;
-        }
     }
+    if (s_recover_since && av_gettime_relative() - s_recover_since > DEMUX_RECOVER_MAX_US)
+        return 1;   /* a long outage: the player's reconnect says so and reopens */
     return s_recover_tries >= DEMUX_RECOVER_TRIES;
 }
 
@@ -906,6 +923,8 @@ static void demux_recover(int read_result)
     char err[64];
 
     evo_demux_state = 6;
+    if (!s_recover_since)
+        s_recover_since = av_gettime_relative();
     for (;;) {
         s_recover_tries++;
         av_strerror(read_result, err, sizeof err);
@@ -942,7 +961,8 @@ static void demux_recover(int read_result)
             break;
         av_strerror(rc, err, sizeof err);
         evo_bt("demux: recovery seek failed (%s)", err);
-        if (s_recover_tries >= DEMUX_RECOVER_TRIES || !demux_thread_running || prospero_seek_pending)
+        if (s_recover_tries >= DEMUX_RECOVER_TRIES || !demux_thread_running || prospero_seek_pending ||
+            av_gettime_relative() - s_recover_since > DEMUX_RECOVER_MAX_US)
             return;
         read_result = rc;
     }
@@ -1021,6 +1041,7 @@ static void demux_note_packet(const AVPacket *pkt)
     if (i == recover_anchor()) {
         s_recover_tries = 0;
         s_recover_gave_up = 0;
+        s_recover_since = 0;
     }
 }
 
@@ -1098,9 +1119,10 @@ void *demux_thread_func(void *arg) {
                 demux_recover(read_result);
                 continue;
             }
-            if (s_recover_tries >= DEMUX_RECOVER_TRIES && !s_recover_gave_up) {
+            if (s_recover_since && !s_recover_gave_up) {
                 s_recover_gave_up = 1;
-                evo_bt("demux: gave up after %d tries - the stream stopped", s_recover_tries);
+                evo_bt("demux: gave up after %d tries in %.0f s - the stream stopped", s_recover_tries,
+                       (av_gettime_relative() - s_recover_since) / 1e6);
             }
             /*
              * Keep the demux thread alive so seeking backward from EOF
