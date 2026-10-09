@@ -44,12 +44,13 @@ Jelly5 brings your Jellyfin or Emby library to the PS5 as a real app: a fast, sh
 
 **Playback**
 - Hardware-decoded H.264 and HEVC up to 4K with HDR10 and HLG; direct play where the PS5 can, server transcoding where it can't
-- Audio and subtitle tracks, subtitle styling and online subtitle search
+- Audio and subtitle tracks, subtitle styling and online subtitle search, and subtitles synced automatically to the film's dialogue
 - Trickplay previews, chapters, *Skip intro*, versions, and auto-play of the next episode
 - Playback speed (0.75–2×), audio delay, and a night mode for late evenings
 - Upscaling (optional): lower-resolution video sharpened to your TV's resolution, with FSR 1 or an AI network for animation
 - HDMI bitstream (optional): Dolby Digital, Dolby Digital Plus (with Atmos) and DTS go to your TV or receiver untouched
 - Resume and watched state synced with the server, and a maximum quality per server
+- A dropped connection picks up where it broke, without stopping the film
 
 **Live TV**
 - Your server's channels (IPTV/M3U or a tuner) in a programme guide: what's on now and next, filters for favourites, films, sport, news, kids and series, and a line where it is now
