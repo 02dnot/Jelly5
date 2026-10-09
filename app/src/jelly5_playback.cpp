@@ -415,6 +415,7 @@ std::string request_json(jf::Client &c, const jf::Item &it, const jf::Playback &
         cJSON_AddItemToArray(sources, src);
     }
     cJSON_AddItemToObject(o, "sources", sources);
+    cJSON_AddStringToObject(o, "syncStop", c.sync_stop_url().c_str());   /* auto-sync's encoders */
 
     /* Embedded tracks come out of the container; external text subtitles are fetched,
      * and so is an embedded one a transcoded version's server serves as a file: that

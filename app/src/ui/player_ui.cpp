@@ -550,6 +550,10 @@ void PlayerUi::tracks_input(uint32_t p, const NuvioStatus &st, std::vector<OsdCo
     /* subtitles: Av, tracks, Tilpass, Søk; Tilpass: 5 rows, + Synkroniser automatisk */
     const int rows[3] = {na + nv, ns + 2 + (find ? 1 : 0), 5 + (st.sync_possible ? 1 : 0)};
     int &r = m_rows[m_col];
+    /* A row can go under the focus (Synkroniser automatisk, when a track stops
+     * allowing it): the focus stays on the last one there is. */
+    if (!(m_col == 2 && m_find_open))
+        r = std::max(0, std::min(r, rows[m_col] - 1));
     if (m_col == 2 && m_find_open && !(p & (NUVIO_BTN_CIRCLE | NUVIO_BTN_LEFT)) ) {
         find_input(p);
         return;

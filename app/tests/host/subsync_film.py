@@ -4,8 +4,10 @@
 #
 # Makes the test film for tests/host/subsync.sh: "Synktest (2026).mkv", 10 min of a
 # grey picture over speech-like noise bursts, with an embedded English SRT 1.7 s late
-# and an external "Synktest (2026).nor.srt" 3.2 s early. Copy both into a TEST
-# server's Testfiler/Synktest (2026)/ and rescan. Needs numpy and ffmpeg.
+# and an external "Synktest (2026).nor.srt" 3.2 s early; and the same as "Synktest
+# Offset (2026).mkv" (its clock starting at 10 s) and "Synktest MP4 (2026).mp4"
+# (mov_text), each with its own .nor.srt. Copy each into a TEST server's
+# Testfiler/<name>/ and rescan (SYNC_TITLE in subsync.sh picks one). Needs numpy, ffmpeg.
 #   subsync_film.py <out dir>
 import os, subprocess, sys, wave
 import numpy as np
@@ -46,6 +48,14 @@ subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i', 'color=c=gra
                 '-i', emb, '-map', '0:v', '-map', '1:a', '-map', '2:s', '-c:v', 'libx264', '-preset', 'ultrafast',
                 '-c:a', 'aac', '-b:a', '96k', '-c:s', 'srt', '-metadata:s:s:0', 'language=eng',
                 os.path.join(out, 'Synktest (2026).mkv')], check=True)
+main = os.path.join(out, 'Synktest (2026).mkv')
+ext = open(os.path.join(out, 'Synktest (2026).nor.srt')).read()
+for name, args in (('Synktest Offset (2026).mkv', ['-c', 'copy']),
+                   ('Synktest MP4 (2026).mp4', ['-c:v', 'copy', '-c:a', 'copy', '-c:s', 'mov_text'])):
+    subprocess.run(['ffmpeg', '-v', 'error', '-y', '-i', main, '-map', '0', *args, '-output_ts_offset', '10',
+                    os.path.join(out, name)], check=True)
+    with open(os.path.join(out, os.path.splitext(name)[0] + '.nor.srt'), 'w') as f:
+        f.write(ext)
 os.remove(wav)
 os.remove(emb)
 print(len(cues), 'cues')

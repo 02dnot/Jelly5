@@ -3,7 +3,8 @@
 # test Jellyfin) or, with "emby", EMBY_URL/USER/PASS, from ../../.env.local. The
 # server needs the film "Synktest" (Testfiler): speech-like noise bursts, an
 # embedded SRT 1.7 s late and an external .srt 3.2 s early, made by
-# tests/host/subsync_film.py. Never the real server (JF_URL).
+# tests/host/subsync_film.py; SYNC_TITLE="Synktest Offset" or "Synktest MP4" runs one of its
+# variants. Never the real server (JF_URL).
 set -euo pipefail
 APP="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 OUT="${APP}/build/host"

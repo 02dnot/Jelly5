@@ -86,8 +86,10 @@ void evo_subsync_set_request_headers(const char *headers, const char *user_agent
  * embedded track's cues then come from cue_url (the server's subtitle file of
  * it) instead of the file's packets. duration_s is the film's length. With
  * static_fallback, a run the server gives no audio for reads media_path
- * instead. Ignored while a run is going. */
+ * instead. stop_url + "&playSessionId=<a window's>" (a DELETE) ends the
+ * server's encoder after each window, and on a cancel. Ignored while a run is going. */
 void evo_subsync_set_server_source(const char *audio_url, const char *cue_url,
+                                   const char *stop_url,
                                    double duration_s, int static_fallback);
 
 /* "25->23.976 fps" for a standard ratio, NULL for 1.0 / anything else. */

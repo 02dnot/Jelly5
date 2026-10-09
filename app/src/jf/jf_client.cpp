@@ -1421,6 +1421,11 @@ std::string Client::sync_audio_url(const std::string &item_id, const Version &v,
            token_;
 }
 
+std::string Client::sync_stop_url() const
+{
+    return server_ + "/Videos/ActiveEncodings?deviceId=" + url_escape(device_id_) + "&" + token_param() + "=" + token_;
+}
+
 std::string Client::subtitle_file_url(const std::string &item_id, const Version &v, const MediaStream &sub) const
 {
     if (sub.type != "Subtitle" || sub.is_external || !sub.is_text || sub.index < 0)

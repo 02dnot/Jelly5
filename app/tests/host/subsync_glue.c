@@ -28,11 +28,12 @@ void evo_stream_io_apply_network_options(AVDictionary **opts, const char *url)
 }
 
 /* One run, as the worker makes it. audio_url empty: media_path is read. */
-int glue_run(const char *media_path, const char *audio_url, const char *cue_url, double duration_s,
-             int sub_stream, const double *cs, const double *ce, int n, evo_subsync_result_t *res)
+int glue_run(const char *media_path, const char *audio_url, const char *cue_url, const char *stop_url,
+             double duration_s, int sub_stream, const double *cs, const double *ce, int n,
+             evo_subsync_result_t *res)
 {
     volatile int cancel = 0, progress = 0;
-    return ss_run(media_path, audio_url, cue_url, duration_s, -1, sub_stream, cs, ce, n,
+    return ss_run(media_path, audio_url, cue_url, stop_url, duration_s, -1, sub_stream, cs, ce, n,
                   &cancel, &progress, res);
 }
 

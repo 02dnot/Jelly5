@@ -17,8 +17,9 @@
 
 extern "C" {
 #include "evo_subsync.h"
-int glue_run(const char *media_path, const char *audio_url, const char *cue_url, double duration_s,
-             int sub_stream, const double *cs, const double *ce, int n, evo_subsync_result_t *res);
+int glue_run(const char *media_path, const char *audio_url, const char *cue_url, const char *stop_url,
+             double duration_s, int sub_stream, const double *cs, const double *ce, int n,
+             evo_subsync_result_t *res);
 int glue_cues(const char *url, double **cs, double **ce);
 }
 
@@ -47,11 +48,18 @@ int main()
     if (!c.authenticate(user, pass))
         return 1;
     std::printf("server: %s %s\n", jf::kind_key(kind), version.c_str());
-    const std::vector<jf::Item> found = c.search("Synktest", "Movie", 5);
+    /* SYNC_TITLE: another of the test films (subsync_film.py: "Synktest Offset", a
+     * Matroska file starting at 10 s; "Synktest MP4", mov_text). */
+    const char *title = std::getenv("SYNC_TITLE") ? std::getenv("SYNC_TITLE") : "Synktest";
+    std::vector<jf::Item> found;
+    for (const jf::Item &it : c.search(title, "Movie", 10))
+        if (it.name == title || it.name == std::string(title) + " (2026)")
+            found.push_back(it);
     if (found.empty()) {
-        std::printf("  FAIL no \"Synktest\" on this server\n");
+        std::printf("  FAIL no \"%s\" on this server\n", title);
         return 1;
     }
+    std::printf("film: %s\n", title);
     const std::string id = found[0].id;
     jf::Playback pb;
     if (!c.playback_info(id, 0, -1, -2, &pb) || pb.versions.empty() || pb.play_method != "DirectPlay") {
@@ -84,11 +92,13 @@ int main()
     const int n = glue_cues(ext_url.c_str(), &cs, &ce);
     std::printf("  external track: %d cues\n", n);
     evo_subsync_result_t r;
-    glue_run(pb.url.c_str(), audio_url.c_str(), "", duration, -1, cs, ce, n, &r);
+    const std::string stop = c.sync_stop_url();
+    glue_run(pb.url.c_str(), audio_url.c_str(), "", stop.c_str(), duration, -1, cs, ce, n, &r);
     expect("external, audio from the server", r, 3.2);
-    glue_run(pb.url.c_str(), audio_url.c_str(), cue_url.c_str(), duration, embedded, nullptr, nullptr, 0, &r);
+    glue_run(pb.url.c_str(), audio_url.c_str(), cue_url.c_str(), stop.c_str(), duration, embedded, nullptr, nullptr, 0,
+             &r);
     expect("embedded, audio and cues from the server", r, -1.7);
-    glue_run(pb.url.c_str(), "", "", 0, -1, cs, ce, n, &r);
+    glue_run(pb.url.c_str(), "", "", "", 0, -1, cs, ce, n, &r);
     expect("external, the file itself (fallback)", r, 3.2);
     std::free(cs);
     std::free(ce);

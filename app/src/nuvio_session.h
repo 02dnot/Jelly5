@@ -126,6 +126,7 @@ struct NuvioRequest {
     double start_position = 0;
     std::string stream_title, stream_description, stream_addon;
     std::string play_method, transcode_reasons;         /* Jelly5: PlaybackInfo's decision, for the L3 panel */
+    std::string sync_stop_url;                          /* Jelly5: ends auto-sync's encoders (jf::Client::sync_stop_url) */
     std::vector<NuvioSource> sources;
     int source_index = 0;
     std::vector<NuvioSubtitleRef> subtitles;

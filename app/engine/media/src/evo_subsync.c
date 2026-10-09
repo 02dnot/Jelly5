@@ -134,6 +134,7 @@ static char   s_audio_url[4096];
 static char   s_cue_url[4096];
 static double s_url_duration_s;
 static int    s_static_fallback;
+static char   s_stop_url[4096];
 
 /* ------------------------------------------------------------------------
  * Bit vectors. Bit i lives in word i >> 6, bit i & 63.
@@ -578,8 +579,17 @@ static int ss_open(ss_ctx *c, const char *url, int audio_stream, int sub_stream)
         /* This worker's own copy, not what the player holds right now. */
         av_dict_set(&opts, "headers", s_req_headers[0] ? s_req_headers : NULL, 0);
         av_dict_set(&opts, "user_agent", s_req_ua[0] ? s_req_ua : NULL, 0);
-        /* Jelly5: a server's audio window starts an encoder before its first byte. */
-        if (c->url_windows) av_dict_set(&opts, "rw_timeout", "20000000", 0);
+        /* Jelly5: a server's audio window starts an encoder before its first byte,
+         * and is a stream of unknown length: a reconnect would start it over from
+         * the window's start, a second copy of its audio. A dropped window ends
+         * where it dropped (its frames so far count). */
+        if (c->url_windows) {
+            av_dict_set(&opts, "rw_timeout", "20000000", 0);
+            av_dict_set(&opts, "reconnect", "0", 0);
+            av_dict_set(&opts, "reconnect_streamed", "0", 0);
+            av_dict_set(&opts, "reconnect_at_eof", "0", 0);
+            av_dict_set(&opts, "reconnect_on_network_error", "0", 0);
+        }
     }
     const int open_rc = avformat_open_input(&c->fmt, url, NULL, &opts);
     av_dict_free(&opts);
@@ -640,6 +650,29 @@ static void ss_close(ss_ctx *c)
     c->stream = -1;
 }
 
+/* Jelly5: ends the server's encoder for one audio window (stop_url +
+ * "&playSessionId=<it>", a DELETE of /Videos/ActiveEncodings): it would
+ * otherwise go on through the rest of the film after the window was read.
+ * Not interruptible by a cancel (it is part of one); 3 s at most. */
+static void ss_stop_encoder(const char *stop_url, const char *session)
+{
+    if (!stop_url || !stop_url[0] || !session || !session[0]) return;
+    char u[sizeof(s_stop_url) + 64];
+    snprintf(u, sizeof(u), "%s&playSessionId=%s", stop_url, session);
+    AVDictionary *o = NULL;
+    av_dict_set(&o, "method", "DELETE", 0);
+    av_dict_set(&o, "rw_timeout", "3000000", 0);
+    av_dict_set(&o, "timeout", "3000000", 0);
+    if (s_req_headers[0]) av_dict_set(&o, "headers", s_req_headers, 0);
+    if (s_req_ua[0]) av_dict_set(&o, "user_agent", s_req_ua, 0);
+    AVIOContext *pb = NULL;
+    const int rc = avio_open2(&pb, u, AVIO_FLAG_READ, NULL, &o);
+    av_dict_free(&o);
+    if (pb) avio_closep(&pb);
+    /* (A 204 No Content can read as an error to FFmpeg: the request went out.) */
+    evo_log("subsync: stopped the server's encoder (%d)", rc);
+}
+
 /* Jelly5: an embedded track's cues from the server's own copy of it (a
  * subtitle file the server cuts from the container), into c->ecs/ece.
  * Returns how many, -1 when it could not be read. */
@@ -688,6 +721,7 @@ static int ss_load_cues(ss_ctx *c, const char *url)
  * to and returns from 0 - so a window costs a few MB, not a stretch of the
  * whole file. Its cues come from cs/ce or, for an embedded track, cue_url. */
 static int ss_run(const char *media_path, const char *audio_url, const char *cue_url,
+                  const char *stop_url,
                   double url_duration_s, int audio_stream, int sub_stream,
                   const double *cs, const double *ce, int n,
                   volatile int *cancel, volatile int *progress,
@@ -698,6 +732,10 @@ static int ss_run(const char *media_path, const char *audio_url, const char *cue
     double *acc = NULL;
     const double t0 = ss_now_s();
     const int url_mode = audio_url && audio_url[0];
+    /* An embedded track's cues (from the file's packets, or the server's file of
+     * it): it is muxed with the video, so offset only, no framerate ratio. */
+    const int embedded = url_mode ? (cue_url && cue_url[0]) : sub_stream >= 0;
+    char session[48] = "";              /* url_mode: the window being read */
     int net = 0;
 
     memset(&c, 0, sizeof(c));
@@ -778,9 +816,11 @@ static int ss_run(const char *media_path, const char *audio_url, const char *cue
              * (12.2) names an encoder's output by device and session only, and
              * would serve the first window's again for the next. */
             ss_close(&c);
+            ss_stop_encoder(stop_url, session);   /* the last window's */
+            snprintf(session, sizeof(session), "jelly5sync%llx%d", (unsigned long long)(t0 * 1000.0), i);
             char u[sizeof(s_audio_url) + 96];
-            snprintf(u, sizeof(u), "%s&startTimeTicks=%lld&playSessionId=jelly5sync%llx%d", audio_url,
-                     (long long)llround(win[i].start_s * 1e7), (unsigned long long)(t0 * 1000.0), i);
+            snprintf(u, sizeof(u), "%s&startTimeTicks=%lld&playSessionId=%s", audio_url,
+                     (long long)llround(win[i].start_s * 1e7), session);
             if (ss_open(&c, u, -1, -1) < 0) goto done;
             c.start_offset_s = -win[i].start_s;
         }
@@ -815,7 +855,7 @@ static int ss_run(const char *media_path, const char *audio_url, const char *cue
     /* Offset only for an embedded track: it is muxed with the video, and
      * checking a ratio would mean reading minutes more around each window
      * to reach the cues a 4% drift moves there. */
-    const int ratios = c.sub_stream >= 0 ? 0 : SS_RATIO_COUNT;
+    const int ratios = embedded ? 0 : SS_RATIO_COUNT;
 
     /* Each scale's windows are summed into one curve - a constant offset (at
      * the right scale) lines their peaks up, so the sum is ~sqrt(3) cleaner
@@ -918,6 +958,7 @@ done:
     for (int i = 0; i < SS_WINDOWS; i++) free(win[i].bits);
     free(c.out);
     ss_close(&c);
+    ss_stop_encoder(stop_url, session);   /* also after a cancel or a failed window */
     if (cancel && *cancel) res->status = EVO_SUBSYNC_CANCELLED;
     res->elapsed_s = ss_now_s() - t0;
     if (progress) *progress = 100;
@@ -933,7 +974,7 @@ int evo_subsync_analyse(const char *media_path, int audio_stream,
                         volatile int *cancel, volatile int *progress,
                         evo_subsync_result_t *res)
 {
-    return ss_run(media_path, NULL, NULL, 0.0, audio_stream, sub_stream, cs, ce, n,
+    return ss_run(media_path, NULL, NULL, NULL, 0.0, audio_stream, sub_stream, cs, ce, n,
                   cancel, progress, res);
 }
 
@@ -961,7 +1002,7 @@ static void *ss_worker(void *arg)
     (void)arg;
     evo_subsync_result_t r;
     if (s_audio_url[0]) {
-        ss_run(s_path, s_audio_url, s_cue_url, s_url_duration_s, s_stream, s_sub_stream,
+        ss_run(s_path, s_audio_url, s_cue_url, s_stop_url, s_url_duration_s, s_stream, s_sub_stream,
                s_cs, s_ce, s_n, &s_cancel, &s_progress, &r);
         /* The server would not give the audio: the file itself, where the
          * caller allowed it (a small one). */
@@ -1055,9 +1096,11 @@ void evo_subsync_cancel(void)
 int evo_subsync_running(void) { return s_running; }
 
 void evo_subsync_set_server_source(const char *audio_url, const char *cue_url,
+                                   const char *stop_url,
                                    double duration_s, int static_fallback)
 {
     if (s_running) return;
+    snprintf(s_stop_url, sizeof(s_stop_url), "%s", stop_url ? stop_url : "");
     snprintf(s_audio_url, sizeof(s_audio_url), "%s", audio_url ? audio_url : "");
     snprintf(s_cue_url, sizeof(s_cue_url), "%s", cue_url ? cue_url : "");
     s_url_duration_s = duration_s;

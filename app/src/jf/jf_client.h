@@ -382,6 +382,9 @@ public:
     std::string sync_audio_url(const std::string &item_id, const Version &v, const MediaStream &audio) const;
     std::string subtitle_file_url(const std::string &item_id, const Version &v, const MediaStream &sub) const;
     static int container_index(const Version &v, const MediaStream &s);
+    /* + "&playSessionId=<one window's>": a DELETE that ends the server's encoder for
+     * an audio window (/Videos/ActiveEncodings); authorised, never log it. */
+    std::string sync_stop_url() const;
 
     void report_start(const Playback &pb, int64_t position_ticks);
     /* audio_index, subtitle_index: the server's stream indices (as playback_info's;
