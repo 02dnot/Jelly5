@@ -289,6 +289,7 @@ const std::unordered_map<std::string, const char *> &japanese_table()
         {"Bytt bruker eller server", "ユーザーまたはサーバーを変更"},
         {"Spilles om %d s", "%d秒後に再生"},
         {"Bildefrekvens", "リフレッシュレート"},
+        {"Bilder på Hjem", "ホームの画像"}, {"Plakater", "ポスター"}, {"Liggende", "横長"},
         {"60 Hz (TV-en har ikke 120 Hz)", "60 Hz（テレビが120 Hz非対応）"},
         {"Se sammen", "一緒に見る"},
         {"Forlat gruppe", "グループを退出"},

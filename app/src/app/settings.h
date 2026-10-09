@@ -35,6 +35,7 @@ struct Local {
     float sub_background = 0;    /* 0..1 box behind the text */
     bool sub_outline = true;
     bool refresh_120 = true;
+    bool home_posters = false;   /* Home's library rows as portrait posters (Latest, Recommended, genres, My List) */
     int upscale = 0;             /* EVO_AGC_UPSCALE_*: 0 off, 1 Skarp (FSR 1), 2 AI (Anime4K); video smaller than the screen, SDR only */
     int audio_delay_ms = 0;      /* the sound system's delay: the picture waits this long (A/V sync) */
     bool night_mode = false;     /* compress loud and quiet together, dialogue lifted */

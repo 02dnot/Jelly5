@@ -289,6 +289,7 @@ const std::unordered_map<std::string, const char *> &romanian_table()
         {"Bytt bruker eller server", "Schimbă utilizatorul sau serverul"},
         {"Spilles om %d s", "Începe în %d s"},
         {"Bildefrekvens", "Rată de reîmprospătare"},
+        {"Bilder på Hjem", "Imagini pe Acasă"}, {"Plakater", "Postere"}, {"Liggende", "Orizontale"},
         {"60 Hz (TV-en har ikke 120 Hz)", "60 Hz (televizorul nu are 120 Hz)"},
         {"Se sammen", "Vizionare împreună"},
         {"Forlat gruppe", "Părăsește grupul"},
