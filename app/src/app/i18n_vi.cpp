@@ -289,6 +289,7 @@ const std::unordered_map<std::string, const char *> &vietnamese_table()
         {"Bytt bruker eller server", "Đổi người dùng hoặc máy chủ"},
         {"Spilles om %d s", "Phát sau %d giây"},
         {"Bildefrekvens", "Tần số quét"},
+        {"Bilder på Hjem", "Hình ảnh ở Trang chủ"}, {"Plakater", "Áp phích"}, {"Liggende", "Ngang"},
         {"60 Hz (TV-en har ikke 120 Hz)", "60 Hz (TV không hỗ trợ 120 Hz)"},
         {"Se sammen", "Đồng bộ phát"},
         {"Forlat gruppe", "Rời nhóm"},

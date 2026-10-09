@@ -289,6 +289,7 @@ const std::unordered_map<std::string, const char *> &turkish_table()
         {"Bytt bruker eller server", "Kullanıcı veya sunucu değiştir"},
         {"Spilles om %d s", "%d sn sonra başlıyor"},
         {"Bildefrekvens", "Yenileme hızı"},
+        {"Bilder på Hjem", "Ana sayfa görselleri"}, {"Plakater", "Afişler"}, {"Liggende", "Yatay"},
         {"60 Hz (TV-en har ikke 120 Hz)", "60 Hz (TV'de 120 Hz yok)"},
         {"Se sammen", "Birlikte İzle"},
         {"Forlat gruppe", "Gruptan ayrıl"},

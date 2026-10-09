@@ -117,6 +117,7 @@ const char *label_of(int row)
                                          T("Seerr-konto"),
                                          T("Test tilkoblingen"),
                                          T("Språk"),
+                                         T("Bilder på Hjem"),
                                          T("Bildefrekvens"),
                                          T("Se etter oppdateringer"),
                                          T("Se sammen"),
@@ -237,6 +238,7 @@ std::string SettingsScreen::value(Row r) const
     case AudioDelay:
         return s.local.audio_delay_ms == 0 ? std::string(T("Ingen"))
                                            : (s.local.audio_delay_ms > 0 ? "+" : "") + std::to_string(s.local.audio_delay_ms) + " ms";
+    case HomePosters: return s.local.home_posters ? T("Plakater") : T("Liggende");
     case Refresh:
         if (!evo_agc_runtime_supports_120hz())
             return T("60 Hz (TV-en har ikke 120 Hz)");
@@ -348,6 +350,10 @@ void SettingsScreen::change(Row r, int dir)
         settings::set_local(s.local);
         break;
     }
+    case HomePosters:   /* Home's library rows: wide pictures or posters (at once) */
+        s.local.home_posters = !s.local.home_posters;
+        settings::set_local(s.local);
+        break;
     case Refresh:
         if (!evo_agc_runtime_supports_120hz())
             break;

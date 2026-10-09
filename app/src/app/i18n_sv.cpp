@@ -289,6 +289,7 @@ const std::unordered_map<std::string, const char *> &swedish_table()
         {"Bytt bruker eller server", "Byt användare eller server"},
         {"Spilles om %d s", "Spelas om %d s"},
         {"Bildefrekvens", "Uppdateringsfrekvens"},
+        {"Bilder på Hjem", "Bilder på Hem"}, {"Plakater", "Affischer"}, {"Liggende", "Liggande"},
         {"60 Hz (TV-en har ikke 120 Hz)", "60 Hz (tv:n har inte 120 Hz)"},
         {"Se sammen", "Titta tillsammans"},
         {"Forlat gruppe", "Lämna grupp"},

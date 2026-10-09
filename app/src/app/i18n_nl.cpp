@@ -289,6 +289,7 @@ const std::unordered_map<std::string, const char *> &dutch_table()
         {"Bytt bruker eller server", "Gebruiker of server wisselen"},
         {"Spilles om %d s", "Begint over %d s"},
         {"Bildefrekvens", "Verversingssnelheid"},
+        {"Bilder på Hjem", "Afbeeldingen op Start"}, {"Plakater", "Posters"}, {"Liggende", "Liggend"},
         {"60 Hz (TV-en har ikke 120 Hz)", "60 Hz (de tv heeft geen 120 Hz)"},
         {"Se sammen", "Samen kijken"},
         {"Forlat gruppe", "Groep verlaten"},
