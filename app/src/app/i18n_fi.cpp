@@ -289,6 +289,7 @@ const std::unordered_map<std::string, const char *> &finnish_table()
         {"Bytt bruker eller server", "Vaihda käyttäjää tai palvelinta"},
         {"Spilles om %d s", "Alkaa %d s kuluttua"},
         {"Bildefrekvens", "Virkistystaajuus"},
+        {"Bilder på Hjem", "Kuvat kotinäkymässä"}, {"Plakater", "Julisteet"}, {"Liggende", "Vaakakuvat"},
         {"60 Hz (TV-en har ikke 120 Hz)", "60 Hz (TV ei tue 120 Hz:ä)"},
         {"Se sammen", "Katso yhdessä"},
         {"Forlat gruppe", "Poistu ryhmästä"},

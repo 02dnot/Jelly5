@@ -26,7 +26,7 @@ public:
         ThemeMusic,
         SkipIntro, SkipOutro, SkipRecap, SkipPreview, SkipCommercial,   /* "Hopp over": in segments::Type order */
         SeerrOn, SeerrUrl, SeerrAuth, SeerrAccount, SeerrTest,
-        AppLanguage, Refresh, Updates, Together, ServerInfo, About, RowCount
+        AppLanguage, HomePosters, Refresh, Updates, Together, ServerInfo, About, RowCount
     };
     explicit SettingsScreen(jf::Client &client) : m_client(client) {}
     ~SettingsScreen() override;   /* the keyboard's callback points here */

@@ -289,6 +289,7 @@ const std::unordered_map<std::string, const char *> &korean_table()
         {"Bytt bruker eller server", "사용자 또는 서버 변경"},
         {"Spilles om %d s", "%d초 후 재생"},
         {"Bildefrekvens", "주사율"},
+        {"Bilder på Hjem", "홈 이미지"}, {"Plakater", "포스터"}, {"Liggende", "가로"},
         {"60 Hz (TV-en har ikke 120 Hz)", "60 Hz(TV가 120 Hz를 지원하지 않음)"},
         {"Se sammen", "함께 보기"},
         {"Forlat gruppe", "그룹 나가기"},

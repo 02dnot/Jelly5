@@ -289,6 +289,7 @@ const std::unordered_map<std::string, const char *> &russian_table()
         {"Bytt bruker eller server", "Сменить пользователя или сервер"},
         {"Spilles om %d s", "Начнётся через %d с"},
         {"Bildefrekvens", "Частота обновления"},
+        {"Bilder på Hjem", "Изображения на главной"}, {"Plakater", "Постеры"}, {"Liggende", "Горизонтальные"},
         {"60 Hz (TV-en har ikke 120 Hz)", "60 Гц (телевизор не поддерживает 120 Гц)"},
         {"Se sammen", "Совместный просмотр"},
         {"Forlat gruppe", "Покинуть группу"},
