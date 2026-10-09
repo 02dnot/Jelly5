@@ -1808,8 +1808,10 @@ void shell_input(uint32_t p, jf::Item *play, bool *chose, bool *from_start, bool
     const ui::Action a = in_screen->input(p);
     if (in_screen->take_bump())
         nuvio_input_pulse(70, 45);   /* a soft bump at the edge */
-    if (a.kind == ui::Action::Play || a.kind == ui::Action::PlayFromStart || a.kind == ui::Action::PlayShuffled)
+    if (a.kind == ui::Action::Play || a.kind == ui::Action::PlayFromStart || a.kind == ui::Action::PlayShuffled) {
         nuvio_input_pulse(150, 70);  /* a firmer one to start */
+        evo_bt("jelly5: play pressed");   /* (with the log's times: how long until the server answered) */
+    }
     switch (a.kind) {
     case ui::Action::ToNav:
         if (s_stack.empty()) {

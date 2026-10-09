@@ -9,9 +9,11 @@
 
 #include <math.h>
 #include <pthread.h>
+#include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 #include <time.h>
+#include <unistd.h>
 
 /* ScePadData, as EVO Player reads it. */
 typedef struct {
@@ -156,7 +158,7 @@ void nuvio_input_set_lightbar(uint32_t rgb)
         evo_bt("input: light bar %06x rc=%#x", (unsigned)rgb, (unsigned)rc);
 }
 
-static double s_rumble_until;
+static volatile double s_rumble_until;   /* read by the pulse's own stopper too */
 
 /* One attempt: both triggers set to `mode` with `data`; the PS5's answer. */
 static int set_triggers(uint32_t mode, const uint8_t *data, int n)
@@ -245,6 +247,29 @@ void nuvio_input_trigger_resistance(int on)
     }
 }
 
+/* The pulse ends by itself too: the poll that stops it does not run while the
+ * thread that pulsed waits on the server (Play asks for the playback info, and the
+ * motor ran on until the player had opened). Stops only the pulse it was made for. */
+struct rumble_stop {
+    int pad;
+    double until;
+};
+
+static void *rumble_stop_main(void *arg)
+{
+    struct rumble_stop r = *(struct rumble_stop *)arg;
+    free(arg);
+    const double wait = r.until - now_s();
+    if (wait > 0)
+        usleep((useconds_t)(wait * 1e6));
+    if (s_rumble_until == r.until) {   /* no newer pulse since */
+        static const ScePadVibration off = {0, 0};
+        scePadSetVibration(r.pad, &off);
+        s_rumble_until = 0;
+    }
+    return NULL;
+}
+
 void nuvio_input_pulse(int strength, int ms)
 {
     if (s_pad < 0)
@@ -256,6 +281,19 @@ void nuvio_input_pulse(int strength, int ms)
     if (!logged++)
         evo_bt("input: first vibration rc=%#x", (unsigned)rc);
     s_rumble_until = now_s() + ms / 1000.0;
+    struct rumble_stop *r = malloc(sizeof *r);
+    if (!r)
+        return;
+    r->pad = s_pad;
+    r->until = s_rumble_until;
+    pthread_t t;
+    pthread_attr_t at;
+    pthread_attr_init(&at);
+    pthread_attr_setstacksize(&at, 64 * 1024);
+    pthread_attr_setdetachstate(&at, PTHREAD_CREATE_DETACHED);
+    if (pthread_create(&t, &at, rumble_stop_main, r) != 0)
+        free(r);   /* the poll still stops it */
+    pthread_attr_destroy(&at);
 }
 
 void nuvio_input_reset_lightbar(void)
