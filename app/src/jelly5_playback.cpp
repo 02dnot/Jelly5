@@ -1306,6 +1306,7 @@ static bool play_chain_tracks(jf::Client &client, jf::Item item, std::vector<jf:
             evo_bt("jelly5: playback info failed: %s", error->c_str());
             return chain > 0 && item.type != "TvChannel";   /* a channel zapped to says it could not open */
         }
+        evo_bt("jelly5: playback info answered");
         int keep_audio, keep_subtitle;   /* an episode: the tracks chosen earlier in its series */
         remembered_tracks(client, item, pb, &keep_audio, &keep_subtitle);
         if (keep_audio >= 0 || keep_subtitle >= -1) {
@@ -1341,6 +1342,7 @@ static bool play_chain_tracks(jf::Client &client, jf::Item item, std::vector<jf:
             client.close_live_stream(pb);
             return true;   /* stopped while the server answered: nothing reported, nothing opened */
         }
+        evo_bt("jelly5: chapters, segments and trickplay answered");
         if (ex.trickplay.valid())
             evo_bt("jelly5: trickplay %dx%d, %d thumbnails", ex.trickplay.width, ex.trickplay.height, ex.trickplay.count);
         ex.autoplay_count = still_count;
