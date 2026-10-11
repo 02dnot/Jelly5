@@ -36,12 +36,16 @@ struct Local {
     bool sub_outline = true;
     bool refresh_120 = true;
     int upscale = 0;             /* EVO_AGC_UPSCALE_*: 0 off, 1 Skarp (FSR 1), 2 AI (Anime4K); video smaller than the screen, SDR only */
+    int buffer_s = 30;           /* how far ahead a network stream reads (settings::kBufferChoices); memory caps it too */
     int audio_delay_ms = 0;      /* the sound system's delay: the picture waits this long (A/V sync) */
     bool night_mode = false;     /* compress loud and quiet together, dialogue lifted */
     bool hdmi_bitstream = false; /* Dolby Digital (Plus) and DTS to the TV/receiver undecoded (jelly5_bitstream) */
     bool theme_music = true;     /* a title's theme song, quietly, on its page */
     bool check_updates = false;  /* opt-in: ask GitHub for a newer release at start */     /* the display at 120 Hz when it can (smoother menus, 24p without judder) */
 };
+
+/* Innstillinger: Buffer, in seconds. */
+constexpr int kBufferChoices[] = {30, 60, 120, 300};
 
 struct All {
     Local local;

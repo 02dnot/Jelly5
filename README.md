@@ -51,6 +51,7 @@ Jelly5 brings your Jellyfin or Emby library to the PS5 as a real app: a fast, sh
 - HDMI bitstream (optional): Dolby Digital, Dolby Digital Plus (with Atmos) and DTS go to your TV or receiver untouched
 - Resume and watched state synced with the server, and a maximum quality per server
 - A dropped connection picks up where it broke, without stopping the film
+- A read-ahead buffer of 30 seconds to 5 minutes, for networks that come and go
 
 **Live TV**
 - Your server's channels (IPTV/M3U or a tuner) in a programme guide: what's on now and next, filters for favourites, films, sport, news, kids and series, and a line where it is now

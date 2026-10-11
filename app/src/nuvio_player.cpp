@@ -87,6 +87,7 @@ int evo_demux_seek_busy(void);
 void evo_demux_rebuffer(int64_t target_us, int max_ms);
 float evo_demux_prebuffer_progress(void);
 double evo_demux_buffered_s(void);
+void evo_demux_set_net_readahead_s(int seconds);
 extern volatile int evo_demux_state;
 extern volatile unsigned long packet_queue_ring_fallbacks;
 extern int dbg_video_packets;
@@ -1279,6 +1280,7 @@ extern "C" void nuvio_player_run(const char *json)
     /* Innstillinger: Oppskalering. The runtime uses it only for an SDR picture smaller than
      * the one on the TV, and steps down by itself when the GPU runs out of time. */
     evo_agc_upscale_set_mode(settings::get().local.upscale);
+    evo_demux_set_net_readahead_s(settings::get().local.buffer_s);   /* Innstillinger: Buffer */
     /* (music and live TV have nothing to scrub) */
     const bool triggers = !headless && s.req.item_type != "audio" && !s.req.live;
     if (triggers)

@@ -95,6 +95,7 @@ const char *label_of(int row)
                                          T("Logg ut"),
                                          T("Maks kvalitet"),
                                          T("Oppskalering"),
+                                         T("Buffer"),
                                          T("Foretrukket lydspråk"),
                                          T("Undertekster"),
                                          T("Undertekstspråk"),
@@ -206,6 +207,9 @@ std::string SettingsScreen::value(Row r) const
         return s.local.max_mbps == 0 ? T("Automatisk (maks)") : std::to_string(s.local.max_mbps) + " Mbit/s";
     case Upscale:
         return s.local.upscale == 1 ? T("Skarp") : s.local.upscale == 2 ? T("AI (Anime4K)") : T("Av");
+    case Buffer:
+        return s.local.buffer_s < 60 ? std::to_string(s.local.buffer_s) + " s"
+                                     : std::to_string(s.local.buffer_s / 60) + " min";
     case AudioLang: return T(kLangs[index_of(kLangs, s.server.audio_language)].name);
     case SubMode: return T(kModes[index_of(kModes, s.server.subtitle_mode)].name);
     case SubLang: return T(kLangs[index_of(kLangs, s.server.subtitle_language)].name);
@@ -306,6 +310,16 @@ void SettingsScreen::change(Row r, int dir)
         settings::set_local(s.local);
         evo_agc_upscale_set_mode(s.local.upscale);
         break;
+    case Buffer: {   /* 30 s, 1, 2, 5 min (from the next playback) */
+        constexpr int n = sizeof settings::kBufferChoices / sizeof *settings::kBufferChoices;
+        int i = 0;
+        for (int k = 0; k < n; k++)
+            if (settings::kBufferChoices[k] == s.local.buffer_s)
+                i = k;
+        s.local.buffer_s = settings::kBufferChoices[cycle(i, n)];
+        settings::set_local(s.local);
+        break;
+    }
     case StillWatching:   /* Av, after 3 episodes, after 2 hours (from the next playback) */
         s.local.still_watching = cycle(s.local.still_watching, 3);
         settings::set_local(s.local);
