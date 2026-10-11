@@ -49,7 +49,8 @@ enum {
     EVO_AGC_PIPE_VIDEO_DV5 = 72,      /* Dolby Vision profile 5 -> SDR */
     EVO_AGC_PIPE_VIDEO_DV5_PQ = 73,   /* Dolby Vision profile 5 -> HDR10 */
     EVO_AGC_PIPE_UI_GLASS = 74,       /* Jelly5: liquid glass pane (app/shaders/liquid_glass.pipe) */
-    EVO_AGC_PIPE_COUNT = 75,
+    EVO_AGC_PIPE_UI_GLASS_PQ = 75,    /* Jelly5: the glass on the HDR10 scanout (PQ in, PQ out) */
+    EVO_AGC_PIPE_COUNT = 76,
 
     EVO_AGC_UP_S_CONVS = 4,
     EVO_AGC_UP_M_CONVS = 7,

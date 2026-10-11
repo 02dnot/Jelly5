@@ -10,6 +10,10 @@
 #include "liquid_glass_pipe.h"
 #define JELLY5_HAVE_GLASS_PIPE 1
 #endif
+#if __has_include("liquid_glass_pq_out_pipe.h")
+#include "liquid_glass_pq_out_pipe.h"
+#define JELLY5_HAVE_GLASS_PQ_PIPE 1
+#endif
 #endif
 #include "evo_boot_log.h"
 #include "evo_direct_mem.h"
@@ -1348,6 +1352,15 @@ int evo_agc_runtime_init(int width, int height, int hdr)
             evo_boot_log("agc pipe liquid_glass unavailable (rc=%d)", grc);
     }
 #endif
+#ifdef JELLY5_HAVE_GLASS_PQ_PIPE
+    {   /* Its HDR10 twin; without it the SDR glass is drawn on the HDR scanout. */
+        int grc = compile_agc_pipeline(&g_agc_dev.pipelines[EVO_AGC_PIPE_UI_GLASS_PQ],
+                                       shader_storage, &shader_storage_used,
+                                       &liquid_glass_pq_out_metadata, "liquid_glass_pq_out");
+        if (grc != 0)
+            evo_boot_log("agc pipe liquid_glass_pq_out unavailable (rc=%d)", grc);
+    }
+#endif
 
     /* Quad index buffer for fullscreen video drawing */
     size_t qat = (shader_storage_used + 255u) & ~255u;
@@ -1840,6 +1853,7 @@ static int agc_hdr_remap(int pipeline_id)
     case EVO_AGC_PIPE_VIDEO_DV5:  to = EVO_AGC_PIPE_VIDEO_DV5_PQ; break;
     case EVO_AGC_PIPE_NV12_HDR:   to = EVO_AGC_PIPE_NV12_HDR_PQ; break;
     case EVO_AGC_PIPE_NV12_HLG:   to = EVO_AGC_PIPE_NV12_HLG_PQ; break;
+    case EVO_AGC_PIPE_UI_GLASS:   to = EVO_AGC_PIPE_UI_GLASS_PQ; break;
     default: break;
     }
     return g_agc_dev.pipelines[to].valid ? to : pipeline_id;

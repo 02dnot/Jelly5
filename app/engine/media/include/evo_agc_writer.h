@@ -53,6 +53,12 @@ int evo_agc_build_tsharp_rg16(uint32_t out[EVO_AGC_TSHARP_DWORDS], uint64_t gpu_
 int evo_agc_build_tsharp_render_target(uint32_t out[EVO_AGC_TSHARP_DWORDS], uint64_t gpu_address,
                                        uint32_t width, uint32_t height, int fp16);
 
+/* Jelly5: the same for a 2:10:10:10 target - the scanout while it is HDR10
+ * (COLOR_2_10_10_10, evo_agc_runtime_set_hdr_output). Read as 8_8_8_8 its
+ * bits come out as noise. */
+int evo_agc_build_tsharp_render_target_10bit(uint32_t out[EVO_AGC_TSHARP_DWORDS], uint64_t gpu_address,
+                                             uint32_t width, uint32_t height);
+
 /* BGRA8: FORMAT_8_8_8_8 but with swizzle (Z,Y,X,W), so a texture stored in
  * memory as B,G,R,A bytes (the scanout backbuffer, written BGRA via
  * COMP_SWAP=ALT, and the 0xAABBGGRR OSD buffer) is sampled as correct R,G,B,A.

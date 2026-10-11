@@ -481,11 +481,12 @@ std::string quality_line()
     std::string q;
     if (video_stream_index >= 0 && video_stream_index < (int)play_fmt->nb_streams) {
         const AVCodecParameters *p = play_fmt->streams[video_stream_index]->codecpar;
-        const int h = p->height;
-        if (h >= 2000) q = "4K";
-        else if (h >= 1400) q = "1440p";
-        else if (h >= 1000) q = "1080p";
-        else if (h >= 700) q = "720p";
+        /* Width too: a scope film is 3840x1600 or 1920x800, still 4K or 1080p. */
+        const int w = p->width, h = p->height;
+        if (w >= 3200 || h >= 2000) q = "4K";
+        else if (w >= 2400 || h >= 1400) q = "1440p";
+        else if (w >= 1800 || h >= 1000) q = "1080p";
+        else if (w >= 1200 || h >= 700) q = "720p";
         else if (h > 0) q = std::to_string(h) + "p";
         /* The PS5 cannot output Dolby Vision: profile 8 shows its HDR10/HLG
          * base layer, and profile 5 is rebuilt into HDR10 (src/dv_rpu.c) when
