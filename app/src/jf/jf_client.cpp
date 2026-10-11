@@ -222,6 +222,7 @@ Item item_of(const cJSON *o)
         it.thumb_blurhash = it.primary_blurhash;
     it.collection_type = str_of(o, "CollectionType");
     it.series_primary_tag = str_of(o, "SeriesPrimaryImageTag");
+    it.series_primary_blurhash = blurhash_of(o, "Primary", it.series_primary_tag);
     it.album_id = str_of(o, "AlbumId");
     it.album = str_of(o, "Album");
     it.album_artist = str_of(o, "AlbumArtist");

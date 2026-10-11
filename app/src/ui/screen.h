@@ -182,6 +182,8 @@ private:
 };
 
 std::string poster_url(jf::Client &c, const jf::Item &it, int width);
+/* The BlurHash of the picture poster_url gives (an episode's: its series'). */
+const std::string &poster_blurhash(const jf::Item &it);
 
 /* The launch backdrop (start-up, a server that does not answer): near black with
  * a blue and a violet glow, drawn here at full size (no picture to upscale) and

@@ -36,6 +36,7 @@ struct HomeRow {
     int shelf = -1;         /* Seerr's tab: which of its lists, for the next page (-1: none) */
     int page = 1;           /* the pages loaded so far */
     bool more = true;       /* the list may go on */
+    bool wide = false;      /* its pictures are wide (home videos, music videos): never posters */
 };
 
 struct HomeModel {
@@ -83,7 +84,7 @@ private:
     std::string card_url(const jf::Item &it) const;
     /* Does this row show portrait posters (Seerr's tab; the library's rows when
      * Innstillinger asks for them) rather than wide cards? */
-    bool posters(const HomeRow &row, bool setting) const;
+    bool posters(const HomeRow &row) const;
     /* A card's picture fetched before it scrolls into view (as it will be drawn). */
     void prefetch_card(const jf::Item &it, bool poster);
     std::string backdrop_url(const jf::Item &it) const;
@@ -95,6 +96,7 @@ private:
 
     jf::Client &m_client;
     bool m_discover = false;            /* Seerr's tab */
+    bool m_posters = false;             /* Innstillinger: posters on Home (read as Home is shown) */
     HomeModel m_model;
 
     int m_row = -1;                     /* -1: the hero */
