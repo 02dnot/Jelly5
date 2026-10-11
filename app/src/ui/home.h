@@ -36,7 +36,6 @@ struct HomeRow {
     int shelf = -1;         /* Seerr's tab: which of its lists, for the next page (-1: none) */
     int page = 1;           /* the pages loaded so far */
     bool more = true;       /* the list may go on */
-    bool wide = false;      /* its pictures are wide (home videos, music videos): never posters */
 };
 
 struct HomeModel {
@@ -97,6 +96,8 @@ private:
     jf::Client &m_client;
     bool m_discover = false;            /* Seerr's tab */
     bool m_posters = false;             /* Innstillinger: posters on Home (read as Home is shown) */
+    std::vector<char> m_poster_row;     /* draw_rows: which rows are posters, */
+    std::vector<float> m_row_top;       /* ... and where each one starts (kept, not reallocated) */
     HomeModel m_model;
 
     int m_row = -1;                     /* -1: the hero */

@@ -266,10 +266,17 @@ bool Home::posters(const HomeRow &row) const
     if (m_discover)
         return true;
     /* What the viewer goes on with (a still, a channel's programme) and the libraries
-     * themselves stay wide, as in Jellyfin's web client. */
-    return m_posters && !row.wide &&
+     * themselves stay wide, as in Jellyfin's web client. So does a row with anything
+     * that has no poster (a home video, a music video, an episode of a series without
+     * one): its picture would be cropped to a sliver. */
+    auto has_poster = [](const jf::Item &it) {
+        return it.type == "Movie" || it.type == "Series" || it.type == "Season" || it.type == "BoxSet" ||
+               (it.type == "Episode" && !it.series_primary_tag.empty());
+    };
+    return m_posters &&
            (row.kind == HomeRow::Latest || row.kind == HomeRow::Recommended || row.kind == HomeRow::Genre ||
-            row.kind == HomeRow::MyList);
+            row.kind == HomeRow::MyList) &&
+           std::all_of(row.items.begin(), row.items.end(), has_poster);
 }
 
 void Home::prefetch_card(const jf::Item &it, bool poster)
@@ -601,8 +608,10 @@ void Home::draw_rows(float dt)
      * rows do too when Innstillinger asks for them; the rest stay wide. A row is as
      * tall as its cards, so each one's top is the sum of those above it. */
     const size_t n = m_model.rows.size();
-    std::vector<char> poster_row(n);
-    std::vector<float> row_top(n + 1, 0.f);
+    std::vector<char> &poster_row = m_poster_row;
+    std::vector<float> &row_top = m_row_top;
+    poster_row.resize(n);
+    row_top.assign(n + 1, 0.f);
     for (size_t r = 0; r < n; r++) {
         poster_row[r] = posters(m_model.rows[r]);
         row_top[r + 1] = row_top[r] + (poster_row[r] ? kPosterRowH : kRowH);
@@ -618,8 +627,8 @@ void Home::draw_rows(float dt)
         const HomeRow &row = m_model.rows[r];
         const bool poster = poster_row[r];
         const float cw = poster ? kPosterW : kCardW, ch = poster ? kPosterH : kCardH;
-        const float rel = (float)r - m_rows_y.value;
         const float ry = top + row_top[r] - focus_top;
+        const float rel = (row_top[r] - focus_top) / (row_top[r + 1] - row_top[r]);   /* in rows of its own height */
         float a = 1.f;
         if (rel < 0)
             a = std::max(0.f, 1.f + rel * 1.6f);   /* rows above fade out */

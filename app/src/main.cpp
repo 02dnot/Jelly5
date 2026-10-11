@@ -566,16 +566,12 @@ ui::HomeModel build_home(jf::Client &c, const HomeRaw &raw, std::vector<jf::Item
         return t == "homevideos" || t == "musicvideos" || t == "boxsets" || t.empty() ||
                (t == "playlists" && !has_music);
     };
-    std::vector<ui::HomeRow> latest;
+    std::vector<std::pair<std::string, std::vector<jf::Item>>> latest;
     for (const jf::Item &v : views)
         if (has_latest(c, v))
             for (const auto &l : raw.latest)
-                if (l.first == v.id) {
-                    ui::HomeRow r{T("Nylig lagt til i ") + v.name, c.items_of(l.second), false, ui::HomeRow::Latest};
-                    /* (a frame from the video, not a poster) */
-                    r.wide = v.collection_type == "homevideos" || v.collection_type == "musicvideos";
-                    latest.push_back(std::move(r));
-                }
+                if (l.first == v.id)
+                    latest.push_back({T("Nylig lagt til i ") + v.name, c.items_of(l.second)});
 
     ui::HomeModel m;
     m.hero = std::move(hero);
@@ -585,8 +581,8 @@ ui::HomeModel build_home(jf::Client &c, const HomeRaw &raw, std::vector<jf::Item
     if (!raw.live.empty()) m.rows.push_back({T("Direkte nå"), raw.live, true, Row::LiveNow});
     if (!mylist.empty()) m.rows.push_back({T("Min liste"), std::move(mylist), false, Row::MyList});
     for (auto &l : latest)
-        if (!l.items.empty())
-            m.rows.push_back(std::move(l));
+        if (!l.second.empty())
+            m.rows.push_back({l.first, std::move(l.second), false, Row::Latest});
     std::vector<jf::Item> libs;
     for (const jf::Item &v : views)
         if (untabbed(v))
