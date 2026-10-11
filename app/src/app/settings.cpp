@@ -110,10 +110,11 @@ void load_local()
     s_all.local.upscale = jf::to_int<int>(cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(j, "upscale")));
     if (s_all.local.upscale < 0 || s_all.local.upscale > 2)
         s_all.local.upscale = 0;
-    s_all.local.buffer_s = 30;
-    for (int b : kBufferChoices)
-        if (b == jf::to_int<int>(cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(j, "bufferSeconds"))))
-            s_all.local.buffer_s = b;
+    const int buffer = jf::to_int<int>(cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(j, "bufferSeconds")));
+    s_all.local.buffer_s = 30;   /* (missing or not a choice: the old fixed 30 s) */
+    for (int c : kBufferChoices)
+        if (c == buffer)
+            s_all.local.buffer_s = c;
     if (const cJSON *hz = cJSON_GetObjectItemCaseSensitive(j, "refresh120"))
         s_all.local.refresh_120 = cJSON_IsTrue(hz);
     if (const cJSON *st = cJSON_GetObjectItemCaseSensitive(j, "subtitles")) {
