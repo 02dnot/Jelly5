@@ -94,7 +94,7 @@ const char *label_of(int row)
     const char *const labels[] = {T("Bytt bruker eller server"),
                                          T("Logg ut"),
                                          T("Maks kvalitet"),
-                                         T("Versjon"),
+                                         T("Filmer med flere versjoner"),
                                          T("Oppskalering"),
                                          T("Foretrukket lydspråk"),
                                          T("Undertekster"),
@@ -205,7 +205,7 @@ std::string SettingsScreen::value(Row r) const
     case SwitchUser: return m_client.user_name();
     case Quality:
         return s.local.max_mbps == 0 ? T("Automatisk (maks)") : std::to_string(s.local.max_mbps) + " Mbit/s";
-    case Version: return s.local.ask_version ? T("Spør") : T("Automatisk");
+    case Version: return s.local.ask_version ? T("Spør hver gang") : T("Høyest oppløsning");
     case Upscale:
         return s.local.upscale == 1 ? T("Skarp") : s.local.upscale == 2 ? T("AI (Anime4K)") : T("Av");
     case AudioLang: return T(kLangs[index_of(kLangs, s.server.audio_language)].name);

@@ -400,6 +400,9 @@ const std::unordered_map<std::string, const char *> &french_table()
         {"Seerr-kontoen din kan ikke be om filmer", "Votre compte Seerr ne peut pas demander de films"},
         {"Be om flere sesonger", "Demander d'autres saisons"},
         {"Velg versjon", "Choisir la version"},
+        {"Filmer med flere versjoner", "Films en plusieurs versions"},
+        {"Høyest oppløsning", "Résolution la plus élevée"},
+        {"Spør hver gang", "Demander à chaque fois"},
         /* Seerr: the Discover tab */
         {"Oppdag", "Découvrir"},
         {"Trender nå", "Tendances"},

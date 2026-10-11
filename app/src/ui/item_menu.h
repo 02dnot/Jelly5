@@ -33,7 +33,7 @@ public:
      * else is offered). Nothing to offer: it stays closed. */
     void open_actions(const jf::Item &item, bool played, bool ask_seerr,
                       const std::vector<jf::Version> &versions = {});
-    /* Only the title's versions (Play with Innstillinger → Versjon: Spør). */
+    /* Only the title's versions (Play with Innstillinger → Filmer med flere versjoner: Spør hver gang). */
     void open_versions(const jf::Item &item, const std::vector<jf::Version> &versions);
     bool take_ask();
     bool active() const { return m_open; }
