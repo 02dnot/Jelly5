@@ -36,6 +36,7 @@ struct Texture {
     uint32_t pitch = 0;
     bool tiled = false;         /* a colour target (64KB_R_X tiled), sampled as rendered */
     bool bgra = false;          /* memory order B,G,R,A (the scanout) */
+    bool ten_bit = false;       /* 2:10:10:10, PQ (the scanout while HDR video plays) */
 };
 
 namespace {
@@ -90,7 +91,8 @@ bool build_tsharp(const Texture *t, uint32_t *td)
     if (!t->tiled)
         return evo_agc_build_tsharp_rgba8(td, (uint64_t)(uintptr_t)t->mem, (uint32_t)t->w, (uint32_t)t->h,
                                           t->pitch) == 0;
-    if (evo_agc_build_tsharp_render_target(td, (uint64_t)(uintptr_t)t->mem, (uint32_t)t->w, (uint32_t)t->h, 0) != 0)
+    if ((t->ten_bit ? evo_agc_build_tsharp_render_target_10bit(td, (uint64_t)(uintptr_t)t->mem, (uint32_t)t->w, (uint32_t)t->h)
+                    : evo_agc_build_tsharp_render_target(td, (uint64_t)(uintptr_t)t->mem, (uint32_t)t->w, (uint32_t)t->h, 0)) != 0)
         return false;
     if (t->bgra) {   /* DST_SEL_X <-> DST_SEL_Z (word 3, bits 0-2 and 6-8), as the bgra8 builder does */
         const uint32_t x = td[3] & 7u, z = (td[3] >> 6) & 7u;
@@ -699,6 +701,9 @@ static bool blur_layers(int bx0, int by0, int bx1, int by1, float sp, evo_agc_la
     src_scan.w = (int)scan.width;
     src_scan.h = (int)scan.height;
     src_scan.tiled = src_scan.bgra = true;
+    /* While HDR video plays the scanout is 2:10:10:10 PQ: the blur carries the PQ
+     * values over, and the glass reads them as such (liquid_glass_pq_out). */
+    src_scan.ten_bit = evo_agc_runtime_hdr_output_active() != 0;
     src_h.mem = (uint8_t *)(uintptr_t)h->gpu_addr;
     src_h.w = (int)h->width;
     src_h.h = (int)h->height;
@@ -784,6 +789,10 @@ int backdrop_blur(const Rect &r, float radius, float sigma, float opacity, float
         else
             glass_why("glass pass failed");
     }
+    /* The lens quads below go through the UI pipe, which would encode the PQ
+     * backdrop of an HDR picture a second time: the caller's flat pane instead. */
+    if (result == 1 && evo_agc_runtime_hdr_output_active())
+        result = 0;
 #ifdef JELLY5_LOG_HOST
     static int s_logged = -1;
     if (result != s_logged) {

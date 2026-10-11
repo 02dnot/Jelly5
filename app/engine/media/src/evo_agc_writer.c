@@ -9,6 +9,7 @@ enum {
     GFX10_FORMAT_16_UNORM = 7,
     GFX10_FORMAT_8_8_UNORM = 14,
     GFX10_FORMAT_16_16_UNORM = 23,
+    GFX10_FORMAT_2_10_10_10_UNORM = 50,
     GFX10_FORMAT_8_8_8_8_UNORM = 56,
     GFX10_FORMAT_16_16_16_16_FLOAT = 71,
 
@@ -205,6 +206,19 @@ int evo_agc_build_tsharp_render_target(uint32_t out[EVO_AGC_TSHARP_DWORDS], uint
                                       SQ_SEL_X, SQ_SEL_Y, SQ_SEL_Z, SQ_SEL_W);
     if (rc == 0)
         out[3] |= (uint32_t)SQ_SW_64KB_R_X << 20;   /* SQ_IMG_RSRC_WORD3.SW_MODE */
+    return rc;
+}
+
+int evo_agc_build_tsharp_render_target_10bit(uint32_t out[EVO_AGC_TSHARP_DWORDS], uint64_t gpu_address,
+                                             uint32_t width, uint32_t height)
+{
+    if ((gpu_address & 0xffffu) != 0u)
+        return -1;
+    int rc = build_tsharp_2d_internal(out, gpu_address, width, height, width * 4u,
+                                      GFX10_FORMAT_2_10_10_10_UNORM, 4u,
+                                      SQ_SEL_X, SQ_SEL_Y, SQ_SEL_Z, SQ_SEL_W);
+    if (rc == 0)
+        out[3] |= (uint32_t)SQ_SW_64KB_R_X << 20;
     return rc;
 }
 
