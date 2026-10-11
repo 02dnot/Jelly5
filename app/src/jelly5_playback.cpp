@@ -1320,7 +1320,7 @@ static bool play_chain_tracks(jf::Client &client, jf::Item item, std::vector<jf:
             jelly5_wait_reports(3000);   /* the last channel's stream closed before this one opens */
         }
         if (!client.playback_info(item.id, item.position_ticks, -1, -2, &pb, (int64_t)mbps * 1000000,
-                                  std::string(), item.type == "TvChannel")) {
+                                  std::string(), item.type == "TvChannel", item.media_source_id)) {
             *error = client.last_error();
             evo_bt("jelly5: playback info failed: %s", error->c_str());
             return chain > 0 && item.type != "TvChannel";   /* a channel zapped to says it could not open */

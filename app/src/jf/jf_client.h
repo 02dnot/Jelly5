@@ -56,6 +56,7 @@ struct Item {
     std::string premiere_date;                /* ISO date; a person's birth date */
     std::vector<std::string> locations;       /* a person's birthplace */
     std::string tmdb_id, tvdb_id;             /* ProviderIds (search and item ask for them) */
+    std::string media_source_id;              /* Play: this version (chosen in Options); empty: the best */
 
     /* Live TV. A channel (TvChannel): its number and, with AddCurrentProgram, what
      * is on now. A programme (Program): its channel, when it airs (Unix seconds,
@@ -170,6 +171,9 @@ struct Detail {
     std::vector<std::string> studios;
     std::string tagline;
     std::vector<MediaStream> streams;         /* the default source's, for badges */
+    /* The title's versions when it has several (id, name, height, label; nothing about
+     * how they would play: PlaybackInfo decides that). */
+    std::vector<Version> versions;
 };
 
 /* The user's playback preferences, kept on the server (shared with every client). */
@@ -368,10 +372,12 @@ public:
     /* max_bitrate (bits/s, 0 = no cap): above it the server transcodes down. */
     /* media_source_id: that version only (the server applies the indices to the version
      * it names, and to none without one); empty: every version, the indices not sent.
-     * channel: a Live TV channel (its server transcode is asked for short segments). */
+     * channel: a Live TV channel (its server transcode is asked for short segments).
+     * prefer: every version, but this one plays (first in versions) when the server has it. */
     bool playback_info(const std::string &item_id, int64_t start_ticks, int audio_index,
                        int subtitle_index, Playback *out, int64_t max_bitrate = 0,
-                       const std::string &media_source_id = std::string(), bool channel = false);
+                       const std::string &media_source_id = std::string(), bool channel = false,
+                       const std::string &prefer = std::string());
     std::string image_url(const std::string &owner, const char *type, const std::string &tag,
                           int width) const;
     /* Subtitle auto-sync (evo_subsync): what it reads from the server instead of the

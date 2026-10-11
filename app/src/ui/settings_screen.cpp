@@ -94,6 +94,7 @@ const char *label_of(int row)
     const char *const labels[] = {T("Bytt bruker eller server"),
                                          T("Logg ut"),
                                          T("Maks kvalitet"),
+                                         T("Filmer med flere versjoner"),
                                          T("Oppskalering"),
                                          T("Buffer"),
                                          T("Foretrukket lydspråk"),
@@ -206,6 +207,7 @@ std::string SettingsScreen::value(Row r) const
     case SwitchUser: return m_client.user_name();
     case Quality:
         return s.local.max_mbps == 0 ? T("Automatisk (maks)") : std::to_string(s.local.max_mbps) + " Mbit/s";
+    case Version: return s.local.ask_version ? T("Spør hver gang") : T("Høyest oppløsning");
     case Upscale:
         return s.local.upscale == 1 ? T("Skarp") : s.local.upscale == 2 ? T("AI (Anime4K)") : T("Av");
     case Buffer:
@@ -307,6 +309,10 @@ void SettingsScreen::change(Row r, int dir)
         settings::set_local(s.local);
         break;
     }
+    case Version:   /* a title with several versions: the best plays, or the list first */
+        s.local.ask_version = !s.local.ask_version;
+        settings::set_local(s.local);
+        break;
     case Upscale:   /* Av, Skarp, AI (also set as each video starts) */
         s.local.upscale = cycle(s.local.upscale, 3);
         settings::set_local(s.local);

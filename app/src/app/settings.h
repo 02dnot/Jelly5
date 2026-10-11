@@ -42,6 +42,7 @@ struct Local {
     bool night_mode = false;     /* compress loud and quiet together, dialogue lifted */
     bool hdmi_bitstream = false; /* Dolby Digital (Plus) and DTS to the TV/receiver undecoded (jelly5_bitstream) */
     bool theme_music = true;     /* a title's theme song, quietly, on its page */
+    bool ask_version = false;    /* Play on the page of a title with several versions: the list of them first (off: the best plays) */
     bool check_updates = false;  /* opt-in: ask GitHub for a newer release at start */     /* the display at 120 Hz when it can (smoother menus, 24p without judder) */
 };
 

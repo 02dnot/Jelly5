@@ -80,6 +80,7 @@ private:
     std::vector<Button> buttons() const;
     void sync_button();
     bool can_ask_seerr() const;   /* Seerr has seasons of this series to ask for (a menu entry) */
+    std::vector<jf::Version> versions() const;   /* what Play plays, when it is this title: its versions */
     float zone_top(Zone z) const;     /* page y of a section */
 
     void draw_top(float y0, float dt);
@@ -115,6 +116,7 @@ private:
     RequestSheet m_sheet;
     ItemMenu m_menu;                    /* Options: the focused season's or episode's menu (PS5's way) */
     int m_menu_zone = -1;               /* the zone it was opened in */
+    Action::Kind m_version_play = Action::Play;   /* a version chosen: from the resume point or from the start */
     std::string m_note;                 /* how a request went, shown for a few seconds */
     uint32_t m_note_dot = 0xff30d158u;      /* its dot: green done, amber failed, grey neither */
     double m_note_at = -100;
