@@ -56,6 +56,9 @@ float evo_demux_prebuffer_progress(void);
 /* Seconds of playback queued ahead of the decoder. */
 double evo_demux_buffered_s(void);
 
+/* How far ahead a network stream reads (10..600 s), from the next open. */
+void evo_demux_set_net_readahead_s(int seconds);
+
 #ifdef __cplusplus
 }
 #endif
