@@ -438,6 +438,7 @@ const std::unordered_map<std::string, const char *> &chinese_traditional_table()
         {"Mine forespørsler", "我的請求"},
         /* counts (plural forms, see TN() in i18n.cpp), genres, SyncPlay */
         {"%d sesonger", "%d 季"},
+        {"%d versjoner", "%d 個版本"},
         {"%d episoder", "%d 集"},
         {"%d titler", "%d 部作品"},
         {"%d titler her", "媒體庫中有 %d 部作品"},

@@ -1326,6 +1326,31 @@ static bool play_chain_tracks(jf::Client &client, jf::Item item, std::vector<jf:
             return chain > 0 && item.type != "TvChannel";   /* a channel zapped to says it could not open */
         }
         evo_bt("jelly5: playback info answered");
+        /* Another version than the title's own plays (chosen, or the best): on Jellyfin it is an
+         * item of its own, and its resume point, runtime (a director's cut is longer) and
+         * segments are its own. Its resume point when it has one: the reports of what plays go
+         * to it (Jellyfin 12), and a server that keeps them on the title keeps the title's. */
+        std::string segments_of = item.id;
+        if (pb.versions.size() > 1 && pb.media_source_id != item.id && !pb.live && client.features().version_items) {
+            jf::Item version;
+            if (client.item(pb.media_source_id, &version) && version.id == pb.media_source_id) {
+                segments_of = version.id;
+                if (version.runtime_ticks > 0)
+                    item.runtime_ticks = version.runtime_ticks;
+                if (!item.from_start && version.position_ticks > 0 && version.position_ticks != item.position_ticks) {
+                    evo_bt("jelly5: the version's own resume point: %lld s",
+                           (long long)(version.position_ticks / jf::kTicksPerSecond));
+                    item.position_ticks = version.position_ticks;
+                    jf::Playback again;   /* a transcode starts where it is asked to */
+                    if (pb.play_method != "DirectPlay" &&
+                        client.playback_info(item.id, item.position_ticks, -1, -2, &again, (int64_t)mbps * 1000000,
+                                             std::string(), false, pb.media_source_id)) {
+                        client.stop_encoding(pb);
+                        pb = std::move(again);
+                    }
+                }
+            }
+        }
         int keep_audio, keep_subtitle;   /* an episode: the tracks chosen earlier in its series */
         remembered_tracks(client, item, pb, &keep_audio, &keep_subtitle);
         if (keep_audio >= 0 || keep_subtitle >= -1) {
@@ -1354,7 +1379,7 @@ static bool play_chain_tracks(jf::Client &client, jf::Item item, std::vector<jf:
         } else {   /* music has no intros, chapters or previews */
             jelly5::run_all({
                 [&] { client.media_extras(item.id, pb.media_source_id, &ex.chapters, &ex.trickplay); },
-                [&] { ex.segments = client.segments(item.id); },
+                [&] { ex.segments = client.segments(segments_of); },
             });
         }
         if (nuvio_player_stop_requested()) {
@@ -1502,6 +1527,7 @@ static bool play_chain_tracks(jf::Client &client, jf::Item item, std::vector<jf:
             return true;
         item = *next;
         item.position_ticks = 0;
+        item.from_start = true;   /* (nor its version's resume point) */
     }
 }
 

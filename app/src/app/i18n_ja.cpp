@@ -438,6 +438,7 @@ const std::unordered_map<std::string, const char *> &japanese_table()
         {"Mine forespørsler", "マイリクエスト"},
         /* counts (plural forms, see TN() in i18n.cpp), genres, SyncPlay */
         {"%d sesonger", "%dシーズン"},
+        {"%d versjoner", "%dバージョン"},
         {"%d episoder", "%dエピソード"},
         {"%d titler", "%d作品"},
         {"%d titler her", "ライブラリに%d作品"},

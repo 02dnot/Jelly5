@@ -438,6 +438,7 @@ const std::unordered_map<std::string, const char *> &ukrainian_table()
         {"Mine forespørsler", "Мої запити"},
         /* counts (plural forms, see TN() in i18n.cpp), genres, SyncPlay */
         {"%d sesonger", "%d сезон|%d сезони|%d сезонів"},
+        {"%d versjoner", "%d версія|%d версії|%d версій"},
         {"%d episoder", "%d епізод|%d епізоди|%d епізодів"},
         {"%d titler", "%d назва|%d назви|%d назв"},
         {"%d titler her", "%d назва в медіатеці|%d назви в медіатеці|%d назв у медіатеці"},

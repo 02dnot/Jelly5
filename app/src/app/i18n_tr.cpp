@@ -438,6 +438,7 @@ const std::unordered_map<std::string, const char *> &turkish_table()
         {"Mine forespørsler", "Taleplerim"},
         /* counts (plural forms, see TN() in i18n.cpp), genres, SyncPlay */
         {"%d sesonger", "%d sezon|%d sezon"},
+        {"%d versjoner", "%d sürüm|%d sürüm"},
         {"%d episoder", "%d bölüm|%d bölüm"},
         {"%d titler", "%d öğe|%d öğe"},
         {"%d titler her", "Burada %d yapım|Burada %d yapım"},

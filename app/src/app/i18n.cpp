@@ -206,6 +206,7 @@ const std::unordered_map<std::string, const char *> &english_table()
          "Jelly5 is free software (GPL-3.0) and builds on EVO Player and Nuvio PS5."},
         /* counts: the forms by plural rule, see TN() */
         {"%d sesonger", "%d season|%d seasons"},
+        {"%d versjoner", "%d version|%d versions"},
         {"%d episoder", "%d episode|%d episodes"},
         {"%d titler", "%d title|%d titles"},
         {"%d titler her", "%d title here|%d titles here"},

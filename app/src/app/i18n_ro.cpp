@@ -438,6 +438,7 @@ const std::unordered_map<std::string, const char *> &romanian_table()
         {"Mine forespørsler", "Solicitările mele"},
         /* counts (plural forms, see TN() in i18n.cpp), genres, SyncPlay */
         {"%d sesonger", "%d sezon|%d sezoane|%d de sezoane"},
+        {"%d versjoner", "%d versiune|%d versiuni|%d de versiuni"},
         {"%d episoder", "%d episod|%d episoade|%d de episoade"},
         {"%d titler", "%d titlu|%d titluri|%d de titluri"},
         {"%d titler her", "%d titlu în bibliotecă|%d titluri în bibliotecă|%d de titluri în bibliotecă"},

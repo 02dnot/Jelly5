@@ -438,6 +438,7 @@ const std::unordered_map<std::string, const char *> &finnish_table()
         {"Mine forespørsler", "Omat pyynnöt"},
         /* counts (plural forms, see TN() in i18n.cpp), genres, SyncPlay */
         {"%d sesonger", "%d kausi|%d kautta"},
+        {"%d versjoner", "%d versio|%d versiota"},
         {"%d episoder", "%d jakso|%d jaksoa"},
         {"%d titler", "%d nimike|%d nimikettä"},
         {"%d titler her", "%d nimike kirjastossa|%d nimikettä kirjastossa"},
