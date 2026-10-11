@@ -42,8 +42,7 @@ constexpr const char *kFields = "Overview,Genres";            /* rows: what the 
 constexpr const char *kImages = "&enableImageTypes=Primary,Backdrop,Thumb,Logo&imageTypeLimit=1";
 constexpr const char *kItemFields =
     "Overview,Genres,MediaStreams,Taglines,People,Studios,ChildCount,ProductionLocations,SpecialFeatureCount,"
-    "ProviderIds,"   /* a series' TMDB/TVDB ids: Seerr finds it by them */
-    "MediaSources";  /* a title's versions (Options: Velg versjon) */
+    "ProviderIds";   /* a series' TMDB/TVDB ids: Seerr finds it by them */
 
 std::string str_of(const cJSON *o, const char *key)
 {
@@ -921,7 +920,7 @@ std::vector<Item> Client::theme_songs(const std::string &id)
 }
 
 /* A version as the viewer tells them apart: "2160p · HEVC · HDR". */
-std::string version_label(int height, std::string codec, const std::string &range)
+static std::string version_label(int height, std::string codec, const std::string &range)
 {
     for (char &ch : codec)
         ch = (char)std::toupper((unsigned char)ch);
@@ -932,7 +931,8 @@ std::string version_label(int height, std::string codec, const std::string &rang
 bool Client::item(const std::string &id, Item *out, Detail *detail)
 {
     std::string body;
-    if (!get_json(user_item_path(id) + "&fields=" + kItemFields, &body))
+    /* The page also lists a title's versions (Options: Velg versjon). */
+    if (!get_json(user_item_path(id) + "&fields=" + kItemFields + (detail ? ",MediaSources" : ""), &body))
         return false;
     cJSON *j = cJSON_Parse(body.c_str());
     if (!j)
@@ -1663,6 +1663,13 @@ bool Client::playback_info(const std::string &item_id, int64_t start_ticks, int 
         }
         c.v.label = version_label(c.v.height, codec, range);
         found.push_back(std::move(c));
+    }
+    if (!found.empty() && !prefer.empty() &&
+        std::none_of(found.begin(), found.end(), [&](const Candidate &c) { return c.v.id == prefer; })) {
+        /* The version the viewer chose cannot play: said so, rather than another in its place. */
+        set_error("PlaybackInfo: the server offers no way to play the chosen version");
+        cJSON_Delete(j);
+        return false;
     }
     if (found.empty()) {
         set_error("PlaybackInfo: the server offers no way to play this (" + str_of(j, "ErrorCode") + ")");

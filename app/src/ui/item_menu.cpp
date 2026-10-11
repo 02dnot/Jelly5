@@ -33,9 +33,10 @@ void apply_change(jf::Item &it, const UserDataChange &c)
  * first ("Inception (2010) - DVD": "DVD"); empty when the name is only the title. */
 static std::string version_name(const std::string &name, const std::string &title)
 {
-    if (title.empty() || name.compare(0, title.size(), title) != 0)
-        return name;
     size_t at = title.size();
+    if (title.empty() || name.compare(0, at, title) != 0 ||
+        (at < name.size() && name[at] != ' ' && name[at] != '-'))   /* "Aliens - 4K" under "Alien" */
+        return name;
     if (name.size() >= at + 7 && name[at] == ' ' && name[at + 1] == '(' && name[at + 6] == ')')
         at += 7;   /* " (2010)" */
     while (at < name.size() && (name[at] == ' ' || name[at] == '-'))
@@ -186,6 +187,15 @@ void ItemMenu::draw(float dt, bool *animating)
         labels.push_back(name.empty() ? v.label : name);
         tags.push_back(name.empty() ? std::string() : v.label);
     }
+    std::vector<bool> alike(labels.size());   /* two rows that read the same: their bit rates tell them apart */
+    for (size_t i = 0; i < labels.size(); i++)
+        for (size_t k = 0; k < labels.size(); k++)
+            alike[i] = alike[i] || (k != i && labels[k] == labels[i] && tags[k] == tags[i]);
+    for (size_t i = 0; i < labels.size(); i++)
+        if (alike[i] && m_versions[i].bitrate > 0) {
+            std::string &t = tags[i].empty() ? labels[i] : tags[i];
+            t += " \xC2\xB7 " + std::to_string((m_versions[i].bitrate + 500000) / 1000000) + " Mbit/s";
+        }
     for (const Option o : m_picking ? std::vector<Option>() : m_options) {
         const char *label = "";
         switch (o) {

@@ -572,10 +572,13 @@ Action Detail::input(uint32_t p)
             } else if (m_view.have_target) {
                 a.kind = btn == RestartButton ? Action::PlayFromStart : Action::Play;
                 a.item = m_view.target;
-                if (settings::get().local.ask_version && versions().size() > 1) {   /* which one, first */
-                    m_version_play = a.kind;
-                    m_menu.open_versions(m_view.target, versions());
-                    a = Action();
+                if (settings::get().local.ask_version) {   /* which one, first */
+                    const std::vector<jf::Version> v = versions();
+                    if (v.size() > 1) {
+                        m_version_play = a.kind;
+                        m_menu.open_versions(m_view.target, v);
+                        a = Action();
+                    }
                 }
             }
             break;
