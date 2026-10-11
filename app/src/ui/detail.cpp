@@ -10,6 +10,7 @@
 #include "jelly5_playback.h"
 #include "app/i18n.h"
 #include "app/seerr_service.h"
+#include "app/settings.h"
 
 #include "gfx/art.h"
 #include "nuvio_input.h"
@@ -347,6 +348,12 @@ std::vector<Detail::Zone> Detail::zones() const
     return z;
 }
 
+std::vector<jf::Version> Detail::versions() const
+{
+    return m_view.have_target && m_view.target.id == m_view.item.id ? m_view.detail.versions
+                                                                     : std::vector<jf::Version>();
+}
+
 bool Detail::can_ask_seerr() const
 {
     if (!m_have_seerr || m_view.item.type != "Series")
@@ -452,6 +459,7 @@ Action Detail::input(uint32_t p)
             const std::string version = a.item.media_source_id;
             a.item = m_view.target;
             a.item.media_source_id = version;
+            a.kind = m_version_play;
         } else if (m_menu.take_ask()) {
             const seerr_service::Snapshot s = seerr_service::snapshot();
             m_sheet.open(m_seerr, s.user, s.settings);
@@ -535,10 +543,10 @@ Action Detail::input(uint32_t p)
             m_menu.open_actions(m_eps[m_episode], true, can_ask_seerr());
         else if (m_zone == Seasons && m_season < (int)m_view.seasons.size())
             m_menu.open_actions(m_view.seasons[m_season], true, can_ask_seerr());
-        else if (m_zone == Buttons)   /* "Merk som sett" is a button here: the versions and Seerr's */
-            m_menu.open_actions(m_view.item, false, can_ask_seerr(),
-                                m_view.have_target && m_view.target.id == m_view.item.id ? m_view.detail.versions
-                                                                                          : std::vector<jf::Version>());
+        else if (m_zone == Buttons) {   /* "Merk som sett" is a button here: the versions and Seerr's */
+            m_version_play = Action::Play;
+            m_menu.open_actions(m_view.item, false, can_ask_seerr(), versions());
+        }
     } else if (p & NUVIO_BTN_CROSS) {
         switch (m_zone) {
         case Buttons: {
@@ -564,6 +572,11 @@ Action Detail::input(uint32_t p)
             } else if (m_view.have_target) {
                 a.kind = btn == RestartButton ? Action::PlayFromStart : Action::Play;
                 a.item = m_view.target;
+                if (settings::get().local.ask_version && versions().size() > 1) {   /* which one, first */
+                    m_version_play = a.kind;
+                    m_menu.open_versions(m_view.target, versions());
+                    a = Action();
+                }
             }
             break;
         }

@@ -103,6 +103,8 @@ void load_local()
         s_all.local.hdmi_bitstream = cJSON_IsTrue(v);
     if (const cJSON *v = cJSON_GetObjectItemCaseSensitive(j, "themeMusic"))
         s_all.local.theme_music = cJSON_IsTrue(v);
+    if (const cJSON *v = cJSON_GetObjectItemCaseSensitive(j, "askVersion"))
+        s_all.local.ask_version = cJSON_IsTrue(v);
     if (const cJSON *v = cJSON_GetObjectItemCaseSensitive(j, "checkUpdates"))
         s_all.local.check_updates = cJSON_IsTrue(v);
     const int delay = jf::to_int<int>(cJSON_GetNumberValue(cJSON_GetObjectItemCaseSensitive(j, "audioDelayMs")));
@@ -169,6 +171,7 @@ void set_local(const Local &l)
     cJSON_AddBoolToObject(j, "nightMode", l.night_mode);
     cJSON_AddBoolToObject(j, "hdmiBitstream", l.hdmi_bitstream);
     cJSON_AddBoolToObject(j, "themeMusic", l.theme_music);
+    cJSON_AddBoolToObject(j, "askVersion", l.ask_version);
     cJSON_AddBoolToObject(j, "checkUpdates", l.check_updates);
     cJSON *st = cJSON_CreateObject();
     cJSON_AddNumberToObject(st, "size", l.sub_size);

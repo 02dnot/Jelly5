@@ -83,6 +83,18 @@ void ItemMenu::open_actions(const jf::Item &item, bool played, bool ask_seerr,
     m_alpha.to(1.f);
 }
 
+void ItemMenu::open_versions(const jf::Item &item, const std::vector<jf::Version> &versions)
+{
+    m_item = item;
+    m_options.clear();
+    m_versions = versions;
+    m_picking = true;
+    m_focus = 0;
+    m_asked = false;
+    m_open = true;
+    m_alpha.to(1.f);
+}
+
 bool ItemMenu::take_ask()
 {
     const bool asked = m_asked;
