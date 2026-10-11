@@ -341,6 +341,9 @@ if (( RELEASE )); then
         cp "${FF_LIB%/lib}"/share/licenses/* "${LIC}/"
     fi
     (cd "${BUILD}/app" && zip -qr "Jelly5-${VER}.zip" "${TITLE_ID}" "${TITLE_ID}.ffpfsc" licenses)
+    # every entry 0777: an unpacker that keeps the stored modes would leave 0644, and the
+    # console refuses to start the app (CE-107750-0)
+    python3 "${APP_ROOT}/scripts/zip-open-modes.py" "${BUILD}/app/Jelly5-${VER}.zip" >/dev/null
     ok "release: ${BUILD#"${NUVIO_ROOT}/"}/app/Jelly5-${VER}.zip"
 fi
 ok "app: ${APPDIR#"${NUVIO_ROOT}/"}/"
