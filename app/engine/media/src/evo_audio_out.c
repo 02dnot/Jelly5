@@ -446,11 +446,15 @@ static int16_t audio_float_to_s16(float v) {
  *    -24 dBFS, 3:1, fast attack, slow release), with make-up gain, the centre
  *    (dialogue) lifted and the LFE lowered, and a soft limiter at the end. Loud
  *    scenes come down, quiet speech comes up.
+ *  - downmix limiter: 5.1/7.1 mixed to stereo keeps the source's level, so its
+ *    peaks can pass full scale. They are held at -1 dBFS: the gain drops at
+ *    once, the same for every channel, and comes back over a quarter second.
  */
 static volatile float s_gain_target = 1.0f;
 static float s_gain = 1.0f;
 static volatile int s_night = 0;
 static float s_env = 0.0f;   /* the mix's mean square, smoothed */
+static float s_lim = 1.0f;   /* the downmix limiter's gain */
 
 void evo_audio_set_gain(float g) { s_gain_target = g < 0.f ? 0.f : g > 1.f ? 1.f : g; }
 void evo_audio_set_night(int on) { s_night = on; }
@@ -468,9 +472,14 @@ static void jelly5_dsp(float *s, int frames, int ch)
 {
     const int night = s_night;
     const float target = s_gain_target;
-    if (!night && s_gain == target && target == 1.0f)
+    const int limit = !night && prospero_audio_resampler_downmixing();   /* night has its own */
+    if (!night && !limit && s_gain == target && target == 1.0f) {
+        s_lim = 1.0f;
         return;
+    }
     const float rate = (float)PROSPERO_AUDIO_OUTPUT_RATE;
+    const float ceiling = 0.8912509f;          /* -1 dBFS */
+    const float lim_release = 4.f / rate;      /* back to 1 over a quarter second */
     const float attack = 1.f - expf(-1.f / (0.010f * rate)), release = 1.f - expf(-1.f / (0.300f * rate));
     const float ramp = 1.f / (0.25f * rate);   /* gain moves over a quarter second */
     const float thresh = 0.004f;               /* -24 dBFS, as mean square */
@@ -502,6 +511,17 @@ static void jelly5_dsp(float *s, int frames, int ch)
                     v *= 0.5f;   /* LFE */
             }
             f[c] = night ? soft_limit(v) : v;
+        }
+        if (limit) {
+            float peak = 0.f;
+            for (int c = 0; c < ch; c++)
+                peak = fmaxf(peak, fabsf(f[c]));
+            s_lim = fminf(1.f, s_lim + lim_release);
+            if (peak * s_lim > ceiling)
+                s_lim = ceiling / peak;
+            if (s_lim < 1.f)
+                for (int c = 0; c < ch; c++)
+                    f[c] *= s_lim;
         }
     }
 }
