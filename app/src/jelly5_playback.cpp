@@ -1338,15 +1338,21 @@ static bool play_chain_tracks(jf::Client &client, jf::Item item, std::vector<jf:
                 if (version.runtime_ticks > 0)
                     item.runtime_ticks = version.runtime_ticks;
                 if (!item.from_start && version.position_ticks > 0 && version.position_ticks != item.position_ticks) {
-                    evo_bt("jelly5: the version's own resume point: %lld s",
-                           (long long)(version.position_ticks / jf::kTicksPerSecond));
-                    item.position_ticks = version.position_ticks;
-                    jf::Playback again;   /* a transcode starts where it is asked to */
-                    if (pb.play_method != "DirectPlay" &&
-                        client.playback_info(item.id, item.position_ticks, -1, -2, &again, (int64_t)mbps * 1000000,
-                                             std::string(), false, pb.media_source_id)) {
-                        client.stop_encoding(pb);
-                        pb = std::move(again);
+                    /* A transcode starts where it is asked to: asked again, and the point taken
+                     * only when the stream starts there (else the title's, as asked first). */
+                    jf::Playback again;
+                    const bool direct = pb.play_method == "DirectPlay";
+                    if (direct || (client.playback_info(item.id, version.position_ticks, -1, -2, &again,
+                                                        (int64_t)mbps * 1000000, std::string(), false,
+                                                        pb.media_source_id) &&
+                                   again.media_source_id == pb.media_source_id)) {
+                        evo_bt("jelly5: the version's own resume point: %lld s",
+                               (long long)(version.position_ticks / jf::kTicksPerSecond));
+                        item.position_ticks = version.position_ticks;
+                        if (!direct) {
+                            client.stop_encoding(pb);
+                            pb = std::move(again);
+                        }
                     }
                 }
             }
