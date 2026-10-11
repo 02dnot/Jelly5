@@ -117,6 +117,8 @@ void load_local()
             s_all.local.buffer_s = c;
     if (const cJSON *hz = cJSON_GetObjectItemCaseSensitive(j, "refresh120"))
         s_all.local.refresh_120 = cJSON_IsTrue(hz);
+    if (const cJSON *v = cJSON_GetObjectItemCaseSensitive(j, "homePosters"))
+        s_all.local.home_posters = cJSON_IsTrue(v);
     if (const cJSON *st = cJSON_GetObjectItemCaseSensitive(j, "subtitles")) {
         Local &l = s_all.local;
         const cJSON *v;
@@ -169,6 +171,7 @@ void set_local(const Local &l)
     cJSON_AddNumberToObject(j, "stillWatching", l.still_watching);
     cJSON_AddNumberToObject(j, "language", l.language);
     cJSON_AddBoolToObject(j, "refresh120", l.refresh_120);
+    cJSON_AddBoolToObject(j, "homePosters", l.home_posters);
     cJSON_AddNumberToObject(j, "upscale", l.upscale);
     cJSON_AddNumberToObject(j, "bufferSeconds", l.buffer_s);
     cJSON_AddNumberToObject(j, "audioDelayMs", l.audio_delay_ms);

@@ -800,7 +800,7 @@ void Library::draw(double now, float dt)
             if (f) {
                 const float k = 1.f + 0.1f * lift;
                 m_card = {{tile.x - tile.w * (k - 1) / 2, tile.y - tile.h * (k - 1) / 2, tile.w * k, tile.h * k},
-                          poster_url(m_client, items[i], 480), items[i].primary_blurhash, 14 * k};
+                          poster_url(m_client, items[i], 480), poster_blurhash(items[i]), 14 * k};
                 m_has_card = true;
             }
         }

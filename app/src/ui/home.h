@@ -81,8 +81,11 @@ private:
     void draw_info(const jf::Item &it, float bottom, bool hero, float alpha);
     void draw_rows(float dt);
     std::string card_url(const jf::Item &it) const;
+    /* Does this row show portrait posters (Seerr's tab; the library's rows when
+     * Innstillinger asks for them) rather than wide cards? */
+    bool posters(const HomeRow &row) const;
     /* A card's picture fetched before it scrolls into view (as it will be drawn). */
-    void prefetch_card(const jf::Item &it);
+    void prefetch_card(const jf::Item &it, bool poster);
     std::string backdrop_url(const jf::Item &it) const;
     void draw_card_art(const jf::Item &it, const gfx::Rect &r, float radius, float opacity) const;
     /* "Direkte nå": a channel's card is what airs on it (its picture, the channel's
@@ -92,6 +95,9 @@ private:
 
     jf::Client &m_client;
     bool m_discover = false;            /* Seerr's tab */
+    bool m_posters = false;             /* Innstillinger: posters on Home (read as Home is shown) */
+    std::vector<char> m_poster_row;     /* draw_rows: which rows are posters, */
+    std::vector<float> m_row_top;       /* ... and where each one starts (kept, not reallocated) */
     HomeModel m_model;
 
     int m_row = -1;                     /* -1: the hero */

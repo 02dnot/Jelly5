@@ -8,6 +8,7 @@
 #include "app/seerr_service.h"
 #include "app/i18n.h"
 #include "app/livetv.h"
+#include "app/settings.h"
 
 #include "gfx/art.h"
 #include "gfx/gfx.h"
@@ -23,6 +24,7 @@ namespace {
 
 constexpr float kCardW = 400, kCardH = 225, kCardGap = 32, kCardR = 14;
 constexpr float kRowH = 380;
+constexpr float kPosterW = 210, kPosterH = 315, kPosterRowH = 480;   /* posters (Seerr's tab, Innstillinger) */
 constexpr float kRowsTopFocus = 600;   /* focused row's title line, rows mode */
 constexpr float kRowsTopHero = 910;    /* first row peeking under the hero */
 
@@ -90,6 +92,7 @@ void Home::set_model(HomeModel model)
     for (size_t i = 0; !hero_changed && i < model.hero.size(); i++)
         hero_changed = model.hero[i].id != m_model.hero[i].id;
     m_model = std::move(model);
+    m_posters = settings::get().local.home_posters;
     {   /* Lifts of cards still there stay (the focused one must not drop and rise
          * at a refresh); the rest go, or one is kept per card ever drawn. */
         std::set<std::string> keep;
@@ -141,6 +144,7 @@ const jf::Item *Home::focused_item() const
 
 void Home::activate()
 {
+    m_posters = settings::get().local.home_posters;   /* (changed in Innstillinger, another tab) */
     /* Entered from the navigation bar: start on the hero. */
     if (!m_model.hero.empty()) {
         m_row = -1;
@@ -257,9 +261,27 @@ Action Home::input(uint32_t p)
     return action;
 }
 
-void Home::prefetch_card(const jf::Item &it)
+bool Home::posters(const HomeRow &row) const
 {
     if (m_discover)
+        return true;
+    /* What the viewer goes on with (a still, a channel's programme) and the libraries
+     * themselves stay wide, as in Jellyfin's web client. So does a row with anything
+     * that has no poster (a home video, a music video, an episode of a series without
+     * one): its picture would be cropped to a sliver. */
+    auto has_poster = [](const jf::Item &it) {
+        return it.type == "Movie" || it.type == "Series" || it.type == "Season" || it.type == "BoxSet" ||
+               (it.type == "Episode" && !it.series_primary_tag.empty());
+    };
+    return m_posters &&
+           (row.kind == HomeRow::Latest || row.kind == HomeRow::Recommended || row.kind == HomeRow::Genre ||
+            row.kind == HomeRow::MyList) &&
+           std::all_of(row.items.begin(), row.items.end(), has_poster);
+}
+
+void Home::prefetch_card(const jf::Item &it, bool poster)
+{
+    if (poster)
         art::prefetch(it.external() ? it.ext.poster : poster_url(m_client, it, 480), 480, 720);
     else
         art::prefetch(it.external() ? it.ext.thumb : card_url(it), 640, 360);
@@ -582,21 +604,40 @@ void Home::draw_rows(float dt)
     const float top = kRowsTopFocus + (kRowsTopHero - kRowsTopFocus) * m_hero_mode.value;
 
     /* Seerr's tab shows posters, as Seerr does: the backdrop is the background
-     * only, never the card as well (Seerr has one of each per title). */
-    const float cw = m_discover ? 210 : kCardW, ch = m_discover ? 315 : kCardH, rowh = m_discover ? 480 : kRowH;
-    for (size_t r = 0; r < m_model.rows.size(); r++) {
+     * only, never the card as well (Seerr has one of each per title). The library's
+     * rows do too when Innstillinger asks for them; the rest stay wide. A row is as
+     * tall as its cards, so each one's top is the sum of those above it. */
+    const size_t n = m_model.rows.size();
+    std::vector<char> &poster_row = m_poster_row;
+    std::vector<float> &row_top = m_row_top;
+    poster_row.resize(n);
+    row_top.assign(n + 1, 0.f);
+    for (size_t r = 0; r < n; r++) {
+        poster_row[r] = posters(m_model.rows[r]);
+        row_top[r + 1] = row_top[r] + (poster_row[r] ? kPosterRowH : kRowH);
+    }
+    float focus_top = 0;   /* the eased focus, between two rows' tops */
+    if (n > 0) {
+        const float v = std::max(0.f, std::min((float)(n - 1), m_rows_y.value));
+        const size_t i = (size_t)v;
+        focus_top = row_top[i] + (v - (float)i) * (row_top[i + 1] - row_top[i]);
+    }
+    int below = 0;   /* rows under the screen so far */
+    for (size_t r = 0; r < n; r++) {
         const HomeRow &row = m_model.rows[r];
-        const float rel = (float)r - m_rows_y.value;
-        const float ry = top + rel * rowh;
+        const bool poster = poster_row[r];
+        const float cw = poster ? kPosterW : kCardW, ch = poster ? kPosterH : kCardH;
+        const float ry = top + row_top[r] - focus_top;
+        const float rel = (row_top[r] - focus_top) / (row_top[r + 1] - row_top[r]);   /* in rows of its own height */
         float a = 1.f;
         if (rel < 0)
             a = std::max(0.f, 1.f + rel * 1.6f);   /* rows above fade out */
         if (a <= 0.f)
             continue;
         if (ry > gfx::H + 40) {   /* below: the next two rows' first cards are fetched ahead */
-            if (ry < gfx::H + 40 + 2 * rowh)
+            if (++below <= 2)
                 for (size_t i = 0; i < row.items.size() && i < 8; i++)
-                    prefetch_card(row.items[i]);
+                    prefetch_card(row.items[i], poster);
             continue;
         }
         gfx::text(kPad, ry + 30, row.title, {gfx::Bold, 30}, alpha(0xebffffffu, a));
@@ -612,14 +653,14 @@ void Home::draw_rows(float dt)
         if (m_scroll[r].step(dt, 12.f))
             m_animating = true;
 
-        const float cy = ry + (m_discover ? 72 : 52);   /* posters: room for the focused one's lift under the title */
+        const float cy = ry + (poster ? 72 : 52);   /* posters: room for the focused one's lift under the title */
         int focus_i = -1;
         int ahead = 0;
         for (size_t i = 0; i < row.items.size(); i++) {
             const float cx = kPad + (float)i * (cw + kCardGap) - m_scroll[r].value;
             if (cx > gfx::W + 20 && ahead < 6) {   /* the next cards to the right, fetched ahead */
                 ahead++;
-                prefetch_card(row.items[i]);
+                prefetch_card(row.items[i], poster);
             }
             if (cx > gfx::W + 20 || cx + cw < -60)
                 continue;
@@ -633,7 +674,7 @@ void Home::draw_rows(float dt)
             lift.to(0.f);
             if (lift.step(dt, 14.f))
                 m_animating = true;
-            if (m_discover) {   /* the poster draws its own lift, shadow and title */
+            if (poster) {   /* the poster draws its own lift, shadow and title */
                 draw_poster(m_client, it, {cx, cy, cw, ch}, lift.value, a);
                 continue;
             }
@@ -661,9 +702,9 @@ void Home::draw_rows(float dt)
                 m_animating = true;
             const float k = 1.f + 0.1f * lift.value;
             const gfx::Rect cr{cx - cw * (k - 1) / 2, cy - ch * (k - 1) / 2, cw * k, ch * k};
-            if (m_discover) {   /* the poster draws its own lift, shadow and title (brighter on focus) */
+            if (poster) {   /* the poster draws its own lift, shadow and title (brighter on focus) */
                 draw_poster(m_client, it, {cx, cy, cw, ch}, lift.value, a);
-                m_card = {cr, it.external() ? it.ext.poster : poster_url(m_client, it, 480), it.primary_blurhash,
+                m_card = {cr, it.external() ? it.ext.poster : poster_url(m_client, it, 480), poster_blurhash(it),
                           kCardR * k};
                 m_has_card = true;
                 continue;

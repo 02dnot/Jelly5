@@ -266,6 +266,7 @@ const std::unordered_map<std::string, const char *> &italian_table()
         {"Bytt bruker eller server", "Cambia utente o server"},
         {"Spilles om %d s", "Inizia tra %d s"},
         {"Bildefrekvens", "Frequenza di aggiornamento"},
+        {"Bilder på Hjem", "Immagini nella Home"}, {"Plakater", "Locandine"}, {"Liggende", "Orizzontali"},
         {"60 Hz (TV-en har ikke 120 Hz)", "60 Hz (la TV non supporta 120 Hz)"},
         {"Se sammen", "Guarda insieme"},
         {"Forlat gruppe", "Lascia il gruppo"},
