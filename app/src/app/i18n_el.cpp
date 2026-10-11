@@ -289,6 +289,7 @@ const std::unordered_map<std::string, const char *> &greek_table()
         {"Bytt bruker eller server", "Αλλαγή χρήστη ή διακομιστή"},
         {"Spilles om %d s", "Αναπαραγωγή σε %d δ"},
         {"Bildefrekvens", "Ρυθμός ανανέωσης"},
+        {"Bilder på Hjem", "Εικόνες στην Αρχική"}, {"Plakater", "Αφίσες"}, {"Liggende", "Οριζόντιες"},
         {"60 Hz (TV-en har ikke 120 Hz)", "60 Hz (η τηλεόραση δεν έχει 120 Hz)"},
         {"Se sammen", "Παρακολούθηση μαζί"},
         {"Forlat gruppe", "Αποχώρηση από ομάδα"},

@@ -289,6 +289,7 @@ const std::unordered_map<std::string, const char *> &indonesian_table()
         {"Bytt bruker eller server", "Ganti pengguna atau server"},
         {"Spilles om %d s", "Diputar dalam %d dtk"},
         {"Bildefrekvens", "Refresh rate"},
+        {"Bilder på Hjem", "Gambar di Beranda"}, {"Plakater", "Poster"}, {"Liggende", "Lanskap"},
         {"60 Hz (TV-en har ikke 120 Hz)", "60 Hz (TV tidak mendukung 120 Hz)"},
         {"Se sammen", "Tonton Bersama"},
         {"Forlat gruppe", "Keluar dari grup"},

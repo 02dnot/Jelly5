@@ -289,6 +289,7 @@ const std::unordered_map<std::string, const char *> &chinese_simplified_table()
         {"Bytt bruker eller server", "更换用户或服务器"},
         {"Spilles om %d s", "%d 秒后播放"},
         {"Bildefrekvens", "刷新率"},
+        {"Bilder på Hjem", "主页图片"}, {"Plakater", "海报"}, {"Liggende", "横版"},
         {"60 Hz (TV-en har ikke 120 Hz)", "60 Hz（电视不支持 120 Hz）"},
         {"Se sammen", "同步播放"},
         {"Forlat gruppe", "退出群组"},

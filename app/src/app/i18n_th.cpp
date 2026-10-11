@@ -289,6 +289,7 @@ const std::unordered_map<std::string, const char *> &thai_table()
         {"Bytt bruker eller server", "เปลี่ยนผู้ใช้หรือเซิร์ฟเวอร์"},
         {"Spilles om %d s", "เล่นในอีก %d วิ."},
         {"Bildefrekvens", "อัตรารีเฟรช"},
+        {"Bilder på Hjem", "ภาพในหน้าหลัก"}, {"Plakater", "โปสเตอร์"}, {"Liggende", "แนวนอน"},
         {"60 Hz (TV-en har ikke 120 Hz)", "60 Hz (ทีวีไม่รองรับ 120 Hz)"},
         {"Se sammen", "ดูด้วยกัน"},
         {"Forlat gruppe", "ออกจากกลุ่ม"},

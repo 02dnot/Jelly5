@@ -289,6 +289,7 @@ const std::unordered_map<std::string, const char *> &czech_table()
         {"Bytt bruker eller server", "Změnit uživatele nebo server"},
         {"Spilles om %d s", "Spustí se za %d s"},
         {"Bildefrekvens", "Obnovovací frekvence"},
+        {"Bilder på Hjem", "Obrázky na úvodní stránce"}, {"Plakater", "Plakáty"}, {"Liggende", "Na šířku"},
         {"60 Hz (TV-en har ikke 120 Hz)", "60 Hz (televizor nemá 120 Hz)"},
         {"Se sammen", "Společné sledování"},
         {"Forlat gruppe", "Opustit skupinu"},

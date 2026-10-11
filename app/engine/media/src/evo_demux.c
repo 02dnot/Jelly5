@@ -515,7 +515,7 @@ packet_queue_clear(
  * scripts/build.sh - so the flexible pool the decoders live in is not what
  * pays for it.
  * ------------------------------------------------------------------------ */
-#define READAHEAD_NET_US     (30LL * 1000000)  /* internet / LAN stream */
+#define READAHEAD_NET_US     (30LL * 1000000)  /* internet / LAN stream, unless set */
 #define READAHEAD_LOCAL_US   (8LL * 1000000)   /* file: reads far faster than real time */
 #define VIDEO_RING_BYTES     ((size_t)512 << 20)
 #define AUDIO_RING_BYTES     ((size_t)96 << 20)
@@ -530,6 +530,10 @@ packet_queue_clear(
 #define PREBUFFER_OPEN_US    (2LL * 1000000)
 
 static int64_t s_readahead_us = READAHEAD_LOCAL_US;
+/* A network stream's read-ahead (Innstillinger: Buffer), set before a playback
+ * opens. The byte caps still bound it: a 4K remux fills them in well under a
+ * minute, an ordinary 1080p file holds minutes. */
+static volatile int64_t s_net_readahead_us = READAHEAD_NET_US;
 static int64_t s_video_bytes_cap = NO_RING_BYTES_CAP;
 static int64_t s_audio_bytes_cap = NO_RING_BYTES_CAP;
 
@@ -681,6 +685,15 @@ void evo_demux_rebuffer(int64_t target_us, int max_ms)
         snprintf(d, sizeof d, "target_ms=%lld", (long long)(target_us / 1000));
         pp_stage_bc("P8_03_REBUFFER", d);
     }
+}
+
+void evo_demux_set_net_readahead_s(int seconds)
+{
+    if (seconds < 10)
+        seconds = 10;
+    if (seconds > 600)
+        seconds = 600;
+    s_net_readahead_us = (int64_t)seconds * 1000000;
 }
 
 /* 0..1 toward the pre-buffer target, for the loading screen. */
@@ -1087,7 +1100,7 @@ void *demux_thread_func(void *arg) {
         const char *u = (play_fmt && play_fmt->url) ? play_fmt->url : "";
         const int net = strncmp(u, "http://", 7) == 0 || strncmp(u, "https://", 8) == 0 ||
                         strncmp(u, "ftp://", 6) == 0 || strncmp(u, "smb://", 6) == 0;
-        s_readahead_us = net ? READAHEAD_NET_US : READAHEAD_LOCAL_US;
+        s_readahead_us = net ? s_net_readahead_us : READAHEAD_LOCAL_US;
     }
     demux_recover_reset();
     s_recover_allowed = demux_recover_allowed_for(play_fmt);

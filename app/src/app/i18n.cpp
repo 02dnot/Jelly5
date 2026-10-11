@@ -174,6 +174,7 @@ const std::unordered_map<std::string, const char *> &english_table()
         {"Skjerm", "Display"}, {"PCM, %d kanaler", "PCM, %d channels"}, {"Utgang", "Output"},
         {"Metode", "Method"}, {"Hvorfor", "Why"}, {"Se rulletekst", "Watch credits"}, {"Lukk", "Close"}, {"Slett", "Delete"},
         {"Bytt bruker eller server", "Change user or server"}, {"Spilles om %d s", "Plays in %d s"}, {"Bildefrekvens", "Refresh rate"},
+        {"Bilder på Hjem", "Home artwork"}, {"Plakater", "Posters"}, {"Liggende", "Landscape"},
         {"60 Hz (TV-en har ikke 120 Hz)", "60 Hz (the TV has no 120 Hz)"}, {"Se sammen", "Watch Together"}, {"Forlat gruppe", "Leave group"}, {"Lag ny gruppe", "Create group"},
         {"Ingen andre grupper akkurat nå.", "No other groups right now."}, {"○ tilbake", "○ back"},
         {"Jelly5: startes for hele gruppen", "Jelly5: starting for the whole group"},

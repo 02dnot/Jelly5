@@ -289,6 +289,7 @@ const std::unordered_map<std::string, const char *> &danish_table()
         {"Bytt bruker eller server", "Skift bruger eller server"},
         {"Spilles om %d s", "Afspilles om %d s"},
         {"Bildefrekvens", "Billedfrekvens"},
+        {"Bilder på Hjem", "Billeder på Hjem"}, {"Plakater", "Plakater"}, {"Liggende", "Liggende"},
         {"60 Hz (TV-en har ikke 120 Hz)", "60 Hz (tv'et har ikke 120 Hz)"},
         {"Se sammen", "Se sammen"},
         {"Forlat gruppe", "Forlad gruppe"},

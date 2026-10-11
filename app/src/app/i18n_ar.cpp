@@ -289,6 +289,7 @@ const std::unordered_map<std::string, const char *> &arabic_table()
         {"Bytt bruker eller server", "تغيير المستخدم أو الخادم"},
         {"Spilles om %d s", "يبدأ خلال %d ث"},
         {"Bildefrekvens", "معدل التحديث"},
+        {"Bilder på Hjem", "صور الصفحة الرئيسية"}, {"Plakater", "ملصقات"}, {"Liggende", "أفقية"},
         {"60 Hz (TV-en har ikke 120 Hz)", "60 Hz (التلفاز لا يدعم 120 Hz)"},
         {"Se sammen", "تشغيل متزامن"},
         {"Forlat gruppe", "مغادرة المجموعة"},

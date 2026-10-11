@@ -46,6 +46,7 @@ struct Item {
     /* Image owners and tags (an episode's logo/backdrop belong to its series). */
     std::string primary_tag, thumb_tag, logo_tag, backdrop_tag;
     std::string series_primary_tag;           /* an episode's series poster */
+    std::string series_primary_blurhash;      /* ... and its BlurHash */
     std::string logo_owner, backdrop_owner, thumb_owner;
     std::string primary_blurhash, backdrop_blurhash, thumb_blurhash;
     std::string collection_type;              /* views: movies, tvshows, music ... */

@@ -54,6 +54,13 @@ std::string poster_url(jf::Client &c, const jf::Item &it, int width)
     return c.image_url(it.id, "Primary", it.primary_tag, width);
 }
 
+const std::string &poster_blurhash(const jf::Item &it)
+{
+    if (it.type == "Episode" && !it.series_primary_tag.empty())
+        return it.series_primary_blurhash;
+    return it.primary_blurhash;
+}
+
 void Drop::to(const gfx::Rect &abs, int key, float ox, float oy)
 {
     const gfx::Rect r{abs.x - ox, abs.y - oy, abs.w, abs.h};
@@ -391,7 +398,7 @@ void draw_poster(jf::Client &c, const jf::Item &it, const gfx::Rect &base, float
     /* Without a BlurHash (Seerr's titles; the server's on Emby): glass, the picture
      * fading in over it, and where none is to come its name on the glass. */
     const std::string url = it.external() ? it.ext.poster : poster_url(c, it, 480);
-    if (it.external() || it.primary_blurhash.empty()) {
+    if (it.external() || poster_blurhash(it).empty()) {
         draw_glass_placeholder(r, 14 * k, opacity);
         if (url.empty() || art::failed(url)) {
             const float size = std::max(18.f, std::min(28.f, r.w / 9.f)), pad = std::max(14.f, r.w * 0.08f);
@@ -405,7 +412,7 @@ void draw_poster(jf::Client &c, const jf::Item &it, const gfx::Rect &base, float
         }
         art::draw(r, url, "", 480, 720, 14 * k, opacity, 0);
     } else {
-        art::draw(r, url, it.primary_blurhash, 480, 720, 14 * k, opacity);
+        art::draw(r, url, poster_blurhash(it), 480, 720, 14 * k, opacity);
     }
     /* Where it stands in Seerr (a library item on Seerr's tab too). */
     using RS = seerr::RequestStatus;

@@ -289,6 +289,7 @@ const std::unordered_map<std::string, const char *> &hungarian_table()
         {"Bytt bruker eller server", "Felhasználó vagy szerver váltása"},
         {"Spilles om %d s", "%d mp múlva indul"},
         {"Bildefrekvens", "Frissítési gyakoriság"},
+        {"Bilder på Hjem", "Képek a kezdőlapon"}, {"Plakater", "Plakátok"}, {"Liggende", "Fekvő"},
         {"60 Hz (TV-en har ikke 120 Hz)", "60 Hz (a tévé nem tud 120 Hz-et)"},
         {"Se sammen", "Közös nézés"},
         {"Forlat gruppe", "Kilépés a csoportból"},
