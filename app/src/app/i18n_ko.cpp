@@ -424,6 +424,7 @@ const std::unordered_map<std::string, const char *> &korean_table()
         {"Seerr-kontoen din kan ikke be om serier", "Seerr 계정으로 시리즈를 요청할 수 없습니다"},
         {"Seerr-kontoen din kan ikke be om filmer", "Seerr 계정으로 영화를 요청할 수 없습니다"},
         {"Be om flere sesonger", "시즌 추가 요청"},
+        {"Velg versjon", "버전 선택"},
         {"Oppdag", "둘러보기"},
         {"Trender nå", "인기 급상승"},
         {"Populære filmer", "인기 영화"},

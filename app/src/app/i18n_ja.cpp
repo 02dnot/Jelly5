@@ -424,6 +424,7 @@ const std::unordered_map<std::string, const char *> &japanese_table()
         {"Seerr-kontoen din kan ikke be om serier", "お使いのSeerrアカウントではシリーズをリクエストできません"},
         {"Seerr-kontoen din kan ikke be om filmer", "お使いのSeerrアカウントでは映画をリクエストできません"},
         {"Be om flere sesonger", "シーズンを追加でリクエスト"},
+        {"Velg versjon", "バージョンを選択"},
         {"Oppdag", "見つける"},
         {"Trender nå", "トレンド"},
         {"Populære filmer", "人気の映画"},

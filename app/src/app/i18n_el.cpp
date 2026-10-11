@@ -424,6 +424,7 @@ const std::unordered_map<std::string, const char *> &greek_table()
         {"Seerr-kontoen din kan ikke be om serier", "Ο λογαριασμός Seerr σας δεν μπορεί να ζητήσει σειρές"},
         {"Seerr-kontoen din kan ikke be om filmer", "Ο λογαριασμός Seerr σας δεν μπορεί να ζητήσει ταινίες"},
         {"Be om flere sesonger", "Αίτημα για περισσότερες σεζόν"},
+        {"Velg versjon", "Επιλογή έκδοσης"},
         {"Oppdag", "Ανακάλυψη"},
         {"Trender nå", "Τάσεις"},
         {"Populære filmer", "Δημοφιλείς ταινίες"},

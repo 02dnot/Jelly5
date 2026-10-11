@@ -424,6 +424,7 @@ const std::unordered_map<std::string, const char *> &turkish_table()
         {"Seerr-kontoen din kan ikke be om serier", "Seerr hesabın dizi talep edemez"},
         {"Seerr-kontoen din kan ikke be om filmer", "Seerr hesabın film talep edemez"},
         {"Be om flere sesonger", "Daha fazla sezon talep et"},
+        {"Velg versjon", "Sürüm seç"},
         {"Oppdag", "Keşfet"},
         {"Trender nå", "Gündemde"},
         {"Populære filmer", "Popüler filmler"},

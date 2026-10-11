@@ -424,6 +424,7 @@ const std::unordered_map<std::string, const char *> &romanian_table()
         {"Seerr-kontoen din kan ikke be om serier", "Contul tău Seerr nu poate solicita seriale"},
         {"Seerr-kontoen din kan ikke be om filmer", "Contul tău Seerr nu poate solicita filme"},
         {"Be om flere sesonger", "Solicită mai multe sezoane"},
+        {"Velg versjon", "Alege versiunea"},
         {"Oppdag", "Descoperă"},
         {"Trender nå", "În tendințe"},
         {"Populære filmer", "Filme populare"},

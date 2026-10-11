@@ -424,6 +424,7 @@ const std::unordered_map<std::string, const char *> &chinese_traditional_table()
         {"Seerr-kontoen din kan ikke be om serier", "您的 Seerr 帳戶無法請求影集"},
         {"Seerr-kontoen din kan ikke be om filmer", "您的 Seerr 帳戶無法請求電影"},
         {"Be om flere sesonger", "請求更多季"},
+        {"Velg versjon", "選擇版本"},
         {"Oppdag", "探索"},
         {"Trender nå", "熱門趨勢"},
         {"Populære filmer", "熱門電影"},

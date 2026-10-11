@@ -424,6 +424,7 @@ const std::unordered_map<std::string, const char *> &russian_table()
         {"Seerr-kontoen din kan ikke be om serier", "Ваша учётная запись Seerr не может запрашивать сериалы"},
         {"Seerr-kontoen din kan ikke be om filmer", "Ваша учётная запись Seerr не может запрашивать фильмы"},
         {"Be om flere sesonger", "Запросить ещё сезоны"},
+        {"Velg versjon", "Выбрать версию"},
         {"Oppdag", "Обзор"},
         {"Trender nå", "В тренде"},
         {"Populære filmer", "Популярные фильмы"},

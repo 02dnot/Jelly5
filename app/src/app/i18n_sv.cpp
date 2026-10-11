@@ -424,6 +424,7 @@ const std::unordered_map<std::string, const char *> &swedish_table()
         {"Seerr-kontoen din kan ikke be om serier", "Ditt Seerr-konto kan inte begära serier"},
         {"Seerr-kontoen din kan ikke be om filmer", "Ditt Seerr-konto kan inte begära filmer"},
         {"Be om flere sesonger", "Begär fler säsonger"},
+        {"Velg versjon", "Välj version"},
         {"Oppdag", "Upptäck"},
         {"Trender nå", "Trendar nu"},
         {"Populære filmer", "Populära filmer"},

@@ -424,6 +424,7 @@ const std::unordered_map<std::string, const char *> &dutch_table()
         {"Seerr-kontoen din kan ikke be om serier", "Je Seerr-account kan geen series aanvragen"},
         {"Seerr-kontoen din kan ikke be om filmer", "Je Seerr-account kan geen films aanvragen"},
         {"Be om flere sesonger", "Meer seizoenen aanvragen"},
+        {"Velg versjon", "Versie kiezen"},
         {"Oppdag", "Ontdekken"},
         {"Trender nå", "Trending"},
         {"Populære filmer", "Populaire films"},

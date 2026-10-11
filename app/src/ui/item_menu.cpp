@@ -29,6 +29,20 @@ void apply_change(jf::Item &it, const UserDataChange &c)
     }
 }
 
+/* What tells a version apart: its name without the title the server may put
+ * first ("Inception (2010) - DVD": "DVD"); empty when the name is only the title. */
+static std::string version_name(const std::string &name, const std::string &title)
+{
+    if (title.empty() || name.compare(0, title.size(), title) != 0)
+        return name;
+    size_t at = title.size();
+    if (name.size() >= at + 7 && name[at] == ' ' && name[at + 1] == '(' && name[at + 6] == ')')
+        at += 7;   /* " (2010)" */
+    while (at < name.size() && (name[at] == ' ' || name[at] == '-'))
+        at++;
+    return name.substr(at);
+}
+
 void ItemMenu::open(const jf::Item &item, bool in_resume_row)
 {
     m_item = item;
@@ -41,21 +55,28 @@ void ItemMenu::open(const jf::Item &item, bool in_resume_row)
         m_options.push_back(Played);
     if (in_resume_row && item.position_ticks > 0)
         m_options.push_back(Resume);
+    m_versions.clear();
+    m_picking = false;
     m_focus = 0;
     m_open = true;
     m_alpha.to(1.f);
 }
 
-void ItemMenu::open_actions(const jf::Item &item, bool played, bool ask_seerr)
+void ItemMenu::open_actions(const jf::Item &item, bool played, bool ask_seerr,
+                            const std::vector<jf::Version> &versions)
 {
     m_item = item;
     m_options.clear();
+    m_versions = versions.size() > 1 ? versions : std::vector<jf::Version>();
+    if (!m_versions.empty())
+        m_options.push_back(Versions);
     if (played)
         m_options.push_back(Played);
     if (ask_seerr)
         m_options.push_back(AskSeerr);
     if (m_options.empty())
         return;
+    m_picking = m_options.size() == 1 && m_options[0] == Versions;   /* nothing else: the list at once */
     m_focus = 0;
     m_asked = false;
     m_open = true;
@@ -69,22 +90,45 @@ bool ItemMenu::take_ask()
     return asked;
 }
 
+void ItemMenu::close()
+{
+    m_open = false;
+    m_alpha.to(0.f);
+}
+
 void ItemMenu::input(uint32_t p, Action *action)
 {
-    if (p & (NUVIO_BTN_CIRCLE | NUVIO_BTN_OPTIONS)) {
-        m_open = false;
-        m_alpha.to(0.f);
+    const bool back = p & NUVIO_BTN_CIRCLE;
+    if (back && m_picking && m_options.size() > 1) {   /* ○: from the versions back to the options */
+        m_picking = false;
+        m_focus = (int)(std::find(m_options.begin(), m_options.end(), Versions) - m_options.begin());
         return;
     }
+    if (back || (p & NUVIO_BTN_OPTIONS)) {
+        close();
+        return;
+    }
+    const int rows = m_picking ? (int)m_versions.size() : (int)m_options.size();
     if (p & NUVIO_BTN_UP)
         m_focus = std::max(0, m_focus - 1);
     else if (p & NUVIO_BTN_DOWN)
-        m_focus = std::min((int)m_options.size() - 1, m_focus + 1);
+        m_focus = std::min(rows - 1, m_focus + 1);
     if (!(p & NUVIO_BTN_CROSS))
         return;
 
-    m_open = false;
-    m_alpha.to(0.f);
+    if (m_picking) {   /* the version plays */
+        close();
+        action->item = m_item;
+        action->item.media_source_id = m_versions[m_focus].id;
+        action->kind = Action::Play;
+        return;
+    }
+    if (m_options[m_focus] == Versions) {
+        m_picking = true;
+        m_focus = 0;
+        return;
+    }
+    close();
     action->item = m_item;
     if (m_options[m_focus] == Info) {
         action->kind = Action::Open;
@@ -122,8 +166,15 @@ void ItemMenu::draw(float dt, bool *animating)
         std::snprintf(b, sizeof b, "S%d:E%d \xC2\xB7 %s", m_item.parent_index, m_item.index, m_item.name.c_str());
         sub = b;
     }
-    std::vector<const char *> labels;
-    for (const Option o : m_options) {
+    if (m_picking)
+        sub = T("Velg versjon");
+    std::vector<std::string> labels, tags;   /* tags: a version's picture, on the right */
+    for (const jf::Version &v : m_picking ? m_versions : std::vector<jf::Version>()) {
+        const std::string name = version_name(v.name, m_item.name);
+        labels.push_back(name.empty() ? v.label : name);
+        tags.push_back(name.empty() ? std::string() : v.label);
+    }
+    for (const Option o : m_picking ? std::vector<Option>() : m_options) {
         const char *label = "";
         switch (o) {
         case Info: label = T("Mer info"); break;
@@ -138,16 +189,19 @@ void ItemMenu::draw(float dt, bool *animating)
             break;
         case Resume: label = T("Fjern fra Fortsett \xC3\xA5 se"); break;
         case AskSeerr: label = T("Be om flere sesonger"); break;
+        case Versions: label = T("Velg versjon"); break;
         }
         labels.push_back(label);
+        tags.emplace_back();
     }
     /* 640 wide, wider when a label needs it (in bold, as when focused). */
     float w = 640;
-    for (const char *l : labels)
-        w = std::max(w, gfx::text_width(l, {gfx::Bold, 26}) + 112);
+    for (size_t i = 0; i < labels.size(); i++)
+        w = std::max(w, gfx::text_width(labels[i], {gfx::Bold, 26}) + 112 +
+                            (tags[i].empty() ? 0 : gfx::text_width(tags[i], {gfx::Medium, 22}) + 32));
     w = std::min(w, 1200.f);
     const float row_h = 68;
-    const float h = 60 + 52 + (sub.empty() ? 0 : 34) + 24 + m_options.size() * (row_h + 6) + 40 + 52;
+    const float h = 60 + 52 + (sub.empty() ? 0 : 34) + 24 + labels.size() * (row_h + 6) + 40 + 52;
     const float rise = 24 * (1.f - a);
     const gfx::Rect r{(gfx::W - w) / 2, (gfx::H - h) / 2 + rise, w, h};
     glass_panel(r, 28, a);
@@ -161,10 +215,14 @@ void ItemMenu::draw(float dt, bool *animating)
     y += 40;
     m_drop.to({r.x + 30, y + m_focus * (row_h + 6), w - 60, row_h}, m_focus, r.x, r.y);
     m_drop.draw(dt, a, animating, 14);
-    for (size_t i = 0; i < m_options.size(); i++) {
+    for (size_t i = 0; i < labels.size(); i++) {
         const bool focus = (int)i == m_focus;
         const gfx::Rect row{r.x + 30, y, w - 60, row_h};
-        marquee_text(row.x + 26, row.y + 44, labels[i], {focus ? gfx::Bold : gfx::SemiBold, 26, w - 112},
+        const float tw = tags[i].empty() ? 0 : std::min(gfx::text_width(tags[i], {gfx::Medium, 22}) + 32, w / 2);
+        if (tw > 0)
+            gfx::text(row.x + row.w - 26, row.y + 43, tags[i], {gfx::Medium, 22, tw - 32},
+                      alpha(focus ? kText2 : kText3, a), 2);
+        marquee_text(row.x + 26, row.y + 44, labels[i], {focus ? gfx::Bold : gfx::SemiBold, 26, w - 112 - tw},
                      alpha(focus ? kText : kText2, a), focus);
         y += row_h + 6;
     }

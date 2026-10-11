@@ -42,7 +42,8 @@ constexpr const char *kFields = "Overview,Genres";            /* rows: what the 
 constexpr const char *kImages = "&enableImageTypes=Primary,Backdrop,Thumb,Logo&imageTypeLimit=1";
 constexpr const char *kItemFields =
     "Overview,Genres,MediaStreams,Taglines,People,Studios,ChildCount,ProductionLocations,SpecialFeatureCount,"
-    "ProviderIds";   /* a series' TMDB/TVDB ids: Seerr finds it by them */
+    "ProviderIds,"   /* a series' TMDB/TVDB ids: Seerr finds it by them */
+    "MediaSources";  /* a title's versions (Options: Velg versjon) */
 
 std::string str_of(const cJSON *o, const char *key)
 {
@@ -919,6 +920,15 @@ std::vector<Item> Client::theme_songs(const std::string &id)
     return items_of(body);
 }
 
+/* A version as the viewer tells them apart: "2160p · HEVC · HDR". */
+std::string version_label(int height, std::string codec, const std::string &range)
+{
+    for (char &ch : codec)
+        ch = (char)std::toupper((unsigned char)ch);
+    return (height ? std::to_string(height) + "p" : std::string()) + (codec.empty() ? "" : " \xC2\xB7 " + codec) +
+           (range.rfind("HDR", 0) == 0 ? " \xC2\xB7 HDR" : "");   /* (Emby: "HDR 10") */
+}
+
 bool Client::item(const std::string &id, Item *out, Detail *detail)
 {
     std::string body;
@@ -949,6 +959,26 @@ bool Client::item(const std::string &id, Item *out, Detail *detail)
         detail->tagline = first_of(j, "Taglines");
         cJSON_ArrayForEach(st, cJSON_GetObjectItemCaseSensitive(j, "MediaStreams"))
             detail->streams.push_back(stream_of(st, server_));
+        const cJSON *sources = cJSON_GetObjectItemCaseSensitive(j, "MediaSources");
+        if (cJSON_GetArraySize(sources) > 1)
+            cJSON_ArrayForEach(st, sources) {
+                Version v;
+                v.id = str_of(st, "Id");
+                v.name = str_of(st, "Name");
+                v.bitrate = i64_of(st, "Bitrate", 0);
+                std::string codec, range;
+                const cJSON *s;
+                cJSON_ArrayForEach(s, cJSON_GetObjectItemCaseSensitive(st, "MediaStreams"))
+                    if (str_of(s, "Type") == "Video") {
+                        v.height = int_of(s, "Height", 0);
+                        codec = str_of(s, "Codec");
+                        range = str_of(s, "VideoRange");
+                        break;
+                    }
+                v.label = version_label(v.height, codec, range);
+                if (!v.id.empty())
+                    detail->versions.push_back(std::move(v));
+            }
     }
     cJSON_Delete(j);
     return true;
@@ -1535,7 +1565,7 @@ std::string Client::device_profile_json(int64_t max_bitrate, int segment_s)
 
 bool Client::playback_info(const std::string &item_id, int64_t start_ticks, int audio_index,
                            int subtitle_index, Playback *out, int64_t max_bitrate,
-                           const std::string &media_source_id, bool channel)
+                           const std::string &media_source_id, bool channel, const std::string &prefer)
 {
     /* Dolby Vision profile 5 plays directly on both kinds: the GPU rebuilds it
      * from its RPU (src/dv_rpu.c). Emby used to be asked again for an encoded
@@ -1631,11 +1661,7 @@ bool Client::playback_info(const std::string &item_id, int64_t start_ticks, int 
         } else {
             continue;
         }
-        for (char &ch : codec)
-            ch = (char)std::toupper((unsigned char)ch);
-        c.v.label = (c.v.height ? std::to_string(c.v.height) + "p" : std::string()) +
-                    (codec.empty() ? "" : " \xC2\xB7 " + codec) +
-                    (range.rfind("HDR", 0) == 0 ? " \xC2\xB7 HDR" : "");   /* (Emby: "HDR 10") */
+        c.v.label = version_label(c.v.height, codec, range);
         found.push_back(std::move(c));
     }
     if (found.empty()) {
@@ -1650,7 +1676,9 @@ bool Client::playback_info(const std::string &item_id, int64_t start_ticks, int 
         cJSON_Delete(j);
         return false;
     }
-    std::stable_sort(found.begin(), found.end(), [](const Candidate &a, const Candidate &b) {
+    std::stable_sort(found.begin(), found.end(), [&](const Candidate &a, const Candidate &b) {
+        if (!prefer.empty() && (a.v.id == prefer) != (b.v.id == prefer))
+            return a.v.id == prefer;   /* the viewer chose it */
         if (a.rank != b.rank) return a.rank > b.rank;
         if (a.v.height != b.v.height) return a.v.height > b.v.height;
         return a.v.bitrate > b.v.bitrate;

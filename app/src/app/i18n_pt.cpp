@@ -338,6 +338,7 @@ const std::unordered_map<std::string, const char *> &portuguese_table()
         {"Bare lokalt nettverk", "Só rede local"},
         {"Be om", "Pedir"},
         {"Be om flere sesonger", "Pedir mais temporadas"},
+        {"Velg versjon", "Escolher versão"},
         {"Be om «%s»", "Pedir “%s”"},
         {"Blokkert", "Bloqueado"},
         {"Delvis tilgjengelig", "Disponível em parte"},

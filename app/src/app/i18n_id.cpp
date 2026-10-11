@@ -424,6 +424,7 @@ const std::unordered_map<std::string, const char *> &indonesian_table()
         {"Seerr-kontoen din kan ikke be om serier", "Akun Seerr kamu tidak dapat meminta serial"},
         {"Seerr-kontoen din kan ikke be om filmer", "Akun Seerr kamu tidak dapat meminta film"},
         {"Be om flere sesonger", "Minta musim lainnya"},
+        {"Velg versjon", "Pilih versi"},
         {"Oppdag", "Jelajahi"},
         {"Trender nå", "Sedang tren"},
         {"Populære filmer", "Film populer"},

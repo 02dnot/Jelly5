@@ -424,6 +424,7 @@ const std::unordered_map<std::string, const char *> &vietnamese_table()
         {"Seerr-kontoen din kan ikke be om serier", "Tài khoản Seerr của bạn không thể yêu cầu phim bộ"},
         {"Seerr-kontoen din kan ikke be om filmer", "Tài khoản Seerr của bạn không thể yêu cầu phim"},
         {"Be om flere sesonger", "Yêu cầu thêm mùa"},
+        {"Velg versjon", "Chọn phiên bản"},
         {"Oppdag", "Khám phá"},
         {"Trender nå", "Thịnh hành"},
         {"Populære filmer", "Phim phổ biến"},

@@ -424,6 +424,7 @@ const std::unordered_map<std::string, const char *> &thai_table()
         {"Seerr-kontoen din kan ikke be om serier", "บัญชี Seerr ของคุณขอซีรีส์ไม่ได้"},
         {"Seerr-kontoen din kan ikke be om filmer", "บัญชี Seerr ของคุณขอภาพยนตร์ไม่ได้"},
         {"Be om flere sesonger", "ขอซีซั่นเพิ่ม"},
+        {"Velg versjon", "เลือกเวอร์ชัน"},
         {"Oppdag", "สำรวจ"},
         {"Trender nå", "กำลังมาแรง"},
         {"Populære filmer", "ภาพยนตร์ยอดนิยม"},

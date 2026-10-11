@@ -424,6 +424,7 @@ const std::unordered_map<std::string, const char *> &polish_table()
         {"Seerr-kontoen din kan ikke be om serier", "Twoje konto Seerr nie może prosić o seriale"},
         {"Seerr-kontoen din kan ikke be om filmer", "Twoje konto Seerr nie może prosić o filmy"},
         {"Be om flere sesonger", "Poproś o więcej sezonów"},
+        {"Velg versjon", "Wybierz wersję"},
         {"Oppdag", "Odkrywaj"},
         {"Trender nå", "Na czasie"},
         {"Populære filmer", "Popularne filmy"},

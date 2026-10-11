@@ -424,6 +424,7 @@ const std::unordered_map<std::string, const char *> &arabic_table()
         {"Seerr-kontoen din kan ikke be om serier", "لا يمكن لحساب Seerr الخاص بك طلب مسلسلات"},
         {"Seerr-kontoen din kan ikke be om filmer", "لا يمكن لحساب Seerr الخاص بك طلب أفلام"},
         {"Be om flere sesonger", "طلب مواسم إضافية"},
+        {"Velg versjon", "اختيار الإصدار"},
         {"Oppdag", "استكشاف"},
         {"Trender nå", "الأكثر رواجًا"},
         {"Populære filmer", "أفلام رائجة"},

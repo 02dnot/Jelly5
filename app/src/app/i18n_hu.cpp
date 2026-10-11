@@ -424,6 +424,7 @@ const std::unordered_map<std::string, const char *> &hungarian_table()
         {"Seerr-kontoen din kan ikke be om serier", "A Seerr-fiókod nem kérhet sorozatokat"},
         {"Seerr-kontoen din kan ikke be om filmer", "A Seerr-fiókod nem kérhet filmeket"},
         {"Be om flere sesonger", "További évadok kérése"},
+        {"Velg versjon", "Verzió kiválasztása"},
         {"Oppdag", "Felfedezés"},
         {"Trender nå", "Most felkapott"},
         {"Populære filmer", "Népszerű filmek"},
