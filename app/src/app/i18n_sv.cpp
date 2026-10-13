@@ -438,6 +438,7 @@ const std::unordered_map<std::string, const char *> &swedish_table()
         {"Mine forespørsler", "Mina förfrågningar"},
         /* counts (plural forms, see TN() in i18n.cpp), genres, SyncPlay */
         {"%d sesonger", "%d säsong|%d säsonger"},
+        {"%d versjoner", "%d version|%d versioner"},
         {"%d episoder", "%d avsnitt|%d avsnitt"},
         {"%d titler", "%d titel|%d titlar"},
         {"%d titler her", "%d titel här|%d titlar här"},

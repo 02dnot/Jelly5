@@ -438,6 +438,7 @@ const std::unordered_map<std::string, const char *> &czech_table()
         {"Mine forespørsler", "Moje žádosti"},
         /* counts (plural forms, see TN() in i18n.cpp), genres, SyncPlay */
         {"%d sesonger", "%d řada|%d řady|%d řad"},
+        {"%d versjoner", "%d verze|%d verze|%d verzí"},
         {"%d episoder", "%d epizoda|%d epizody|%d epizod"},
         {"%d titler", "%d titul|%d tituly|%d titulů"},
         {"%d titler her", "%d titul v knihovně|%d tituly v knihovně|%d titulů v knihovně"},

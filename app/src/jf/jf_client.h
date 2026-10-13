@@ -57,6 +57,7 @@ struct Item {
     std::vector<std::string> locations;       /* a person's birthplace */
     std::string tmdb_id, tvdb_id;             /* ProviderIds (search and item ask for them) */
     std::string media_source_id;              /* Play: this version (chosen in Options); empty: the best */
+    bool from_start = false;                  /* Play: from the beginning (no version's resume point either) */
 
     /* Live TV. A channel (TvChannel): its number and, with AddCurrentProgram, what
      * is on now. A programme (Program): its channel, when it airs (Unix seconds,
@@ -248,6 +249,9 @@ struct Features {
     bool home_sections = true;                /* the web client's home order (DisplayPreferences) */
     bool latin_sort_names = true;             /* SortName in Latin letters: Jellyfin's are, Emby's keep their script */
     bool media_segments = true;               /* recaps, previews, commercials too (Emby marks only intros and credits) */
+    /* A title's versions are items of their own (a media source's id is an item's): each with
+     * its own resume point (Jellyfin 12), runtime and segments. Emby's are not. */
+    bool version_items = true;
 };
 
 class Client {

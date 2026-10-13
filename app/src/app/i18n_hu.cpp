@@ -438,6 +438,7 @@ const std::unordered_map<std::string, const char *> &hungarian_table()
         {"Mine forespørsler", "Saját kérések"},
         /* counts (plural forms, see TN() in i18n.cpp), genres, SyncPlay */
         {"%d sesonger", "%d évad|%d évad"},
+        {"%d versjoner", "%d verzió|%d verzió"},
         {"%d episoder", "%d epizód|%d epizód"},
         {"%d titler", "%d cím|%d cím"},
         {"%d titler her", "%d cím itt|%d cím itt"},

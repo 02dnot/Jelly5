@@ -711,6 +711,7 @@ void Detail::draw_top(float y0, float dt)
     /* Pass -1 only measures: a row wider than the screen (a long language) drops
      * the Play button's "12 min left" and keeps its progress bar. */
     bool short_play = false;
+    float row_end = kPad;   /* where the buttons end */
     for (int pass = -1; pass < 2; pass++) {
     if (pass == 1)
         m_btn_drop.draw(dt, 1.f, &m_animating, 16);
@@ -747,6 +748,7 @@ void Detail::draw_top(float y0, float dt)
         const gfx::Rect r{bx, by, w, 76};
         if (pass < 0) {
             bx += w + 20;
+            row_end = bx - 20;
             if (i + 1 == bs.size())
                 short_play = bx - 20 > gfx::W - kPad;
             continue;
@@ -798,6 +800,14 @@ void Detail::draw_top(float y0, float dt)
         }
         bx += w + 20;
     }
+    }
+    /* A title with several versions: Options lists them (said, or no one finds it). */
+    if (m_zone == Buttons && !m_sheet.active() && !m_menu.active()) {
+        const size_t nv = versions().size();
+        const std::string what = TN((int)nv, "%d versjon", "%d versjoner");
+        const float hw = pad_hint_width(PadButton::Options, what, 26);
+        if (nv > 1 && hw < gfx::W - kPad - row_end - 40)
+            draw_pad_hint(gfx::W - kPad - hw, by + 38, PadButton::Options, what, 26);
     }
 
     /* Credits. */

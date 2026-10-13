@@ -438,6 +438,7 @@ const std::unordered_map<std::string, const char *> &arabic_table()
         {"Mine forespørsler", "طلباتي"},
         /* counts (plural forms, see TN() in i18n.cpp), genres, SyncPlay */
         {"%d sesonger", "%d موسم|موسم واحد|موسمان|%d مواسم|%d موسمًا|%d موسم"},
+        {"%d versjoner", "%d إصدار|إصدار واحد|إصداران|%d إصدارات|%d إصدارًا|%d إصدار"},
         {"%d episoder", "%d حلقة|حلقة واحدة|حلقتان|%d حلقات|%d حلقة|%d حلقة"},
         {"%d titler", "%d عنوان|عنوان واحد|عنوانان|%d عناوين|%d عنوانًا|%d عنوان"},
         {"%d titler her", "%d عنوان هنا|عنوان واحد هنا|عنوانان هنا|%d عناوين هنا|%d عنوانًا هنا|%d عنوان هنا"},

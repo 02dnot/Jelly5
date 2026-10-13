@@ -438,6 +438,7 @@ const std::unordered_map<std::string, const char *> &dutch_table()
         {"Mine forespørsler", "Mijn aanvragen"},
         /* counts (plural forms, see TN() in i18n.cpp), genres, SyncPlay */
         {"%d sesonger", "%d seizoen|%d seizoenen"},
+        {"%d versjoner", "%d versie|%d versies"},
         {"%d episoder", "%d aflevering|%d afleveringen"},
         {"%d titler", "%d titel|%d titels"},
         {"%d titler her", "%d titel hier|%d titels hier"},

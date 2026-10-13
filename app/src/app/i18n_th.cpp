@@ -438,6 +438,7 @@ const std::unordered_map<std::string, const char *> &thai_table()
         {"Mine forespørsler", "คำขอของฉัน"},
         /* counts (plural forms, see TN() in i18n.cpp), genres, SyncPlay */
         {"%d sesonger", "%d ซีซั่น"},
+        {"%d versjoner", "%d เวอร์ชัน"},
         {"%d episoder", "%d ตอน"},
         {"%d titler", "%d เรื่อง"},
         {"%d titler her", "มี %d เรื่องในคลังสื่อ"},
