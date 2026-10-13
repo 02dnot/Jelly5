@@ -251,8 +251,7 @@ void Login::check_server()
     const std::vector<std::string> tries = jf::server_candidates(m_server);
     const std::string typed = m_server;
     m_own = std::make_shared<jf::Client>("", client().device_id(), client().device_name());
-    m_own->set_server(m_server);
-    m_server = client().server();
+    m_own->set_server(m_server);   /* (the field keeps what was typed until one answers) */
     std::shared_ptr<Shared> sh = m_shared;
     std::shared_ptr<jf::Client> c = m_own;
     const unsigned gen = next_gen();
@@ -281,7 +280,7 @@ void Login::check_server()
                 at.push_back(tries[i] + "/emby");
             for (const std::string &a : at) {
                 auto probe = a == c->server() ? c : std::make_shared<jf::Client>(a, c->device_id(), c->device_name());
-                if (answers(*probe, i == 0 ? 0 : 6)) {
+                if (answers(*probe, tries.size() > 1 ? 5 : 0)) {
                     use = probe;
                     ok = true;
                     break;
@@ -564,10 +563,9 @@ void Login::draw(double now, float dt)
         users = m_shared->users;
         if (checked) {
             m_shared->checked = false;
-            if (m_shared->moved) {   /* it answered at another address: sign in there (before anyone starts to) */
+            if (m_shared->moved)   /* it answered at another address: sign in there (before anyone starts to) */
                 m_own = std::move(m_shared->moved);
-                m_server = m_own->server();
-            }
+            m_server = m_own->server();
         }
     }
     if (checked) {   /* the server answered: Quick Connect first, where the server has it */

@@ -423,15 +423,17 @@ std::vector<std::string> server_candidates(std::string typed)
     const std::string host = typed.substr(0, slash);
     const std::string path = slash == std::string::npos ? "" : typed.substr(slash);
     const std::string http = "http://" + typed, https = "https://" + typed;
+    const bool name = host.find('.') != std::string::npos &&
+                      host.find_first_not_of("0123456789.") != std::string::npos;
     if (host.find(':') != std::string::npos) {   /* a port of its own */
         const std::string port = host.substr(host.rfind(':') + 1);
         if (port == "443" || port == "8920")
             return {https, http};
         return {http, https};
     }
-    const std::string jellyfin = "http://" + host + ":8096" + path;
-    const bool name = host.find('.') != std::string::npos &&
-                      host.find_first_not_of("0123456789.") != std::string::npos;
+    if (!path.empty())   /* a path is a reverse proxy's, on its default port */
+        return name ? std::vector<std::string>{https, http} : std::vector<std::string>{http, https};
+    const std::string jellyfin = "http://" + host + ":8096";
     if (name)
         return {https, jellyfin, http};
     return {jellyfin, https, http};
