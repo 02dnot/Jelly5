@@ -137,7 +137,7 @@ const std::unordered_map<std::string, const char *> &english_table()
         {"Fant ingen Jellyfin- eller Emby-server på ", "No Jellyfin or Emby server found at "},
         {"Feil brukernavn eller passord", "Wrong username or password"}, {"Innloggingen mislyktes", "Sign-in failed"},
         {"Quick Connect er ikke slått på på denne serveren", "Quick Connect is not enabled on this server"},
-        {"Serveradresse", "Server address"}, {"Brukernavn", "Username"}, {"Passord", "Password"},
+        {"Serveradresse", "Server address"}, {"https://server.no eller 192.168.1.10", "https://server.com or 192.168.1.10"}, {"Brukernavn", "Username"}, {"Passord", "Password"},
         {"Koble til Jellyfin eller Emby", "Connect to Jellyfin or Emby"},
         {"Skriv inn adressen til Jellyfin- eller Emby-serveren din, for eksempel 192.168.0.10:8096.", "Enter your Jellyfin or Emby server's address, for example 192.168.0.10:8096."},
         {"Logg inn", "Sign In"}, {"Logger inn …", "Signing in …"}, {"Bruk Quick Connect", "Use Quick Connect"},

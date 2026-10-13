@@ -411,17 +411,35 @@ Client::Client(std::string server, std::string device_id, std::string device_nam
         server_.pop_back();
 }
 
+std::vector<std::string> server_candidates(std::string typed)
+{
+    while (!typed.empty() && (typed.back() == '/' || typed.back() == ' '))
+        typed.pop_back();
+    while (!typed.empty() && typed.front() == ' ')
+        typed.erase(0, 1);
+    if (typed.empty() || typed.find("://") != std::string::npos)
+        return {typed};
+    const size_t slash = typed.find('/');
+    const std::string host = typed.substr(0, slash);
+    const std::string path = slash == std::string::npos ? "" : typed.substr(slash);
+    const std::string http = "http://" + typed, https = "https://" + typed;
+    if (host.find(':') != std::string::npos) {   /* a port of its own */
+        const std::string port = host.substr(host.rfind(':') + 1);
+        if (port == "443" || port == "8920")
+            return {https, http};
+        return {http, https};
+    }
+    const std::string jellyfin = "http://" + host + ":8096" + path;
+    const bool name = host.find('.') != std::string::npos &&
+                      host.find_first_not_of("0123456789.") != std::string::npos;
+    if (name)
+        return {https, jellyfin, http};
+    return {jellyfin, https, http};
+}
+
 void Client::set_server(std::string server)
 {
-    server_ = std::move(server);
-    while (!server_.empty() && server_.back() == '/')
-        server_.pop_back();
-    if (server_.empty() || server_.find("://") != std::string::npos)
-        return;
-    /* Typed without a scheme: plain http, and a bare host gets Jellyfin's port. */
-    server_ = "http://" + server_;
-    if (server_.find(':', 7) == std::string::npos && server_.find('/', 7) == std::string::npos)
-        server_ += ":8096";
+    server_ = server_candidates(std::move(server)).front();
 }
 
 void Client::set_session(std::string token, std::string user_id, std::string user_name)

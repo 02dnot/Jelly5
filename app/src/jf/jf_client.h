@@ -229,6 +229,11 @@ Kind kind_of_key(const std::string &key);
  * ProductName ("Jellyfin Server"); Emby has none and a version 4.x.y.z. */
 Kind kind_of_info(const std::string &product_name, const std::string &version);
 
+/* The addresses to try for one the viewer typed, most likely first. With a scheme it
+ * is only itself; without one, a domain name tries https first (a server reached
+ * from outside, behind a proxy), a local address Jellyfin's http port first. */
+std::vector<std::string> server_candidates(std::string typed);
+
 /* Unix seconds (UTC) from the servers' dates ("2026-10-08T22:15:00.0000000Z"), 0 for
  * none, and back as a query value ("2026-10-08T22:15:00Z"). */
 int64_t utc_of(const std::string &iso);

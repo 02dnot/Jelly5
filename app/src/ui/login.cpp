@@ -248,6 +248,8 @@ void Login::check_server()
 {
     m_no_quick_connect = false;
     m_has_quick_connect = true;   /* until the check says what kind of server it is */
+    const std::vector<std::string> tries = jf::server_candidates(m_server);
+    const std::string typed = m_server;
     m_own = std::make_shared<jf::Client>("", client().device_id(), client().device_name());
     m_own->set_server(m_server);
     m_server = client().server();
@@ -260,21 +262,30 @@ void Login::check_server()
         sh->error.clear();
         sh->qc_alive = false;
     }
-    const bool started = jelly5::spawn([sh, c, gen] {
+    const bool started = jelly5::spawn([sh, c, gen, tries, typed] {
         std::string name, version, id;
         jf::Kind kind = jf::Kind::Jellyfin;
         /* A server's answer carries its version: other JSON on that route (a proxy, a
          * sign-in gate) is not one, and an Emby may still be under /emby. */
-        bool ok = c->public_info(&name, &version, &id, &kind) && !version.empty();
-        /* An Emby behind a reverse proxy may answer only under /emby: an address
-         * typed without a path is tried there too, and then used with it. */
+        auto answers = [&](jf::Client &at, int timeout_s) {
+            return at.public_info(&name, &version, &id, &kind, timeout_s) && !version.empty();
+        };
+        /* An address typed without a scheme is tried as https and http; an Emby behind
+         * a reverse proxy may answer only under /emby. The one that answers is used. */
+        bool ok = false;
         std::shared_ptr<jf::Client> use = c;
-        const size_t scheme = c->server().find("://");
-        if (!ok && scheme != std::string::npos && c->server().find('/', scheme + 3) == std::string::npos) {
-            auto under = std::make_shared<jf::Client>(c->server() + "/emby", c->device_id(), c->device_name());
-            if (under->public_info(&name, &version, &id, &kind) && !version.empty()) {
-                use = under;
-                ok = true;
+        for (size_t i = 0; i < tries.size() && !ok; i++) {
+            std::vector<std::string> at{tries[i]};
+            const size_t scheme = tries[i].find("://");
+            if (scheme != std::string::npos && tries[i].find('/', scheme + 3) == std::string::npos)
+                at.push_back(tries[i] + "/emby");
+            for (const std::string &a : at) {
+                auto probe = a == c->server() ? c : std::make_shared<jf::Client>(a, c->device_id(), c->device_name());
+                if (answers(*probe, i == 0 ? 0 : 6)) {
+                    use = probe;
+                    ok = true;
+                    break;
+                }
             }
         }
         if (ok)
@@ -286,7 +297,7 @@ void Login::check_server()
             return;   /* another server since */
         sh->busy = false;
         if (!ok) {
-            sh->error = T("Fant ingen Jellyfin- eller Emby-server på ") + c->server();
+            sh->error = T("Fant ingen Jellyfin- eller Emby-server på ") + (tries.size() > 1 ? typed : c->server());
             return;
         }
         sh->server_name = name;
@@ -553,7 +564,7 @@ void Login::draw(double now, float dt)
         users = m_shared->users;
         if (checked) {
             m_shared->checked = false;
-            if (m_shared->moved) {   /* it answered under /emby: sign in there (before anyone starts to) */
+            if (m_shared->moved) {   /* it answered at another address: sign in there (before anyone starts to) */
                 m_own = std::move(m_shared->moved);
                 m_server = m_own->server();
             }
@@ -598,7 +609,7 @@ void Login::draw(double now, float dt)
         gfx::text(kX, 230, T("Koble til Jellyfin eller Emby"), {gfx::Bold, 64}, kText);
         gfx::text(kX, 290, T("Skriv inn adressen til Jellyfin- eller Emby-serveren din, for eksempel 192.168.0.10:8096."),
                   {gfx::Medium, 28, 1200, 2, 38}, kText2);
-        field({kX, 390, kW, 84}, "SERVER", m_server, "http://", m_focus == 0, lift("srv", m_focus == 0));
+        field({kX, 390, kW, 84}, "SERVER", m_server, T("https://server.no eller 192.168.1.10"), m_focus == 0, lift("srv", m_focus == 0));
         button({kX, 530, button_w(260, {T("Kobler til \xE2\x80\xA6"), T("Fortsett")}), 76},
                busy ? T("Kobler til \xE2\x80\xA6") : T("Fortsett"), m_focus == 1, lift("go", m_focus == 1));
         /* Servers on the network, found by asking (Jellyfin's discovery). */
