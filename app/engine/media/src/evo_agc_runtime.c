@@ -3854,12 +3854,13 @@ int evo_agc_upscale_take_downgrade(void)
 
 
 /* The Off quad's NDC half-extents for Fit (0) / Fill (1) / Stretch (2). */
-static void agc_video_scale(int disp_w, int disp_h, int view_mode, float *sx, float *sy)
+static void agc_video_scale(int disp_w, int disp_h, float pixel_aspect,
+                            int view_mode, float *sx, float *sy)
 {
     *sx = 1.0f;
     *sy = 1.0f;
     if (view_mode != 2 && disp_w > 0 && disp_h > 0 && g_agc_dev.width > 0 && g_agc_dev.height > 0) {
-        float va = (float)disp_w / (float)disp_h;
+        float va = ((float)disp_w * pixel_aspect) / (float)disp_h;
         float sa = (float)g_agc_dev.width / (float)g_agc_dev.height;
         if (view_mode == 0) { /* FIT (letterbox) */
             if (va > sa) *sy = sa / va; else *sx = va / sa;
@@ -3875,7 +3876,7 @@ int evo_agc_blit_yuv(const uint8_t *y,  int y_pitch,
                       const uint8_t *v,  int v_pitch,
                       int coded_w, int coded_h,
                       int disp_w, int disp_h,
-                      int view_mode, int ten_bit, int color_trc,
+                      float pixel_aspect, int view_mode, int ten_bit, int color_trc,
                       int is_direct, int64_t pts_us)
 {
     if (!g_agc_dev.initialized || !y || y_pitch <= 0 || coded_w <= 0 || coded_h <= 0)
@@ -3940,7 +3941,7 @@ int evo_agc_blit_yuv(const uint8_t *y,  int y_pitch,
     evo_agc_runtime_set_blend(EVO_AGC_BLEND_NONE);
 
     float sx, sy;
-    agc_video_scale(disp_w, disp_h, view_mode, &sx, &sy);
+    agc_video_scale(disp_w, disp_h, pixel_aspect, view_mode, &sx, &sy);
 
     /* #103: with an upscaler engaged this pass renders the picture at source
      * size into scratch surface L0 instead, and agc_upscale_run() below takes
