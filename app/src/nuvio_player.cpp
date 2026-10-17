@@ -725,15 +725,25 @@ void auto_select_subtitles(Session &s)
     }
 }
 
+float video_pixel_aspect()
+{
+    if (!play_fmt || video_stream_index < 0 || video_stream_index >= (int)play_fmt->nb_streams)
+        return 1.0f;
+    AVStream *stream = play_fmt->streams[video_stream_index];
+    AVRational sar = av_guess_sample_aspect_ratio(play_fmt, stream, nullptr);
+    if (sar.num <= 0 || sar.den <= 0)
+        sar = stream->codecpar->sample_aspect_ratio;
+    if (sar.num <= 0 || sar.den <= 0)
+        return 1.0f;
+    const float ratio = (float)sar.num / (float)sar.den;
+    return std::isfinite(ratio) && ratio > 0.0f ? ratio : 1.0f;
+}
+
 nuvio_rect video_rect(const pp_video_frame &f)
 {
     nuvio_rect r = {0, 0, (float)CW, (float)CH};
-    float dw = (float)(f.disp_w ? f.disp_w : 16), dh = (float)(f.disp_h ? f.disp_h : 9);
-    if (play_fmt && video_stream_index >= 0 && video_stream_index < (int)play_fmt->nb_streams) {
-        const AVRational sar = play_fmt->streams[video_stream_index]->codecpar->sample_aspect_ratio;
-        if (sar.num > 0 && sar.den > 0)
-            dw *= (float)sar.num / (float)sar.den;
-    }
+    float dw = (float)(f.disp_w ? f.disp_w : 16) * video_pixel_aspect();
+    float dh = (float)(f.disp_h ? f.disp_h : 9);
     const int mode = (int)s_pb->getViewMode();
     if (mode == 2)
         return r;
@@ -1583,7 +1593,8 @@ extern "C" void nuvio_player_run(const char *json)
                     (evo_pb_active_backend() == EVO_VDEC_BACKEND_NATIVE && !f.held && f.uv != nullptr) ? 1 : 0;
                 evo_agc_blit_yuv(f.y, f.y_pitch, f.uv, f.uv_pitch, f.u, f.u_pitch, f.v, f.v_pitch,
                                  (int)f.coded_w, (int)f.coded_h, (int)f.disp_w, (int)f.disp_h,
-                                 (int)s_pb->getViewMode(), f.ten_bit, f.color_trc, is_direct, pts);
+                                 video_pixel_aspect(), (int)s_pb->getViewMode(), f.ten_bit,
+                                 f.color_trc, is_direct, pts);
                 s.last_pts = pts;
                 /* The upscaler went over the GPU's time and stepped down (once per step). */
                 const int capped = evo_agc_upscale_take_downgrade();
