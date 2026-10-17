@@ -5,6 +5,7 @@ Jelly5 is a native Jellyfin and Emby client for jailbroken PS5s (`PPSA99505`, Me
 ## Work and review
 
 - Use descriptive branches such as `bug/`, `fix/`, `feature/`, `docs/` or `chore/`. Do not create `codex/` branches.
+- Before committing or pushing in any Jelly5 clone, verify the local Git identity: `02dnot <255446162+02dnot@users.noreply.github.com>` for both author and committer. Set it with `git config --local user.name 02dnot` and `git config --local user.email '255446162+02dnot@users.noreply.github.com'`; never use the global `danielnotland@me.com` identity here.
 - Keep a PR focused. State what changed, how it was verified, and a concrete PS5 test plan for console-dependent changes. Leave untested playback changes as draft PRs until the console test is done.
 - Treat projects under local `refs/` as technical references. Compare their implementation with Jelly5 before porting anything. Add a project to credits and third-party notices when code is actually reused, with its original notices and license.
 - Existing local notes in git-ignored `private/` can provide history but may be stale. Verify decisions against current code, tests and issues. Never require those notes for a clean clone to build.
