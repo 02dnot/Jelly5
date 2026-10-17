@@ -41,6 +41,7 @@ static enum AVSampleFormat prospero_audio_input_format =
 
 static int prospero_audio_input_rate = 0;
 static int prospero_audio_output_channels = 0;
+static int prospero_audio_downmix = 0;
 static const int prospero_audio_output_rate = PROSPERO_AUDIO_OUTPUT_RATE;
 
 
@@ -62,6 +63,7 @@ void prospero_audio_resampler_destroy(void) {
 
     prospero_audio_input_rate = 0;
     prospero_audio_output_channels = 0;
+    prospero_audio_downmix = 0;
 }
 
 
@@ -191,12 +193,18 @@ int prospero_audio_resampler_configure(
         return 0;
     }
 
-    av_opt_set_double(
-        prospero_audio_swr,
-        "rematrix_maxval",
-        1.0,
-        0
-    );
+    /* Jelly5: only for the 7.1 port. On stereo, scaling the whole downmix so
+     * that it can never clip made 5.1 play several dB quieter than stereo
+     * (ProsperoTV 273f2e0); the mix keeps the source's level instead, and the
+     * output's limiter holds the peaks (jelly5_dsp). */
+    prospero_audio_downmix = input_layout.nb_channels > out_channels;
+    if (out_channels == 8)
+        av_opt_set_double(
+            prospero_audio_swr,
+            "rematrix_maxval",
+            1.0,
+            0
+        );
 
     av_opt_set_double(
         prospero_audio_swr,
@@ -268,4 +276,9 @@ SwrContext *prospero_audio_resampler_ctx(void) {
 
 int prospero_audio_resampler_input_rate(void) {
     return prospero_audio_input_rate;
+}
+
+
+int prospero_audio_resampler_downmixing(void) {
+    return prospero_audio_downmix;
 }

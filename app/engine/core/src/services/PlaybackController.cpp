@@ -1186,6 +1186,7 @@ bool PlaybackController::startPlaybackSource(const PlaybackSource& source,
                     /* Jelly5: HDMI bitstream (Innstillinger: HDMI-bitstrøm) for a film or
                      * episode in Dolby Digital (Plus) or DTS the TV or receiver takes:
                      * a stereo S16 carrier port, nothing decoded here. Music stays PCM. */
+                    jelly5_bs_settle();   /* right after a bitstream: the receiver's switch */
                     if (video_stream_index >= 0) {
                         handle = jelly5_bs_open(aStream->codecpar->codec_id, aStream->codecpar->profile,
                                                 aStream->codecpar->sample_rate, chCount);

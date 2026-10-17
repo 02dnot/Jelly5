@@ -48,6 +48,10 @@ SwrContext *prospero_audio_resampler_ctx(void);
 /* Sample rate the context was last configured for (0 until configured). */
 int prospero_audio_resampler_input_rate(void);
 
+/* Jelly5: 1 while the input has more channels than the port (5.1 or 7.1 to stereo).
+ * Such a mix keeps the source's level and can pass full scale: the output limits it. */
+int prospero_audio_resampler_downmixing(void);
+
 #ifdef __cplusplus
 }
 #endif
