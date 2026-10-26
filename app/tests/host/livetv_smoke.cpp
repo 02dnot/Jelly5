@@ -99,6 +99,7 @@ static void dates()
     check(jf::utc_of("2024-02-29T12:00:00Z") == 1709208000, "leap day");
     check(jf::iso_of(1791497700) == "2026-10-08T22:15:00Z", "back as a query value", jf::iso_of(1791497700));
     check(jf::utc_of("") == 0 && jf::utc_of("soon") == 0, "no date");
+    check(jf::utc_of("0001-01-01T00:00:00.0000000Z") == 0, ".NET's minimum date is no date");
     std::printf("\n");
 }
 
