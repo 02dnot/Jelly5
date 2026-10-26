@@ -310,6 +310,17 @@ for so in "${PRX_STUB_SOS[@]}"; do CONV_STUB_ARGS+=(--stub "${so}"); done
 "${TOOL}" link --in "${BUILD}/llvm-pie.elf" --out "${BUILD}/eboot.elf" \
     --stub-dir "${STUBDIR}" "${CONV_STUB_ARGS[@]}" \
     --module-sdk "${MODULE_SDK}" --companion-sdk "${COMPANION_SDK}" --file-name eboot.elf
+# The read-only segment must start on a 64 KB file offset, or the console reads
+# one 64 KB block of .rodata from the block before it (see ps5-pie.ld).
+if command -v llvm-readelf >/dev/null; then
+    RO_OFFSET="$(llvm-readelf -lW "${BUILD}/eboot.elf" | awk '$1=="LOAD" && $7=="R" && $8 ~ /^0x/ {print $2; exit}')"
+    [[ -n "${RO_OFFSET}" ]] || die "no read-only segment found in eboot.elf"
+    (( (RO_OFFSET & 0xFFFF) == 0 )) ||
+        die "read-only segment at file offset ${RO_OFFSET}, not a multiple of 64 KB: the console misreads .rodata"
+    ok "read-only segment at ${RO_OFFSET}"
+else
+    echo "  warning: llvm-readelf not found: the .rodata offset check was skipped"
+fi
 rm -rf -- "${APPDIR}"
 mkdir -p "${APPDIR}/sce_sys" "${APPDIR}/sce_module"
 "${TOOL}" self --sign --in "${BUILD}/eboot.elf" --out "${APPDIR}/eboot.bin" --magic "${FSELF_MAGIC}"
