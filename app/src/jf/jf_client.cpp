@@ -128,11 +128,13 @@ std::string header_safe(const std::string &s)
 } // namespace
 
 /* "2026-10-08T22:15:00.0000000Z" (UTC, as both servers send it) in Unix seconds; 0 if
- * it is not such a date. Without timegm, which the console's libc may lack. */
+ * it is not such a date. Without timegm, which the console's libc may lack.
+ * Year 1 is .NET's DateTime.MinValue, which a server sends for a missing date. */
 int64_t utc_of(const std::string &iso)
 {
     int y, mo, d, h = 0, mi = 0, sec = 0;
-    if (std::sscanf(iso.c_str(), "%4d-%2d-%2dT%2d:%2d:%2d", &y, &mo, &d, &h, &mi, &sec) < 3 || mo < 1 || mo > 12)
+    if (std::sscanf(iso.c_str(), "%4d-%2d-%2dT%2d:%2d:%2d", &y, &mo, &d, &h, &mi, &sec) < 3 || mo < 1 || mo > 12 ||
+        y <= 1)
         return 0;
     /* Days since 1970-01-01 (Howard Hinnant's days_from_civil). */
     y -= mo <= 2;
@@ -233,6 +235,8 @@ Item item_of(const cJSON *o)
     it.album_primary_tag = str_of(o, "AlbumPrimaryImageTag");
     it.album_blurhash = blurhash_of(o, "Primary", it.album_primary_tag);
     it.premiere_date = str_of(o, "PremiereDate");
+    if (it.premiere_date.compare(0, 5, "0001-") == 0)   /* DateTime.MinValue: no date */
+        it.premiere_date.clear();
     cJSON_ArrayForEach(g, cJSON_GetObjectItemCaseSensitive(o, "ProductionLocations"))
         if (cJSON_IsString(g))
             it.locations.push_back(g->valuestring);
