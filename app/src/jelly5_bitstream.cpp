@@ -5,6 +5,7 @@
  * HDMI bitstream (see jelly5_bitstream.h). The port sequence (ExConfigureOutput,
  * ExOpen, ExClose, restore with mode 255), the modes and their carrier rates are
  * SlopFin's findings (Copyright (C) 2026 Brett, GPL-3.0-or-later; src/audio.cpp).
+ * The settle times around a format change follow EVO Player e664fe3.
  */
 #include "jelly5_bitstream.h"
 #include "iec61937.hpp"
@@ -19,6 +20,7 @@ extern "C" {
 #include <atomic>
 #include <cstring>
 #include <mutex>
+#include <time.h>
 #include <unistd.h>
 
 extern "C" {
@@ -27,6 +29,7 @@ int sceAudioOutExConfigureOutput(int zero, long unused, int mode, int device, lo
 int sceAudioOutExOpen(int user, int mode);
 int sceAudioOutExClose(int handle);
 int sceAudioOutExGetMonitorInfo(int zero, long unused, void *buf, int size);
+int sceAudioOutOutput(int handle, const void *buf);
 }
 
 namespace {
@@ -54,6 +57,35 @@ size_t s_read = 0, s_write = 0, s_count = 0;
 std::mutex s_lock;
 int16_t s_out[1024 * 2];
 const int16_t s_zero[1024 * 2] = {};
+
+/* A receiver follows a format change slowly: switched back to back (another
+ * audio track, the next episode, bitstream to PCM) it stayed on the last format,
+ * silent or with PCM labelled as Dolby (EVO Player e664fe3). So a stream is
+ * bracketed by IEC 61937 null bursts, and the next port opens no sooner than a
+ * second after HDMI went back to the system's output. */
+constexpr int kLeadInMs = 400;      /* null bursts after the switch, before the first frame */
+constexpr int kLeadOutMs = 500;     /* after the last frame, before the port closes */
+constexpr int kAfterCloseMs = 250;  /* between the close and the restore */
+constexpr int kSettleMs = 1000;     /* from the restore to the next open */
+std::atomic<int64_t> s_restored_ms{-1};   /* when HDMI went back; -1: not since start */
+
+int64_t now_ms()
+{
+    timespec t;
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return (int64_t)t.tv_sec * 1000 + t.tv_nsec / 1000000;
+}
+
+/* Null data (data type 0): the preamble, then zeros, a grain at a time. */
+void send_null_bursts(int handle, int ms)
+{
+    static int16_t grain[1024 * 2];
+    std::memset(grain, 0, sizeof grain);
+    grain[0] = (int16_t)jelly5::iec61937::kSync1;
+    grain[1] = (int16_t)jelly5::iec61937::kSync2;
+    for (long n = (long)ms * s_carrier / 1000 / s_grain; n > 0; n--)
+        sceAudioOutOutput(handle, grain);
+}
 
 /* What the TV or receiver lists. The system returns its EDID audio part: a
  * count at 0x98, then 8-byte entries from 0xa0 led by the CEA-861 audio format
@@ -107,6 +139,18 @@ extern "C" {
 
 void jelly5_bs_set_allowed(int mask) { s_allowed = mask; }
 
+void jelly5_bs_settle(void)
+{
+    const int64_t at = s_restored_ms.load();
+    if (at < 0)
+        return;
+    const int64_t wait = kSettleMs - (now_ms() - at);
+    if (wait > 0) {
+        evo_bt("bitstream: %lld ms for the TV/receiver to settle before the next open", (long long)wait);
+        usleep((useconds_t)wait * 1000);
+    }
+}
+
 int jelly5_bs_sink_formats(void)
 {
     static uint8_t info[0x400];
@@ -147,14 +191,17 @@ int jelly5_bs_open(int codec_id, int profile, int sample_rate, int channels)
     const int cfg = sceAudioOutExConfigureOutput(0, 0, mode, 255, 0);
     const int h = cfg >= 0 ? sceAudioOutExOpen(0xff, mode) : -1;
     if (h < 1) {
-        if (cfg >= 0)
+        if (cfg >= 0) {
             sceAudioOutExConfigureOutput(0, 0, 255, 255, 0);
+            s_restored_ms = now_ms();
+        }
         evo_bt("bitstream: %s refused (configure %#x, open %#x): decoded here", s_name, (unsigned)cfg,
                (unsigned)h);
         return -1;
     }
     s_carrier = s_format == Format::eac3 ? 192000 : 48000;
     s_grain = s_format == Format::eac3 ? 1024 : 256;
+    send_null_bursts(h, kLeadInMs);
     jelly5_bs_reset();
     s_packer.reset(s_format);
     s_packer_gen = s_gen.load();
@@ -169,8 +216,12 @@ void jelly5_bs_close(int handle)
 {
     if (!s_active.exchange(0))
         return;
+    send_null_bursts(handle, kLeadOutMs);
+    sceAudioOutOutput(handle, nullptr);   /* waits for what is queued to play */
     const int c = sceAudioOutExClose(handle);
+    usleep(kAfterCloseMs * 1000);
     const int r = sceAudioOutExConfigureOutput(0, 0, 255, 255, 0);
+    s_restored_ms = now_ms();
     if (s_packer.dropped() > s_dropped_at_open)
         evo_bt("bitstream: the packer skipped %llu bytes it could not frame",
                (unsigned long long)(s_packer.dropped() - s_dropped_at_open));

@@ -33,6 +33,9 @@ void jelly5_bs_set_allowed(int mask);
  * -1 when its list could not be read (then nothing goes out as bitstream). */
 int jelly5_bs_sink_formats(void);
 
+/* Before opening any audio port: waits out what is left of a second since HDMI
+ * went back from a bitstream, so the TV or receiver follows the change. */
+void jelly5_bs_settle(void);
 /* At open: when this stream may go out as bitstream, switches HDMI to it and
  * opens the port. Returns the port handle (> 0), or -1 with nothing changed. */
 int jelly5_bs_open(int codec_id, int profile, int sample_rate, int channels);
