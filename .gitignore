@@ -6,6 +6,5 @@ build/
 .env*
 app/build-assets.mk
 toolkit/.deps/
-# Not published: the working notes for Claude Code, and anything kept private
-CLAUDE.md
+# Local research and working notes are not published.
 private/
