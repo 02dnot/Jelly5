@@ -1329,9 +1329,11 @@ static bool play_chain_tracks(jf::Client &client, jf::Item item, std::vector<jf:
         /* Another version than the title's own plays (chosen, or the best): on Jellyfin it is an
          * item of its own, and its resume point, runtime (a director's cut is longer) and
          * segments are its own. Its resume point when it has one: the reports of what plays go
-         * to it (Jellyfin 12), and a server that keeps them on the title keeps the title's. */
+         * to it (Jellyfin 12), and a server that keeps them on the title keeps the title's.
+         * A chosen version is the only one PlaybackInfo lists. */
         std::string segments_of = item.id;
-        if (pb.versions.size() > 1 && pb.media_source_id != item.id && !pb.live && client.features().version_items) {
+        if ((pb.versions.size() > 1 || !item.media_source_id.empty()) && pb.media_source_id != item.id && !pb.live &&
+            client.features().version_items) {
             jf::Item version;
             if (client.item(pb.media_source_id, &version) && version.id == pb.media_source_id) {
                 segments_of = version.id;
