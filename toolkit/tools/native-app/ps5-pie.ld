@@ -29,6 +29,13 @@ SECTIONS {
         QUAD(0xcccccccccccccccc)
         *(.text .text.*)
         *(.plt .plt.*)
+        /* The converter puts the read-only segment at a file offset of 0x4000
+         * plus this segment's size rounded to 0x4000, and that offset must be a
+         * multiple of 64 KB. At 0x4000 past one the console reads a 64 KB block
+         * of .rodata from the block before it, and strings come out as other
+         * strings (found in EVO Player, 2026-10-21). End the code just under
+         * 0xC000 past a 64 KB boundary; build.sh checks the final offset. */
+        . = ALIGN(0x10000) + 0xB000;
     } : text
 
     .eh_frame_hdr : ALIGN(CONSTANT(MAXPAGESIZE)) {
