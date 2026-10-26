@@ -433,6 +433,7 @@ const std::unordered_map<std::string, const char *> &italian_table()
         {"Brukeren finnes ikke i Seerr – be administratoren importere den", "Questo utente non è in Seerr – chiedi all'amministratore di importarlo"},
         /* counts (plural forms, see TN() in i18n.cpp), genres, SyncPlay */
         {"%d sesonger", "%d stagione|%d stagioni"},
+        {"%d versjoner", "%d versione|%d versioni"},
         {"%d episoder", "%d episodio|%d episodi"},
         {"%d titler", "%d titolo|%d titoli"},
         {"%d titler her", "%d titolo qui|%d titoli qui"},

@@ -438,6 +438,7 @@ const std::unordered_map<std::string, const char *> &polish_table()
         {"Mine forespørsler", "Moje prośby"},
         /* counts (plural forms, see TN() in i18n.cpp), genres, SyncPlay */
         {"%d sesonger", "%d sezon|%d sezony|%d sezonów"},
+        {"%d versjoner", "%d wersja|%d wersje|%d wersji"},
         {"%d episoder", "%d odcinek|%d odcinki|%d odcinków"},
         {"%d titler", "%d tytuł|%d tytuły|%d tytułów"},
         {"%d titler her", "%d tytuł tutaj|%d tytuły tutaj|%d tytułów tutaj"},

@@ -438,6 +438,7 @@ const std::unordered_map<std::string, const char *> &greek_table()
         {"Mine forespørsler", "Τα αιτήματά μου"},
         /* counts (plural forms, see TN() in i18n.cpp), genres, SyncPlay */
         {"%d sesonger", "%d σεζόν|%d σεζόν"},
+        {"%d versjoner", "%d έκδοση|%d εκδόσεις"},
         {"%d episoder", "%d επεισόδιο|%d επεισόδια"},
         {"%d titler", "%d τίτλος|%d τίτλοι"},
         {"%d titler her", "%d τίτλος εδώ|%d τίτλοι εδώ"},

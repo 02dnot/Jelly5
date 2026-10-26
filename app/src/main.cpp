@@ -2415,6 +2415,7 @@ void play(jf::Item item, bool from_start, bool shuffle = false, const std::vecto
     stop_theme();   /* the page's theme song makes way (the film waits for it below) */
     if (queue && !queue->empty())
         item = (*queue)[std::min(start, queue->size() - 1)];
+    item.from_start = from_start;
     if (from_start) {
         item.position_ticks = 0;
     } else if (item.type == "Movie" || item.type == "Episode") {

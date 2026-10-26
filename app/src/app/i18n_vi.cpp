@@ -438,6 +438,7 @@ const std::unordered_map<std::string, const char *> &vietnamese_table()
         {"Mine forespørsler", "Yêu cầu của tôi"},
         /* counts (plural forms, see TN() in i18n.cpp), genres, SyncPlay */
         {"%d sesonger", "%d mùa"},
+        {"%d versjoner", "%d phiên bản"},
         {"%d episoder", "%d tập"},
         {"%d titler", "%d tựa"},
         {"%d titler her", "%d tựa ở đây"},

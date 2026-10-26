@@ -386,6 +386,7 @@ Features Client::features() const
         f.home_sections = false;
         f.latin_sort_names = false;
         f.media_segments = false;
+        f.version_items = false;
     }
     return f;
 }

@@ -438,6 +438,7 @@ const std::unordered_map<std::string, const char *> &indonesian_table()
         {"Mine forespørsler", "Permintaan saya"},
         /* counts (plural forms, see TN() in i18n.cpp), genres, SyncPlay */
         {"%d sesonger", "%d musim"},
+        {"%d versjoner", "%d versi"},
         {"%d episoder", "%d episode"},
         {"%d titler", "%d judul"},
         {"%d titler her", "%d judul di sini"},
