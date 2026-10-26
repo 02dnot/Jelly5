@@ -334,7 +334,7 @@ int  evo_agc_blit_yuv(const uint8_t *y,  int y_pitch,
                       const uint8_t *v,  int v_pitch,
                       int coded_w, int coded_h,
                       int disp_w, int disp_h,
-                      int view_mode, int ten_bit, int color_trc,
+                      float pixel_aspect, int view_mode, int ten_bit, int color_trc,
                       int is_direct, int64_t pts_us);
 
 /* 1 if that pipeline compiled and can be bound. */
