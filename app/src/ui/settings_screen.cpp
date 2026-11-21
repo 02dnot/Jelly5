@@ -364,9 +364,9 @@ void SettingsScreen::change(Row r, int dir)
         s.local.sub_size = std::max(50, std::min(200, s.local.sub_size + dir * 10));
         settings::set_local(s.local);
         break;
-    case SubBackground: {   /* Av, 25, 50, 75 % */
+    case SubBackground: {   /* Av, 25, 50, 75, 100 % */
         const int i = (int)(s.local.sub_background * 4 + 0.5f);
-        s.local.sub_background = (float)cycle(i, 4) / 4.f;
+        s.local.sub_background = (float)cycle(i, 5) / 4.f;
         settings::set_local(s.local);
         break;
     }

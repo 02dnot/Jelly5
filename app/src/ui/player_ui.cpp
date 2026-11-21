@@ -591,12 +591,12 @@ void PlayerUi::tracks_input(uint32_t p, const NuvioStatus &st, std::vector<OsdCo
         case 1: s.size_pct = std::max(50, std::min(200, s.size_pct + d * 10)); break;
         case 2: s.offset_pct = std::max(0.f, std::min(40.f, s.offset_pct + d * 2.f)); break;
         case 3: {
-            const float steps[] = {0.f, 0.25f, 0.5f, 0.75f};
+            const float steps[] = {0.f, 0.25f, 0.5f, 0.75f, 1.f};
             int i = 0;
-            for (int k = 0; k < 4; k++)
+            for (int k = 0; k < 5; k++)
                 if (std::fabs(s.background - steps[k]) < 0.05f)
                     i = k;
-            s.background = steps[(i + d + 4) % 4];
+            s.background = steps[(i + d + 5) % 5];
             break;
         }
         case 4: s.outline = !s.outline; break;
