@@ -382,6 +382,8 @@ const std::unordered_map<std::string, const char *> &russian_table()
         {"Seerr %s svarer, men du er ikke pålogget", "Seerr %s отвечает, но вход не выполнен"},
         {"OK – Seerr %s, pålogget som %s", "OK – Seerr %s, вход выполнен как %s"},
         {" – men bildene kommer ikke", " – но изображения не загружаются"},
+        {" – bildene hentes rett fra TMDB", " – изображения загружаются напрямую из TMDB"},
+        {"Seerrs bildebuffer gir ingen bilder, så PS5-en henter plakatene rett fra TMDB.", "Кэш изображений Seerr не отдаёт изображения, поэтому PS5 загружает постеры напрямую из TMDB."},
         {"Venter på godkjenning", "Ожидает одобрения"},
         {"Venter", "Ожидает"},
         {"Forespurt", "Запрошено"},

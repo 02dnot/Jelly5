@@ -382,6 +382,8 @@ const std::unordered_map<std::string, const char *> &hungarian_table()
         {"Seerr %s svarer, men du er ikke pålogget", "A Seerr %s válaszol, de nem vagy bejelentkezve"},
         {"OK – Seerr %s, pålogget som %s", "OK – Seerr %s, bejelentkezve mint %s"},
         {" – men bildene kommer ikke", " – de a képek nem jönnek át"},
+        {" – bildene hentes rett fra TMDB", " – a képek közvetlenül a TMDB-ről jönnek"},
+        {"Seerrs bildebuffer gir ingen bilder, så PS5-en henter plakatene rett fra TMDB.", "A Seerr képgyorsítótára nem ad képeket, ezért a PS5 közvetlenül a TMDB-ről tölti le a posztereket."},
         {"Venter på godkjenning", "Jóváhagyásra vár"},
         {"Venter", "Függőben"},
         {"Forespurt", "Kérve"},

@@ -382,6 +382,8 @@ const std::unordered_map<std::string, const char *> &finnish_table()
         {"Seerr %s svarer, men du er ikke pålogget", "Seerr %s vastaa, mutta et ole kirjautunut"},
         {"OK – Seerr %s, pålogget som %s", "OK – Seerr %s, kirjautunut käyttäjänä %s"},
         {" – men bildene kommer ikke", " – mutta kuvat eivät lataudu"},
+        {" – bildene hentes rett fra TMDB", " – kuvat haetaan suoraan TMDB:stä"},
+        {"Seerrs bildebuffer gir ingen bilder, så PS5-en henter plakatene rett fra TMDB.", "Seerrin kuvavälimuisti ei anna kuvia, joten PS5 hakee julisteet suoraan TMDB:stä."},
         {"Venter på godkjenning", "Odottaa hyväksyntää"},
         {"Venter", "Odottaa"},
         {"Forespurt", "Pyydetty"},

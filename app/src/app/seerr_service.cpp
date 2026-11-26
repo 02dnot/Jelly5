@@ -5,7 +5,6 @@
 #include "app/seerr_service.h"
 #include "app/spawn.h"
 #include "app/i18n.h"
-#include "jf/jf_http.h"
 
 #include "evo_boot_trace.h"
 
@@ -269,6 +268,22 @@ template <class F> void publish(unsigned epoch, F change)
     s_gen++;
 }
 
+/* Signed in: whether Seerr's image cache gives pictures, with a trending poster
+ * (blocking; before the session is published, so every URL follows the outcome). */
+std::string first_poster(seerr::Client &cl)
+{
+    for (const seerr::Title &t : cl.discover(seerr::Client::Shelf::Trending))
+        if (!t.poster.empty())
+            return t.poster;
+    return std::string();
+}
+
+void check_images(seerr::Client &cl)
+{
+    if (cl.check_images(first_poster(cl)) == seerr::Client::Images::Tmdb)
+        evo_bt("seerr: no pictures through Seerr's image cache: they come from TMDB itself");
+}
+
 /* A sign-in came to an end, one way or the other. */
 void finish(unsigned epoch, const std::shared_ptr<seerr::Client> &cl, bool ok, const seerr::User &u,
             const std::string &version, const seerr::PublicSettings &ps, Why why, std::string error,
@@ -408,6 +423,8 @@ void connect_worker(unsigned epoch)
             why = cl->last_status() == 403 ? Why::NotInSeerr : Why::AutoFailed;
             error = "Quick Connect: " + cl->last_error();
         }
+        if (ok)
+            check_images(*cl);
         finish(epoch, cl, ok, u, version, ps, why, error, had_session || lost);
         return;
     }
@@ -819,6 +836,8 @@ void sign_in(const std::string &user, const std::string &password)
             });
             return;
         }
+        if (ok)
+            check_images(*cl);
         /* 403: Seerr knows no such user (a Jellyfin user not imported, new sign-ins
          * off); else the name or the password. */
         finish(epoch, cl, ok, u, version, ps, cl->last_status() == 403 && !local ? Why::NotInSeerr : Why::WrongPassword,
@@ -877,16 +896,14 @@ void test()
             std::snprintf(buf, sizeof buf, T("Seerr %s svarer, men du er ikke pålogget"), version.c_str());
             line = buf;
         } else {
-            /* A poster through Seerr's image cache, as the pages will load them. */
-            std::string poster;
-            for (const seerr::Title &t : cl->discover(seerr::Client::Shelf::Trending))
-                if (poster.empty())
-                    poster = t.poster;
-            const jf::HttpResponse r = jf::http_request("GET", cl->image_url(poster, "w92"), {}, "", 8);
+            /* A poster as the pages will load them: through Seerr's image cache, else from TMDB. */
+            const seerr::Client::Images images = cl->check_images(first_poster(*cl));
             std::snprintf(buf, sizeof buf, T("OK \xE2\x80\x93 Seerr %s, pålogget som %s"), version.c_str(),
                           u.name.c_str());
             line = buf;
-            if (poster.empty() || !r.ok() || r.body.empty())
+            if (images == seerr::Client::Images::Tmdb)
+                line += T(" \xE2\x80\x93 bildene hentes rett fra TMDB");
+            else if (images == seerr::Client::Images::None)
                 line += T(" \xE2\x80\x93 men bildene kommer ikke");
         }
         evo_bt("seerr: test: %s", line.c_str());
@@ -900,6 +917,12 @@ void test()
         s_snap.testing = false;
         s_gen++;
     }
+}
+
+bool images_from_tmdb()
+{
+    std::lock_guard<std::mutex> g(s_lock);
+    return s_client && s_client->images_from_tmdb();
 }
 
 std::string image_url(const std::string &path, const char *size)

@@ -804,7 +804,33 @@ std::string Client::image_url(const std::string &path, const char *size) const
 {
     if (path.empty() || url_.empty())
         return std::string();
+    if (tmdb_images_)
+        return std::string("https://image.tmdb.org/t/p/") + size + path;
     return url_ + "/imageproxy/tmdb/t/p/" + size + path;
+}
+
+namespace {
+bool looks_like_image(const std::string &b)
+{
+    return (b.size() > 3 && (unsigned char)b[0] == 0xFF && (unsigned char)b[1] == 0xD8) ||
+           (b.size() > 8 && b.compare(1, 3, "PNG") == 0) || (b.size() > 12 && b.compare(8, 4, "WEBP") == 0);
+}
+} // namespace
+
+Client::Images Client::check_images(const std::string &poster)
+{
+    tmdb_images_ = false;
+    if (poster.empty() || url_.empty())
+        return Images::None;   /* nothing to try: the cache, as before */
+    jf::HttpResponse r = jf::http_request("GET", image_url(poster, "w92"), {}, "", timeout_);
+    if (r.ok() && looks_like_image(r.body))
+        return Images::Cache;
+    tmdb_images_ = true;
+    r = jf::http_request("GET", image_url(poster, "w92"), {}, "", timeout_);
+    if (r.ok() && looks_like_image(r.body))
+        return Images::Tmdb;
+    tmdb_images_ = false;   /* neither: Seerr's cache, which may come back */
+    return Images::None;
 }
 
 } // namespace seerr

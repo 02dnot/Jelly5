@@ -382,6 +382,8 @@ const std::unordered_map<std::string, const char *> &arabic_table()
         {"Seerr %s svarer, men du er ikke pålogget", "Seerr %s يستجيب، لكنك لم تسجّل الدخول"},
         {"OK – Seerr %s, pålogget som %s", "متصل – Seerr %s، تم تسجيل الدخول باسم %s"},
         {" – men bildene kommer ikke", " – لكن صوره لا تصل"},
+        {" – bildene hentes rett fra TMDB", " – تُجلب الصور مباشرة من TMDB"},
+        {"Seerrs bildebuffer gir ingen bilder, så PS5-en henter plakatene rett fra TMDB.", "ذاكرة الصور المؤقتة في Seerr لا تقدّم صورًا، لذا يجلب PS5 الملصقات مباشرة من TMDB."},
         {"Venter på godkjenning", "بانتظار الموافقة"},
         {"Venter", "قيد الانتظار"},
         {"Forespurt", "تم الطلب"},

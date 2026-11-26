@@ -136,8 +136,11 @@ void set_language();
 /* TMDB's genre names, for to_item (blocking: call from a worker; kept per language). */
 void load_genres();
 
-/* A TMDB picture as the console may load it: through Seerr's image cache. */
+/* A TMDB picture as the console may load it: through Seerr's image cache, or
+ * from TMDB itself when that cache gave no picture at sign-in. */
 std::string image_url(const std::string &path, const char *size);
+/* The session's pictures come from TMDB itself (Seerr's image cache gave none). */
+bool images_from_tmdb();
 
 /* A Seerr title as the app's screens draw it: a jf::Item with ext filled in
  * (its id "seerr:movie:<tmdb>" or "seerr:tv:<tmdb>", never a server's). */

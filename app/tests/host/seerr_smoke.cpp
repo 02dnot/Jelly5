@@ -228,6 +228,13 @@ int main(int argc, char **argv)
         const jf::HttpResponse r = jf::http_request("GET", img, {}, "", 10);
         check(r.ok() && looks_like_image(r.body), "poster through /imageproxy/tmdb",
               img + " -> " + std::to_string(r.status) + ", " + std::to_string(r.body.size()) + " bytes");
+        /* What the app decides at sign-in: the cache, else TMDB itself. */
+        const seerr::Client::Images how = c.check_images(poster);
+        check(how != seerr::Client::Images::None, "check_images",
+              how == seerr::Client::Images::Cache ? "Seerr's cache" : how == seerr::Client::Images::Tmdb ? "TMDB itself" : "none");
+        if (how == seerr::Client::Images::Tmdb)
+            std::printf("  now %s\n", c.image_url(poster, "w342").c_str());
+        check(c.image_url(poster, "w342") == img || how == seerr::Client::Images::Tmdb, "image_url follows check_images", "");
     }
 
     /* A film's and a series' pages. */

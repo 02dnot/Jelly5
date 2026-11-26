@@ -382,6 +382,8 @@ const std::unordered_map<std::string, const char *> &czech_table()
         {"Seerr %s svarer, men du er ikke pålogget", "Seerr %s odpovídá, ale nejste přihlášeni"},
         {"OK – Seerr %s, pålogget som %s", "OK – Seerr %s, přihlášeni jako %s"},
         {" – men bildene kommer ikke", " – ale jeho obrázky se nenačítají"},
+        {" – bildene hentes rett fra TMDB", " – obrázky se načítají přímo z TMDB"},
+        {"Seerrs bildebuffer gir ingen bilder, så PS5-en henter plakatene rett fra TMDB.", "Mezipaměť obrázků Seerr nevrací žádné obrázky, proto PS5 načítá plakáty přímo z TMDB."},
         {"Venter på godkjenning", "Čeká na schválení"},
         {"Venter", "Čeká"},
         {"Forespurt", "Vyžádáno"},

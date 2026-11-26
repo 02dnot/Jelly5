@@ -382,6 +382,8 @@ const std::unordered_map<std::string, const char *> &vietnamese_table()
         {"Seerr %s svarer, men du er ikke pålogget", "Seerr %s có phản hồi, nhưng bạn chưa đăng nhập"},
         {"OK – Seerr %s, pålogget som %s", "OK – Seerr %s, đã đăng nhập với tên %s"},
         {" – men bildene kommer ikke", " – nhưng không tải được hình ảnh"},
+        {" – bildene hentes rett fra TMDB", " – hình ảnh được tải trực tiếp từ TMDB"},
+        {"Seerrs bildebuffer gir ingen bilder, så PS5-en henter plakatene rett fra TMDB.", "Bộ nhớ đệm hình ảnh của Seerr không trả về hình ảnh, nên PS5 tải áp phích trực tiếp từ TMDB."},
         {"Venter på godkjenning", "Đang chờ duyệt"},
         {"Venter", "Đang chờ"},
         {"Forespurt", "Đã yêu cầu"},

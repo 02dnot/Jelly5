@@ -382,6 +382,8 @@ const std::unordered_map<std::string, const char *> &polish_table()
         {"Seerr %s svarer, men du er ikke pålogget", "Seerr %s odpowiada, ale nie zalogowano"},
         {"OK – Seerr %s, pålogget som %s", "OK – Seerr %s, zalogowano jako %s"},
         {" – men bildene kommer ikke", " – ale obrazy się nie wczytują"},
+        {" – bildene hentes rett fra TMDB", " – obrazy są pobierane bezpośrednio z TMDB"},
+        {"Seerrs bildebuffer gir ingen bilder, så PS5-en henter plakatene rett fra TMDB.", "Pamięć podręczna obrazów Seerr nie zwraca obrazów, więc PS5 pobiera plakaty bezpośrednio z TMDB."},
         {"Venter på godkjenning", "Oczekuje na zatwierdzenie"},
         {"Venter", "Oczekuje"},
         {"Forespurt", "Wysłano prośbę"},

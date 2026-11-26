@@ -355,6 +355,8 @@ const std::unordered_map<std::string, const char *> &french_table()
         {"Seerr %s svarer, men du er ikke pålogget", "Seerr %s répond, mais vous n'êtes pas connecté"},
         {"OK – Seerr %s, pålogget som %s", "OK – Seerr %s, connecté en tant que %s"},
         {" – men bildene kommer ikke", " – mais les images n'arrivent pas"},
+        {" – bildene hentes rett fra TMDB", " – les images viennent directement de TMDB"},
+        {"Seerrs bildebuffer gir ingen bilder, så PS5-en henter plakatene rett fra TMDB.", "Le cache d'images de Seerr ne renvoie aucune image : la PS5 charge donc les affiches directement depuis TMDB."},
         /* Seerr: where a title stands, search */
         {"Venter på godkjenning", "En attente d'approbation"},
         {"Venter", "En attente"},

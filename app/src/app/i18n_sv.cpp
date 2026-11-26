@@ -382,6 +382,8 @@ const std::unordered_map<std::string, const char *> &swedish_table()
         {"Seerr %s svarer, men du er ikke pålogget", "Seerr %s svarar, men du är inte inloggad"},
         {"OK – Seerr %s, pålogget som %s", "OK – Seerr %s, inloggad som %s"},
         {" – men bildene kommer ikke", " – men bilderna kommer inte fram"},
+        {" – bildene hentes rett fra TMDB", " – bilderna hämtas direkt från TMDB"},
+        {"Seerrs bildebuffer gir ingen bilder, så PS5-en henter plakatene rett fra TMDB.", "Seerrs bildcache ger inga bilder, så PS5:an hämtar affischerna direkt från TMDB."},
         {"Venter på godkjenning", "Väntar på godkännande"},
         {"Venter", "Väntar"},
         {"Forespurt", "Begärd"},

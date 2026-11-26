@@ -332,7 +332,7 @@ static unsigned long long s_cache_bytes;
 static int cacheable(const char *url)
 {
     /* Jelly5: TMDB's pictures through Seerr's cache too (their paths never change). */
-    if (strstr(url, "/imageproxy/tmdb/"))
+    if (strstr(url, "/imageproxy/tmdb/") || !strncmp(url, "https://image.tmdb.org/t/p/", 27))
         return 1;
     return strstr(url, "/Images/") && strstr(url, "tag=") && !strstr(url, "ApiKey") &&
            !strstr(url, "api_key") && !strstr(url, "/Trickplay/");

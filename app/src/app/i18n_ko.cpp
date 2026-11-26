@@ -382,6 +382,8 @@ const std::unordered_map<std::string, const char *> &korean_table()
         {"Seerr %s svarer, men du er ikke pålogget", "Seerr %s에서 응답했지만 로그인되어 있지 않습니다"},
         {"OK – Seerr %s, pålogget som %s", "OK – Seerr %s, %s(으)로 로그인됨"},
         {" – men bildene kommer ikke", " – 하지만 이미지를 불러올 수 없습니다"},
+        {" – bildene hentes rett fra TMDB", " – 이미지를 TMDB에서 직접 가져옵니다"},
+        {"Seerrs bildebuffer gir ingen bilder, så PS5-en henter plakatene rett fra TMDB.", "Seerr의 이미지 캐시에서 이미지를 받을 수 없어 PS5가 포스터를 TMDB에서 직접 불러옵니다."},
         {"Venter på godkjenning", "승인 대기 중"},
         {"Venter", "대기 중"},
         {"Forespurt", "요청됨"},

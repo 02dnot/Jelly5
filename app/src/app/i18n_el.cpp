@@ -382,6 +382,8 @@ const std::unordered_map<std::string, const char *> &greek_table()
         {"Seerr %s svarer, men du er ikke pålogget", "Το Seerr %s αποκρίνεται, αλλά δεν έχετε συνδεθεί"},
         {"OK – Seerr %s, pålogget som %s", "OK – Seerr %s, σύνδεση ως %s"},
         {" – men bildene kommer ikke", " – αλλά οι εικόνες του δεν φτάνουν"},
+        {" – bildene hentes rett fra TMDB", " – οι εικόνες έρχονται απευθείας από το TMDB"},
+        {"Seerrs bildebuffer gir ingen bilder, så PS5-en henter plakatene rett fra TMDB.", "Η κρυφή μνήμη εικόνων του Seerr δεν δίνει εικόνες, οπότε το PS5 φορτώνει τις αφίσες απευθείας από το TMDB."},
         {"Venter på godkjenning", "Αναμονή έγκρισης"},
         {"Venter", "Σε αναμονή"},
         {"Forespurt", "Ζητήθηκε"},

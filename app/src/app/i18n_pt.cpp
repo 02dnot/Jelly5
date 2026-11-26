@@ -328,6 +328,8 @@ const std::unordered_map<std::string, const char *> &portuguese_table()
         {"  ·  %lld GB ledig", "  ·  %lld GB livres"},
         {" – bruk den lokale adressen", " – use o endereço local"},
         {" – men bildene kommer ikke", " – mas as imagens não chegam"},
+        {" – bildene hentes rett fra TMDB", " – as imagens vêm diretamente do TMDB"},
+        {"Seerrs bildebuffer gir ingen bilder, så PS5-en henter plakatene rett fra TMDB.", "O cache de imagens do Seerr não fornece imagens, então o PS5 carrega os pôsteres diretamente do TMDB."},
         {"%d av %d forespørsler brukt (siste %d dager)", "%d de %d pedidos usados (últimos %d dias)"},
         
         {"Adresse", "Endereço"},

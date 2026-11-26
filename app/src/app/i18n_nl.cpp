@@ -382,6 +382,8 @@ const std::unordered_map<std::string, const char *> &dutch_table()
         {"Seerr %s svarer, men du er ikke pålogget", "Seerr %s reageert, maar je bent niet aangemeld"},
         {"OK – Seerr %s, pålogget som %s", "OK – Seerr %s, aangemeld als %s"},
         {" – men bildene kommer ikke", " – maar de afbeeldingen komen niet door"},
+        {" – bildene hentes rett fra TMDB", " – de afbeeldingen komen rechtstreeks van TMDB"},
+        {"Seerrs bildebuffer gir ingen bilder, så PS5-en henter plakatene rett fra TMDB.", "De afbeeldingscache van Seerr levert geen afbeeldingen, dus de PS5 haalt de posters rechtstreeks van TMDB."},
         {"Venter på godkjenning", "Wacht op goedkeuring"},
         {"Venter", "In behandeling"},
         {"Forespurt", "Aangevraagd"},

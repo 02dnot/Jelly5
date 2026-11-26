@@ -382,6 +382,8 @@ const std::unordered_map<std::string, const char *> &indonesian_table()
         {"Seerr %s svarer, men du er ikke pålogget", "Seerr %s merespons, tetapi kamu belum masuk"},
         {"OK – Seerr %s, pålogget som %s", "OK – Seerr %s, masuk sebagai %s"},
         {" – men bildene kommer ikke", " – tetapi gambarnya tidak termuat"},
+        {" – bildene hentes rett fra TMDB", " – gambar diambil langsung dari TMDB"},
+        {"Seerrs bildebuffer gir ingen bilder, så PS5-en henter plakatene rett fra TMDB.", "Cache gambar Seerr tidak memberikan gambar, jadi PS5 mengambil poster langsung dari TMDB."},
         {"Venter på godkjenning", "Menunggu persetujuan"},
         {"Venter", "Menunggu"},
         {"Forespurt", "Diminta"},

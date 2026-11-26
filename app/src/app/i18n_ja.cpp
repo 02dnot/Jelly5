@@ -382,6 +382,8 @@ const std::unordered_map<std::string, const char *> &japanese_table()
         {"Seerr %s svarer, men du er ikke pålogget", "Seerr %sは応答していますが、サインインしていません"},
         {"OK – Seerr %s, pålogget som %s", "OK – Seerr %s、%sとしてサインイン中"},
         {" – men bildene kommer ikke", " – ただし画像を取得できません"},
+        {" – bildene hentes rett fra TMDB", " – 画像はTMDBから直接取得します"},
+        {"Seerrs bildebuffer gir ingen bilder, så PS5-en henter plakatene rett fra TMDB.", "Seerrの画像キャッシュから画像を取得できないため、PS5はポスターをTMDBから直接読み込みます。"},
         {"Venter på godkjenning", "承認待ち"},
         {"Venter", "保留中"},
         {"Forespurt", "リクエスト済み"},

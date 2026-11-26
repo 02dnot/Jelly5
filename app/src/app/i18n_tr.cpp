@@ -382,6 +382,8 @@ const std::unordered_map<std::string, const char *> &turkish_table()
         {"Seerr %s svarer, men du er ikke pålogget", "Seerr %s yanıt veriyor ama oturum açık değil"},
         {"OK – Seerr %s, pålogget som %s", "Tamam – Seerr %s, %s olarak oturum açıldı"},
         {" – men bildene kommer ikke", " – ancak görseller gelmiyor"},
+        {" – bildene hentes rett fra TMDB", " – görseller doğrudan TMDB'den geliyor"},
+        {"Seerrs bildebuffer gir ingen bilder, så PS5-en henter plakatene rett fra TMDB.", "Seerr'in görsel önbelleği görsel vermiyor, bu yüzden PS5 afişleri doğrudan TMDB'den yüklüyor."},
         {"Venter på godkjenning", "Onay bekliyor"},
         {"Venter", "Bekliyor"},
         {"Forespurt", "Talep edildi"},

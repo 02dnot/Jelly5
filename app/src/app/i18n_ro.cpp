@@ -382,6 +382,8 @@ const std::unordered_map<std::string, const char *> &romanian_table()
         {"Seerr %s svarer, men du er ikke pålogget", "Seerr %s răspunde, dar nu ești conectat"},
         {"OK – Seerr %s, pålogget som %s", "OK – Seerr %s, conectat ca %s"},
         {" – men bildene kommer ikke", " – dar imaginile sale nu ajung"},
+        {" – bildene hentes rett fra TMDB", " – imaginile vin direct de la TMDB"},
+        {"Seerrs bildebuffer gir ingen bilder, så PS5-en henter plakatene rett fra TMDB.", "Memoria cache de imagini a Seerr nu oferă imagini, așa că PS5 încarcă afișele direct de la TMDB."},
         {"Venter på godkjenning", "În așteptarea aprobării"},
         {"Venter", "În așteptare"},
         {"Forespurt", "Solicitat"},

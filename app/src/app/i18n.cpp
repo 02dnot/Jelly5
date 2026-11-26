@@ -266,6 +266,8 @@ const std::unordered_map<std::string, const char *> &english_table()
         {"Seerr %s svarer, men du er ikke pålogget", "Seerr %s answers, but you are not signed in"},
         {"OK – Seerr %s, pålogget som %s", "OK – Seerr %s, signed in as %s"},
         {" – men bildene kommer ikke", " – but its pictures don't come through"},
+        {" – bildene hentes rett fra TMDB", " – its pictures come straight from TMDB"},
+        {"Seerrs bildebuffer gir ingen bilder, så PS5-en henter plakatene rett fra TMDB.", "Seerr's image cache gives no pictures, so the PS5 loads posters straight from TMDB."},
         /* Seerr: where a title stands, search */
         {"Venter på godkjenning", "Pending approval"}, {"Venter", "Pending"}, {"Forespurt", "Requested"},
         {"Delvis tilgjengelig", "Partially available"}, {"Tilgjengelig", "Available"}, {"Blokkert", "Blocklisted"},

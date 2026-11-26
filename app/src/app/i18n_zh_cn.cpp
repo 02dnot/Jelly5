@@ -382,6 +382,8 @@ const std::unordered_map<std::string, const char *> &chinese_simplified_table()
         {"Seerr %s svarer, men du er ikke pålogget", "Seerr %s 有响应，但你尚未登录"},
         {"OK – Seerr %s, pålogget som %s", "OK – Seerr %s，已以 %s 身份登录"},
         {" – men bildene kommer ikke", " – 但无法加载图片"},
+        {" – bildene hentes rett fra TMDB", " – 图片直接从 TMDB 获取"},
+        {"Seerrs bildebuffer gir ingen bilder, så PS5-en henter plakatene rett fra TMDB.", "Seerr 的图片缓存无法提供图片，因此 PS5 直接从 TMDB 加载海报。"},
         {"Venter på godkjenning", "等待批准"},
         {"Venter", "待批准"},
         {"Forespurt", "已请求"},

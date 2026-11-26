@@ -5,8 +5,9 @@
  * Seerr (https://github.com/seerr-team/seerr, the successor of Overseerr and
  * Jellyseerr) as Jelly5 uses it: sign-in, search, discover, a title's details,
  * the Radarr/Sonarr options and requests, on its API (/api/v1). Seerr asks
- * TMDB for everything, so the console only ever talks to Seerr: artwork comes
- * through Seerr's image cache too (image_url).
+ * TMDB for everything, so the console talks to Seerr: artwork comes through
+ * Seerr's image cache too (image_url), unless that cache gives no pictures
+ * (check_images).
  *
  * Plain blocking calls on jf::http_request; callers keep them off the render
  * thread. Builds on the console and on a development machine (tests/host).
@@ -272,6 +273,16 @@ public:
      * sign-in. size: TMDB's, "w342", "w780", "original" ... Empty path: "". */
     std::string image_url(const std::string &path, const char *size) const;
 
+    /* Seerr's own pages load TMDB's pictures from TMDB itself unless its "cache
+     * images" setting is on, so an image cache that fails there (Seerr cannot
+     * reach image.tmdb.org or write its cache, or a proxy in front passes only
+     * /api) goes unseen. Fetches one poster (a TMDB path) through it; when no
+     * picture comes, image_url points at image.tmdb.org from then on, as Seerr's
+     * pages do. Blocking. */
+    enum class Images { Cache, Tmdb, None };
+    Images check_images(const std::string &poster);
+    bool images_from_tmdb() const { return tmdb_images_; }
+
 private:
     struct Reply {
         int status = 0;
@@ -287,6 +298,7 @@ private:
     /* This Seerr's media server is Emby (public_settings: mediaServerType 3): its
      * item ids are Emby's digits, which jellyfin_id_of then takes too. */
     std::atomic<bool> emby_{false};
+    std::atomic<bool> tmdb_images_{false};   /* check_images: Seerr's cache gave no picture */
 
     std::string url_, language_;
     int timeout_ = 6;
