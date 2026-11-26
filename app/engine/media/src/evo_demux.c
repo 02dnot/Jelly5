@@ -434,6 +434,7 @@ packet_queue_clear(
             audio_seek_discard_until = -1.0;
 
         audio_samples_played = 0;
+        audio_clock_shift = 0;
         audio_samples_decoded = 0;
 
         audio_clock_seconds = 0.0;

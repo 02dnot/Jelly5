@@ -84,6 +84,7 @@ extern volatile int       audio_queue_read;
 extern volatile int       audio_queue_write;
 extern volatile int       audio_queue_count;
 extern volatile long long audio_samples_played;
+extern volatile long long audio_clock_shift;      /* samples the sound's timestamps jumped by */
 extern volatile long long audio_samples_decoded;
 extern volatile double    audio_clock_seconds;
 extern volatile double    audio_pts_seconds;
