@@ -216,6 +216,51 @@ char nuvio_stream_user_agent[512];
 int nuvio_stream_live;
 #endif
 
+/*
+ * The receive-buffer option on every connection a demuxer opens by itself.
+ * recv_buffer_size on the open's dictionary reaches only the connection
+ * avformat_open_input makes. FFmpeg's HLS demuxer opens each segment through
+ * the context's io_open with a dictionary of its own, copied from the playlist
+ * connection by ffio_copy_url_options, which carries only headers, user_agent,
+ * cookies, http_proxy, referer, rw_timeout and icy (libavformat/aviobuf.c,
+ * n7.1.1) - so a Jellyfin transcode's segments kept the console's 128 KB
+ * window and its 8 Mbit/s cap over a 130 ms path (measured: 126-128 KB on
+ * every segment connection, at most 7.8 Mbit/s) while the raw stream, opened
+ * directly, had 511 KB. This wrapper adds the option to every sub-open and
+ * hands the open to FFmpeg's default io_open.
+ */
+static int (*sio_default_io_open)(struct AVFormatContext *s, AVIOContext **pb,
+                                  const char *url, int flags, AVDictionary **options);
+
+static int sio_io_open(struct AVFormatContext *s, AVIOContext **pb, const char *url,
+                       int flags, AVDictionary **options)
+{
+    AVDictionary *o = NULL;
+    if (options && *options)
+        av_dict_copy(&o, *options, 0);
+    av_dict_set(&o, "recv_buffer_size", "1048576", 0);
+    int ret = sio_default_io_open(s, pb, url, flags, &o);
+    if (options) {
+        /* FFmpeg leaves the options a protocol did not take in *options; keep
+         * that contract for the caller (the demuxer frees the dictionary). */
+        av_dict_free(options);
+        *options = o;
+    } else {
+        av_dict_free(&o);
+    }
+    return ret;
+}
+
+void evo_stream_io_install_io_open(struct AVFormatContext *fmt)
+{
+    if (!fmt || !fmt->io_open || fmt->io_open == sio_io_open)
+        return;
+    if (!sio_default_io_open)
+        sio_default_io_open = fmt->io_open;   /* avformat_alloc_context's default, the same for every context */
+    if (fmt->io_open == sio_default_io_open)
+        fmt->io_open = sio_io_open;
+}
+
 void evo_stream_io_apply_network_options(AVDictionary **opts, const char *url)
 {
 #ifdef NUVIO_APP
@@ -230,6 +275,18 @@ void evo_stream_io_apply_network_options(AVDictionary **opts, const char *url)
     av_dict_set(opts, "reconnect_delay_max", "2", 0);
     av_dict_set(opts, "rw_timeout", "5000000", 0);
     av_dict_set(opts, "timeout", "5000000", 0);
+    /*
+     * A bigger TCP receive buffer. The console's default is about 128 KB, and
+     * a TCP connection can carry no more than that per round trip: over a
+     * 130-ms path that is 8 Mbit/s, under a 1080p channel, so the player fell
+     * behind and starved (measured: the receiver's window stayed at 125 KB and
+     * the server sat stalled by it a third of the time). FFmpeg sets
+     * SO_RCVBUF before it connects, so the window scale is negotiated for the
+     * new size; http hands this option through tls down to tcp. 1 MB raises
+     * the cap to about 65 Mbit/s. If the console refuses the size FFmpeg logs
+     * "setsockopt(SO_RCVBUF)" and keeps its default.
+     */
+    av_dict_set(opts, "recv_buffer_size", "1048576", 0);
 #ifdef NUVIO_APP
     /* Jelly5: a Jellyfin or Emby transcode (its HLS carries PlaySessionId) starts
      * over at the target of a seek, and the first segment from there comes only
@@ -402,6 +459,8 @@ int evo_stream_io_open(const char *path,
     }
     fmt->interrupt_callback.callback = sio_interrupt_cb;
     fmt->interrupt_callback.opaque   = ctx;
+    if (ctx->is_network)
+        evo_stream_io_install_io_open(fmt);   /* HLS segment connections too */
     /* A playlist open is genuinely longer - the master, a variant, and the first
      * segment all load before it returns - and a slow origin can spend ten seconds
      * on them. It keeps the full budget; the reconnect loop that used to burn it
