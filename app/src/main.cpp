@@ -176,6 +176,16 @@ struct State {
         std::vector<jf::Item> items;
     };
     std::vector<DiscoverAppend> discover_appends;   /* next pages for the screen's rows, not yet taken */
+    /* Home's "Nylig lagt til" rows: a next page of one of them, as Seerr's above. */
+    bool latest_more_loading = false;
+    double latest_more_retry_at = 0;
+    struct LatestAppend {
+        std::string library;
+        int start;
+        bool more;
+        std::vector<jf::Item> items;
+    };
+    std::vector<LatestAppend> latest_appends;
     bool discover_again = false;        /* asked for while loading (the language moved on): once more */
     double discover_at = -1;            /* when it last loaded (now_s), -1 never */
     /* A queue found off the render thread (a phone's Play, an Instant Mix): the
@@ -566,12 +576,17 @@ ui::HomeModel build_home(jf::Client &c, const HomeRaw &raw, std::vector<jf::Item
         return t == "homevideos" || t == "musicvideos" || t == "boxsets" || t.empty() ||
                (t == "playlists" && !has_music);
     };
-    std::vector<std::pair<std::string, std::vector<jf::Item>>> latest;
+    std::vector<ui::HomeRow> latest;
     for (const jf::Item &v : views)
         if (has_latest(c, v))
             for (const auto &l : raw.latest)
-                if (l.first == v.id)
-                    latest.push_back({T("Nylig lagt til i ") + v.name, c.items_of(l.second)});
+                if (l.first == v.id) {
+                    ui::HomeRow r{T("Nylig lagt til i ") + v.name, c.items_of(l.second), false,
+                                  ui::HomeRow::Latest};
+                    r.library = v.id;   /* (it goes on as the viewer scrolls: load_more_latest) */
+                    r.library_type = v.collection_type;
+                    latest.push_back(std::move(r));
+                }
 
     ui::HomeModel m;
     m.hero = std::move(hero);
@@ -581,8 +596,8 @@ ui::HomeModel build_home(jf::Client &c, const HomeRaw &raw, std::vector<jf::Item
     if (!raw.live.empty()) m.rows.push_back({T("Direkte nå"), raw.live, true, Row::LiveNow});
     if (!mylist.empty()) m.rows.push_back({T("Min liste"), std::move(mylist), false, Row::MyList});
     for (auto &l : latest)
-        if (!l.second.empty())
-            m.rows.push_back({l.first, std::move(l.second), false, Row::Latest});
+        if (!l.items.empty())
+            m.rows.push_back(std::move(l));
     std::vector<jf::Item> libs;
     for (const jf::Item &v : views)
         if (untabbed(v))
@@ -629,6 +644,23 @@ ui::HomeModel build_home(jf::Client &c, const HomeRaw &raw, std::vector<jf::Item
     if (views_out)
         *views_out = std::move(views);
     return m;
+}
+
+/* A refresh brings each "Nylig lagt til" row's first answer again: the pages the
+ * viewer had scrolled into stay after it, so a return from playback keeps the place.
+ * Caller holds s_state.lock. */
+void keep_latest_pages(ui::HomeModel &m, const ui::HomeModel &old)
+{
+    for (ui::HomeRow &r : m.rows) {
+        if (r.library.empty())
+            continue;
+        for (const ui::HomeRow &o : old.rows)
+            if (o.library == r.library && o.next > 0) {
+                ui::append_new(r, o.items);
+                r.next = o.next;
+                r.more = o.more;
+            }
+    }
 }
 
 /* At start: the home screen as it was the last time, at once (signed in, before the
@@ -770,6 +802,7 @@ void load_home(jf::Client &c, unsigned session, bool keep_hero = false)
     std::lock_guard<std::mutex> g(s_state.lock);
     if (session != s_session || seq != s_home_load_seq)
         return;   /* the account changed while this loaded, or a newer load publishes */
+    keep_latest_pages(m, s_state.model);
     s_state.model = std::move(m);
     s_state.views = std::move(views);
     s_model_version++;
@@ -977,6 +1010,46 @@ void load_more_discover(unsigned session, int shelf, int page)
     if (!started) {   /* no thread: try again on a later frame */
         std::lock_guard<std::mutex> g(s_state.lock);
         s_state.discover_more_loading = false;
+    }
+}
+
+/* The next page of a "Nylig lagt til" row on Home: the library's titles newest
+ * first, past the first answer (/Items/Latest), appended to its row. */
+void load_more_latest(unsigned session, const std::string &library, const std::string &type, int start)
+{
+    jf::Client *c;
+    {
+        std::lock_guard<std::mutex> g(s_state.lock);
+        if (session != s_session || s_state.latest_more_loading || now_s() < s_state.latest_more_retry_at)
+            return;
+        s_state.latest_more_loading = true;
+        c = s_client;
+    }
+    const bool started = jelly5::spawn([c, session, library, type, start] {
+        jf::Page page = c->latest_page(library, type, start, 30);
+        std::lock_guard<std::mutex> g(s_state.lock);
+        if (session != s_session)
+            return;   /* (the flag is the new session's now: reset_screens cleared it) */
+        s_state.latest_more_loading = false;
+        if (!page.ok) {   /* failed: the row stays as it was; asked again in five seconds */
+            s_state.latest_more_retry_at = now_s() + 5.0;
+            return;
+        }
+        const bool more = !page.items.empty() && start + (int)page.items.size() < page.total;
+        for (ui::HomeRow &r : s_state.model.rows) {
+            if (r.library != library || r.next != start)
+                continue;
+            ui::append_new(r, page.items);
+            r.next = start + (int)page.items.size();
+            r.more = more;
+            /* The screen takes the page alone (no copy of the whole model on the
+             * render thread), as Seerr's rows do. */
+            s_state.latest_appends.push_back({library, start, more, page.items});
+        }
+    });
+    if (!started) {   /* no thread: try again on a later frame */
+        std::lock_guard<std::mutex> g(s_state.lock);
+        s_state.latest_more_loading = false;
     }
 }
 
@@ -1544,6 +1617,9 @@ void reset_screens()
     s_state.discover_more_loading = false;
     s_state.discover_more_retry_at = 0;
     s_state.discover_appends.clear();
+    s_state.latest_more_loading = false;
+    s_state.latest_more_retry_at = 0;
+    s_state.latest_appends.clear();
     s_discover_taken = ~0u;
 }
 
@@ -2053,8 +2129,9 @@ bool draw_frame(double t, float dt)
 {
     Phase phase;
     std::string message;
-    int more_shelf = 0, more_page = 0;
-    bool more = false, tab_gone = false;
+    int more_shelf = 0, more_page = 0, latest_start = 0;
+    std::string latest_library, latest_type;
+    bool more = false, more_latest = false, tab_gone = false;
     {
         std::lock_guard<std::mutex> g(s_state.lock);
         phase = s_state.phase;
@@ -2114,6 +2191,7 @@ bool draw_frame(double t, float dt)
         if (phase == Phase::Home && s_model_version != s_home_version) {
             s_home_version = s_model_version;
             s_home->set_model(s_state.model);
+            s_state.latest_appends.clear();   /* the whole model has them already */
             tab_gone = apply_views(s_state.views);
             const std::string &tag = s_client->user_image_tag();
             s_nav.set_user(s_client->user_name(),
@@ -2129,7 +2207,15 @@ bool draw_frame(double t, float dt)
                 s_discover->append(ap.shelf, ap.page, ap.more, ap.items);
             s_state.discover_appends.clear();
         }
+        if (!s_state.latest_appends.empty()) {
+            for (const auto &ap : s_state.latest_appends)
+                if (s_home)
+                    s_home->append_latest(ap.library, ap.start, ap.more, ap.items);
+            s_state.latest_appends.clear();
+        }
         more = s_tab == ui::Nav::Discover && s_stack.empty() && s_discover->wants_more(&more_shelf, &more_page);
+        more_latest = s_home && phase == Phase::Home && s_tab == ui::Nav::Home && s_stack.empty() &&
+                      s_home->wants_more_latest(&latest_library, &latest_type, &latest_start);
     }
     if (tab_gone)
         s_home->activate();
@@ -2143,6 +2229,8 @@ bool draw_frame(double t, float dt)
      * load_more_discover takes itself (taking it twice aborted the app). */
     if (more)
         load_more_discover(s_session, more_shelf, more_page);
+    if (more_latest)
+        load_more_latest(s_session, latest_library, latest_type, latest_start);
     art::tick();
     gfx::begin_frame();
     bool animating = true;

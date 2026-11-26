@@ -778,6 +778,20 @@ std::vector<Item> Client::latest(const std::string &parent_id, int limit, std::s
     return items_of(body);
 }
 
+Page Client::latest_page(const std::string &parent_id, const std::string &collection_type, int start, int limit)
+{
+    const std::string &t = collection_type;
+    const char *types = t == "movies"        ? "Movie"
+                        : t == "tvshows"     ? "Series"
+                        : t == "musicvideos" ? "MusicVideo"
+                        : t == "homevideos"  ? "Video"
+                                             : "Movie,Series,Video";
+    /* A series' DateCreated is when it was first added; DateLastContentAdded is
+     * its newest episode, as /Items/Latest orders it. Movies have no such date. */
+    return library(parent_id, types, t == "tvshows" ? "DateLastContentAdded,SortName" : "DateCreated,SortName",
+                   true, start, limit, std::string());
+}
+
 std::vector<Item> Client::episodes(const std::string &series_id, const std::string &season_id)
 {
     std::string body;
