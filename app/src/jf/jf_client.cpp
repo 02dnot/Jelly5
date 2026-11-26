@@ -870,10 +870,17 @@ std::vector<std::string> Client::home_sections(bool *ok)
         return out;
     }
     cJSON *j = cJSON_Parse(body.c_str());
+    if (!cJSON_IsObject(j)) {   /* not an answer (a proxy's page): keep the saved order */
+        cJSON_Delete(j);
+        if (ok)
+            *ok = false;
+        return out;
+    }
     const cJSON *prefs = cJSON_GetObjectItemCaseSensitive(j, "CustomPrefs");
     /* An unset slot takes the server's default for that place, as jellyfin-web
      * reads it; stopping at the first gap hid every section after it. None set
-     * at all stays empty: the default order. */
+     * at all stays empty: the default order. The old "folders" is the first
+     * default, as jellyfin-web maps it. */
     static const char *const k_defaults[10] = {"smalllibrarytiles", "resume", "resumeaudio", "resumebook", "livetv",
                                                "nextup", "latestmedia", "none", "none", "none"};
     bool any = false;
@@ -881,7 +888,8 @@ std::vector<std::string> Client::home_sections(bool *ok)
         const cJSON *v = cJSON_GetObjectItemCaseSensitive(prefs, ("homesection" + std::to_string(i)).c_str());
         const bool set = cJSON_IsString(v) && v->valuestring && *v->valuestring;
         any = any || set;
-        out.push_back(set ? v->valuestring : k_defaults[i]);
+        const std::string sec = set ? v->valuestring : k_defaults[i];
+        out.push_back(sec == "folders" ? k_defaults[0] : sec);
     }
     if (!any)
         out.clear();
