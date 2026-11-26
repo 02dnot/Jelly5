@@ -332,7 +332,8 @@ static const nat_codec_desc g_codec[NAT_CODEC_COUNT] = {
      * Level 5.1, the same level the 8-bit HEVC slot uses for 4K. */
     { NAT_HEVC10, AV_CODEC_ID_HEVC, SCE_VIDEODEC2_CODEC_HEVC,   2, 123, 153,
       "hevc_mp4toannexb",     0, "HEVC10", 1 },
-    { NAT_VP92,   AV_CODEC_ID_VP9,  SCE_VIDEODEC2_CODEC_VP9,    2,  41,  41,
+    /* level_4k 51 (was 41): Level 4.1 cannot describe a 4K VP9 Profile 2 surface. */
+    { NAT_VP92,   AV_CODEC_ID_VP9,  SCE_VIDEODEC2_CODEC_VP9,    2,  41,  51,
       "vp9_superframe_split", 1, "VP9-2",  1 },
 };
 
@@ -898,10 +899,13 @@ int evo_vdec_native_probe(void)
     probe_slot(NAT_VP9,  EVO_VDEC_NATIVE_BOOT_W, EVO_VDEC_NATIVE_BOOT_H, 0, sm);
 
 #if EVO_VDEC_NATIVE_10BIT
-    /* #41 Phase D: 10-bit resident decoders (HEVC Main10).
-     * 1080p only (1920x1088), non-fatal. Depth 1 keeps flexible memory footprint
-     * minimal (~14MB). VP9-2 is omitted to protect the flex-memory budget. */
+    /* #41 Phase D: 10-bit resident decoders (HEVC Main10, VP9 Profile 2).
+     * Brought up at 1080p (1920x1088), non-fatal; a 4K file grows its slot.
+     * Depth 1 keeps the flexible-memory footprint small (~14MB each). VP9-2
+     * was left out when the flex pool was 448 MB; with 1 GiB it fits, and
+     * without it VP9-2 fell back to FFmpeg (about 9 fps at 4K). */
     probe_slot(NAT_HEVC10, 1920, 1088, 0, sm);
+    probe_slot(NAT_VP92,   1920, 1088, 0, sm);
 #endif
 #endif
 
