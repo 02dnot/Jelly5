@@ -880,9 +880,10 @@ static void probe_slot(nat_codec c, int w, int h, int required, unsigned sm)
  *
  * Only when the grow failed for memory (an alloc or flexible-memory stage):
  * a grow refused for another reason would fail again, and the others would
- * go down for nothing. They come back only when the 4K stream closes; one
- * that can't then stays down and is built on demand, at the size its next
- * stream needs, when its codec is opened (supports() counts it as there).
+ * go down for nothing. They come back when the 4K stream closes (and any
+ * still down at a later close); one that can't stays down and is built on
+ * demand, at the size its next stream needs, when its codec is opened
+ * (supports() counts it as there).
  * Nothing is brought back at an open, so a 4K start never finds its memory
  * taken by a restore just before its grow.
  *
@@ -1967,10 +1968,12 @@ evo_vdec_native *evo_vdec_native_open(const evo_vdec_open_params *p)
 
     struct dec_slot *slot = &g_dec[d->idx];
     /* Down since a 4K stream that has closed (it couldn't come back then): this
-     * open builds it, at least at its boot size, through the grow below. */
+     * open builds it, at least at its boot size, through the grow below. It is
+     * marked down until that works, so a failed build leaves it for the next. */
+    int was_down = 0, evicted_here = 0;
     pthread_mutex_lock(&g_evict_lock);
     if (g_evicted[d->idx] && !g_evict_owner) {
-        g_evicted[d->idx] = 0;
+        was_down = 1;
         slot->owned = 0;
         note("EVO vdec native: %s slot was down - building it for this stream", d->tag);
         if ((uint32_t)w < slot->boot_w) w = (int)slot->boot_w;
@@ -2032,8 +2035,11 @@ evo_vdec_native *evo_vdec_native_open(const evo_vdec_open_params *p)
             rc = slot_bringup(slot, d, w, h, &stage);
         }
         s_depth_override = 0;
-        const int for_memory = !strncmp(stage, "alloc(", 6) || !strcmp(stage, "MapNamedFlexibleMemory");
-        if (rc != 0 && for_memory && evict_idle_slots(slot) > 0) {
+        /* (-1 is a configuration result there - no CPU memory asked, no frame
+         * size - not a refusal.) */
+        const int for_memory = rc != -1 &&
+                               (!strncmp(stage, "alloc(", 6) || !strcmp(stage, "MapNamedFlexibleMemory"));
+        if (rc != 0 && for_memory && (evicted_here = evict_idle_slots(slot)) > 0) {
             note("EVO vdec native: %s %dx%d failed at [%s] rc=0x%08x - retrying with the idle slots down",
                  d->tag, w, h, stage, (unsigned)rc);
             /* With the room freed, the deep pipeline first again (4K10 needs it),
@@ -2052,6 +2058,11 @@ evo_vdec_native *evo_vdec_native_open(const evo_vdec_open_params *p)
         }
         if (rc == 0) {
             slot->ready = 1;
+            if (was_down) {
+                pthread_mutex_lock(&g_evict_lock);
+                g_evicted[d->idx] = 0;
+                pthread_mutex_unlock(&g_evict_lock);
+            }
             note("EVO vdec native: on-demand resize %s to %dx%d OK", d->tag, w, h);
         } else {
             note("EVO vdec native: on-demand resize %s to %dx%d FAILED at [%s] rc=0x%08x - restoring %ux%u",
@@ -2065,7 +2076,16 @@ evo_vdec_native *evo_vdec_native_open(const evo_vdec_open_params *p)
             }
             if (old_w > 0 && old_h > 0 && slot_bringup(slot, d, (int)old_w, (int)old_h, &stage) == 0)
                 slot->ready = 1;
-            restore_evicted_slots(slot);
+            if (was_down) {   /* back at its boot size, or down for the next open still */
+                pthread_mutex_lock(&g_evict_lock);
+                if (slot->ready)
+                    g_evicted[d->idx] = 0;
+                else
+                    slot->owned = 1;
+                pthread_mutex_unlock(&g_evict_lock);
+            }
+            if (evicted_here)   /* only what this open took down */
+                restore_evicted_slots(slot);
             return NULL;
         }
     }
@@ -2079,8 +2099,9 @@ evo_vdec_native *evo_vdec_native_open(const evo_vdec_open_params *p)
             slot_teardown(slot);
             if (slot_bringup(slot, d, (int)slot->boot_w, (int)slot->boot_h, &stage) == 0)
                 slot->ready = 1;
-            restore_evicted_slots(slot);
         }
+        if (evicted_here)
+            restore_evicted_slots(slot);
         return NULL;
     }
     n->desc       = d;
@@ -2347,7 +2368,6 @@ void evo_vdec_native_close(evo_vdec_native *v)
             (void)sceKernelAvailableFlexibleMemorySize(&flex_after);
             note("EVO vdec native: flex after %s returned to boot size = %zuMB",
                  v->desc->tag, flex_after >> 20);
-            restore_evicted_slots(slot);
         } else {
             if (v->dec) {
                 const int64_t wd = nwd_enter("Reset (close)", NWD_RESET_MS);
@@ -2356,6 +2376,9 @@ void evo_vdec_native_close(evo_vdec_native *v)
             }
         }
         slot->owned = 0;          /* the next opener may have it */
+        /* What was taken down for this stream (or is still down from before)
+         * comes back now, at a close, never at an open. */
+        restore_evicted_slots(slot);
     }
 
     if (v->bsf)
