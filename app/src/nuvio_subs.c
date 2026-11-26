@@ -5,12 +5,14 @@
  */
 #include "nuvio_subs.h"
 
+#include "sub_symbols.h"
 #include "ui_assets.h"
 #include "ui_text.h"
 
 #include "evo_boot_trace.h"
 
 #include <ass/ass.h>
+#include <hb.h>
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
 #include <libavutil/mathematics.h>
@@ -411,6 +413,53 @@ static void ass_log(int level, const char *fmt, va_list va, void *data)
     evo_bt("libass: %s", line);
 }
 
+/* The characters the symbol font draws (♪ and the rest): see sub_symbols.h. */
+static const char *const k_symbols_family = "Noto Sans Symbols";
+static hb_set_t *s_symbols;
+
+static int symbol_covered(uint32_t cp, void *ctx)
+{
+    (void)ctx;
+    return s_symbols && hb_set_has(s_symbols, cp);
+}
+
+static void load_symbol_set(void)
+{
+    if (s_symbols)
+        return;
+    const ui_asset a = ui_asset_font_noto_symbols();
+    hb_blob_t *blob = hb_blob_create((const char *)a.data, (unsigned)a.size,
+                                     HB_MEMORY_MODE_READONLY, NULL, NULL);
+    hb_face_t *face = hb_face_create(blob, 0);
+    hb_set_t *set = hb_set_create();
+    hb_face_collect_unicodes(face, set);
+    hb_face_destroy(face);
+    hb_blob_destroy(blob);
+    if (hb_set_is_empty(set)) {
+        hb_set_destroy(set);
+        evo_bt("subs: symbol font has no characters");
+        return;
+    }
+    s_symbols = set;
+}
+
+/* Adds a cue to a libass track; the events it adds get their symbols drawn in
+ * the symbol font. Caller holds s_lock. */
+static void process_chunk(ASS_Track *a, const char *data, int size, long long start,
+                          long long dur)
+{
+    const int before = a->n_events;
+    ass_process_chunk(a, (char *)data, size, start, dur);
+    for (int i = before; i < a->n_events; i++) {
+        ASS_Event *e = &a->events[i];
+        char *text = sub_symbols_wrap(e->Text, k_symbols_family, symbol_covered, NULL);
+        if (text) {
+            free(e->Text);
+            e->Text = text;
+        }
+    }
+}
+
 /* The app's own fonts and the renderer: at init, and after the fonts are cleared. */
 static int setup_renderer(void)
 {
@@ -420,6 +469,7 @@ static int setup_renderer(void)
     add_font_asset("NotoNaskhArabicUI-Bold.ttf", ui_asset_font_naskh_bold());
     add_font_asset("NotoSansSymbols-Subset.ttf", ui_asset_font_noto_symbols());   /* Jelly5: ♪ in lyrics */
     add_font_asset("Inter-Regular.ttf", ui_asset_font_inter_regular());
+    load_symbol_set();
     if (!(s_rend = ass_renderer_init(s_lib)))
         return -1;
     ass_set_fonts(s_rend, NULL, "Roboto", ASS_FONTPROVIDER_NONE, NULL, 0);
@@ -938,7 +988,7 @@ static void feed(strack *t, const AVPacket *pkt, AVRational tb, int64_t offset_m
 
     if (t->ass_raw && t->ass) {
         if (pkt->data && pkt->size > 0)
-            ass_process_chunk(t->ass, (char *)pkt->data, pkt->size, start, dur > 0 ? dur : 5000);
+            process_chunk(t->ass, (const char *)pkt->data, pkt->size, start, dur > 0 ? dur : 5000);
         return;
     }
     if (!t->dec)
@@ -965,8 +1015,8 @@ static void feed(strack *t, const AVPacket *pkt, AVRational tb, int64_t offset_m
         for (unsigned k = 0; k < sub.num_rects; k++) {
             const AVSubtitleRect *r = sub.rects[k];
             if (r->type == SUBTITLE_ASS && r->ass)
-                ass_process_chunk(t->ass, r->ass, (int)strlen(r->ass), s0,
-                                  end == INT64_MAX ? 4000 : end - s0);
+                process_chunk(t->ass, r->ass, (int)strlen(r->ass), s0,
+                              end == INT64_MAX ? 4000 : end - s0);
         }
     }
     avsubtitle_free(&sub);
