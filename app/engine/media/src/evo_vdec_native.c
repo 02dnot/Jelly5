@@ -864,6 +864,8 @@ static void probe_slot(nat_codec c, int w, int h, int required, unsigned sm)
 
 /*
  * Room for a 4K slot that can't get its memory.
+ * Adapted from Emby5 83839fa - Copyright (C) 2026 bornaradusin,
+ * https://github.com/bornaradusin/Emby5, GPL-3.0-or-later.
  *
  * The resident decoders stay up between files, each at its boot size, so a
  * 4K picture that needs its slot grown competes with the others for direct
@@ -876,10 +878,16 @@ static void probe_slot(nat_codec c, int w, int h, int required, unsigned sm)
  * FFmpeg, as a slot that is in use would make them. A grow that works as
  * it is never gets here.
  *
+ * Only when the grow failed for memory (an alloc stage): a grow refused for
+ * another reason would fail again, and the others would go down for nothing.
+ * A slot that can't come back yet is tried again at the next open or check
+ * (evo_vdec_native_supports), so AUTO doesn't leave its codec on FFmpeg.
+ *
  * In Jelly5 only the playback controller opens and closes decoders, one
- * stream at a time. The lock and the claim on each slot keep the eviction
- * whole if a second opener (a poster extractor, as in EVO) is ever added;
- * such an opener would also have to claim its slot before reading it.
+ * stream at a time, which this relies on: slot_teardown clears a slot's
+ * claim while it goes down, and open checks `owned` before it sets it. A
+ * second opener (a poster extractor, as in EVO) would need a claim held
+ * across both first.
  */
 static unsigned char    g_evicted[NAT_CODEC_COUNT];
 static struct dec_slot *g_evict_owner;   /* the grown slot the eviction is for */
@@ -1044,6 +1052,8 @@ int evo_vdec_native_supports(int codec_id, int profile, int bit_depth,
     const nat_codec_desc *d = codec_desc_for(codec_id, profile, bit_depth);
     if (!d)
         return 0;
+    if (g_evicted[d->idx])   /* down for an earlier 4K stream: back first, if it can be */
+        restore_evicted_slots(NULL);
     const struct dec_slot *s = &g_dec[d->idx];
     if (!s->ready)
         return 0;
@@ -2011,7 +2021,7 @@ evo_vdec_native *evo_vdec_native_open(const evo_vdec_open_params *p)
             rc = slot_bringup(slot, d, w, h, &stage);
         }
         s_depth_override = 0;
-        if (rc != 0 && evict_idle_slots(slot) > 0) {
+        if (rc != 0 && !strncmp(stage, "alloc(", 6) && evict_idle_slots(slot) > 0) {
             note("EVO vdec native: %s %dx%d failed at [%s] rc=0x%08x - retrying with the idle slots down",
                  d->tag, w, h, stage, (unsigned)rc);
             /* With the room freed, the deep pipeline first again (4K10 needs it),
