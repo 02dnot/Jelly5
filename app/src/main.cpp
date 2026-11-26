@@ -1721,9 +1721,8 @@ void resolve_play(const remote::Command &rc, bool remote)
         if (r.remote && !r.queue.empty()) {
             r.start = std::min((size_t)std::max(0, rc.start_index), r.queue.size() - 1);
             if (rc.play_command == "PlayShuffle") {
-                std::srand((unsigned)time(nullptr));
                 for (size_t i = r.queue.size(); i > 1; i--)
-                    std::swap(r.queue[i - 1], r.queue[std::rand() % i]);
+                    std::swap(r.queue[i - 1], r.queue[jelly5_random_below(i)]);
                 r.start = 0;
             }
             r.queue[r.start].position_ticks = rc.start_ticks;   /* the phone says where to start */
@@ -2415,6 +2414,8 @@ void play(jf::Item item, bool from_start, bool shuffle = false, const std::vecto
     stop_theme();   /* the page's theme song makes way (the film waits for it below) */
     if (queue && !queue->empty())
         item = (*queue)[std::min(start, queue->size() - 1)];
+    if (shuffle && item.type == "Episode")
+        from_start = true;   /* Tilfeldig: each episode from its start, so no resume point to ask for */
     item.from_start = from_start;
     if (from_start) {
         item.position_ticks = 0;
