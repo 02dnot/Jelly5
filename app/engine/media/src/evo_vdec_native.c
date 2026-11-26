@@ -873,12 +873,16 @@ static void probe_slot(nat_codec c, int w, int h, int required, unsigned sm)
  * grow has already failed - the other resident decoders nobody is using are
  * taken down, the grow tried again, and they come back at their boot size
  * when the 4K stream closes. While they are down their codecs decode with
- * FFmpeg, as a slot that is in use would make them (a poster during
- * playback). A grow that works as it is never gets here.
+ * FFmpeg, as a slot that is in use would make them. A grow that works as
+ * it is never gets here.
+ *
+ * In Jelly5 only the playback controller opens and closes decoders, one
+ * stream at a time. The lock and the claim on each slot keep the eviction
+ * whole if a second opener (a poster extractor, as in EVO) is ever added;
+ * such an opener would also have to claim its slot before reading it.
  */
 static unsigned char    g_evicted[NAT_CODEC_COUNT];
-static struct dec_slot *g_evict_owner;
-/* The player and the poster extractor open and close from their own threads. */
+static struct dec_slot *g_evict_owner;   /* the grown slot the eviction is for */
 static pthread_mutex_t  g_evict_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static int evict_idle_slots(const struct dec_slot *keep)
@@ -902,6 +906,10 @@ static int evict_idle_slots(const struct dec_slot *keep)
         g_evicted[i] = 1;
         n++;
     }
+    /* Owned from the start, so a restore elsewhere can't take back the memory
+     * while the grow is retried. */
+    if (n > 0)
+        g_evict_owner = (struct dec_slot *)keep;
     pthread_mutex_unlock(&g_evict_lock);
     return n;
 }
@@ -2006,14 +2014,19 @@ evo_vdec_native *evo_vdec_native_open(const evo_vdec_open_params *p)
         if (rc != 0 && evict_idle_slots(slot) > 0) {
             note("EVO vdec native: %s %dx%d failed at [%s] rc=0x%08x - retrying with the idle slots down",
                  d->tag, w, h, stage, (unsigned)rc);
+            /* With the room freed, the deep pipeline first again (4K10 needs it),
+             * then the shallow one. */
             slot_teardown(slot);
+            s_depth_override = deepen ? DECODE_INPUT_QUEUE_DEPTH : 0;
             stage = "?";
             rc = slot_bringup(slot, d, w, h, &stage);
-            if (rc == 0) {
-                pthread_mutex_lock(&g_evict_lock);
-                g_evict_owner = slot;
-                pthread_mutex_unlock(&g_evict_lock);
+            if (rc != 0 && deepen) {
+                slot_teardown(slot);
+                s_depth_override = 0;
+                stage = "?";
+                rc = slot_bringup(slot, d, w, h, &stage);
             }
+            s_depth_override = 0;
         }
         if (rc == 0) {
             slot->ready = 1;
@@ -2025,14 +2038,24 @@ evo_vdec_native *evo_vdec_native_open(const evo_vdec_open_params *p)
             stage = "?";
             if (slot_bringup(slot, d, (int)old_w, (int)old_h, &stage) == 0)
                 slot->ready = 1;
-            restore_evicted_slots(NULL);
+            restore_evicted_slots(slot);
             return NULL;
         }
     }
 
     evo_vdec_native *n = (evo_vdec_native *)calloc(1, sizeof *n);
-    if (!n)
+    if (!n) {
+        /* A grown slot goes back to its boot size, and what was evicted for it comes back. */
+        if (slot->boot_w > 0 && slot->boot_h > 0 &&
+            (slot->max_w > slot->boot_w || slot->max_h > slot->boot_h)) {
+            const char *stage = "?";
+            slot_teardown(slot);
+            if (slot_bringup(slot, d, (int)slot->boot_w, (int)slot->boot_h, &stage) == 0)
+                slot->ready = 1;
+            restore_evicted_slots(slot);
+        }
         return NULL;
+    }
     n->desc       = d;
     n->slot       = slot;
     n->dec        = slot->decoder;
