@@ -11,6 +11,7 @@
 #include "app/i18n.h"
 #include "app/seerr_service.h"
 #include "app/settings.h"
+#include "app/syncplay.h"
 
 #include "gfx/art.h"
 #include "nuvio_input.h"
@@ -51,10 +52,10 @@ std::string runtime_label(int64_t ticks)
     return b;
 }
 
-/* An episode Tilfeldig may play: numbered, no specials (jelly5_play mixes the same). */
+/* An episode Tilfeldig may play: numbered, with a file, no specials (shuffled_order takes the same). */
 bool shufflable(const jf::Item &e)
 {
-    return !e.id.empty() && e.parent_index > 0 && e.index > 0;
+    return !e.id.empty() && !e.missing && e.parent_index > 0 && e.index > 0;
 }
 
 std::string ep_code(const jf::Item &e)
@@ -383,7 +384,9 @@ std::vector<Detail::Button> Detail::buttons() const
         b.push_back(PlayButton);
     if (m_view.have_target && m_view.target.position_ticks > 0)
         b.push_back(RestartButton);
-    if (t == "Series") {   /* Tilfeldig: two episodes to mix at least (counted, not copied: every frame) */
+    /* Tilfeldig: two episodes to mix at least (counted, not copied: every frame). Not in a
+     * SyncPlay group: the group plays one title, not the chain after it. */
+    if (t == "Series" && !syncplay::active()) {
         int n = 0;
         for (const jf::Item &e : m_view.all_episodes)
             if (shufflable(e) && ++n >= 2) {

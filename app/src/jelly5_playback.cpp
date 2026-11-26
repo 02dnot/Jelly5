@@ -296,8 +296,11 @@ struct Extras {
     int keep_subtitle = -2;   /* -1 off */
 };
 
+/* order: the ids in play order when it is not the list's (Tilfeldig); the
+ * player's episode list stays in the series' own order either way. */
 std::string request_json(jf::Client &c, const jf::Item &it, const jf::Playback &pb,
-                         const std::vector<jf::Item> &episodes, const Extras &ex)
+                         const std::vector<jf::Item> &episodes, const Extras &ex,
+                         const std::vector<std::string> &order = {})
 {
     const std::vector<jf::Segment> &segs = ex.segments;
     const bool episode = it.type == "Episode", audio = it.type == "Audio";
@@ -448,8 +451,17 @@ std::string request_json(jf::Client &c, const jf::Item &it, const jf::Playback &
                 cJSON_AddItemToArray(eps, episode_json(c, episodes[i]));
         }
         cJSON_AddItemToObject(o, "episodes", eps);
-        if (here + 1 < episodes.size())
-            cJSON_AddItemToObject(o, "nextEpisode", episode_json(c, episodes[here + 1]));
+        const jf::Item *next = here + 1 < episodes.size() ? &episodes[here + 1] : nullptr;
+        if (!order.empty()) {
+            next = nullptr;
+            for (size_t i = 0; i + 1 < order.size() && !next; i++)
+                if (order[i] == it.id)
+                    for (const jf::Item &e : episodes)
+                        if (!next && e.id == order[i + 1])
+                            next = &e;
+        }
+        if (next)
+            cJSON_AddItemToObject(o, "nextEpisode", episode_json(c, *next));
     }
 
     /* Segments come from the server's detection (Intro Skipper), which can be
@@ -1069,49 +1081,51 @@ std::vector<jf::Item> album_queue(jf::Client &client, jf::Item *item, bool shuff
     return tracks;
 }
 
-static bool play_chain_tracks(jf::Client &client, jf::Item item, std::vector<jf::Item> episodes, std::string *error);
+static bool play_chain_tracks(jf::Client &client, jf::Item item, std::vector<jf::Item> episodes, std::string *error,
+                              std::vector<std::string> order = {});
 static void music_queue_end();
 
 /* The chain, then out of player mode (music keeps it on between tracks). */
-static bool play_chain(jf::Client &client, jf::Item item, std::vector<jf::Item> episodes, std::string *error)
+static bool play_chain(jf::Client &client, jf::Item item, std::vector<jf::Item> episodes, std::string *error,
+                       std::vector<std::string> order = {})
 {
-    const bool ok = play_chain_tracks(client, std::move(item), std::move(episodes), error);
+    const bool ok = play_chain_tracks(client, std::move(item), std::move(episodes), error, std::move(order));
     music_queue_end();
     nuvio_player_leave();
     return ok;
 }
 
-/* A series' episodes for Tilfeldig: this one first, then the series' other numbered
- * episodes (no specials) in random order, each from its start. They keep their
- * own season and episode numbers; the player's next is the next in the list. */
-static std::vector<jf::Item> shuffled_episodes(std::vector<jf::Item> all, const jf::Item &first)
+/* The play order for Tilfeldig, as ids: this episode first, then the series'
+ * other numbered episodes that have a file (no specials) in random order. The
+ * episodes themselves stay in the series' order for the player's list. */
+static std::vector<std::string> shuffled_order(const std::vector<jf::Item> &all, const jf::Item &first)
 {
-    std::vector<jf::Item> eps{first};
-    for (jf::Item &e : all)
-        if (!e.id.empty() && e.id != first.id && e.parent_index > 0 && e.index > 0)
-            eps.push_back(std::move(e));
+    std::vector<std::string> ids{first.id};
+    for (const jf::Item &e : all)
+        if (!e.id.empty() && e.id != first.id && !e.missing && e.parent_index > 0 && e.index > 0)
+            ids.push_back(e.id);
     std::srand((unsigned)time(nullptr));
-    for (size_t i = eps.size() - 1; i > 1; i--)
-        std::swap(eps[i], eps[1 + std::rand() % i]);
-    for (jf::Item &e : eps)
-        e.position_ticks = 0;
-    return eps;
+    for (size_t i = ids.size() - 1; i > 1; i--)
+        std::swap(ids[i], ids[1 + std::rand() % i]);
+    return ids;
 }
 
 bool jelly5_play(jf::Client &client, const jf::Item &first, std::string *error, bool shuffle)
 {
     jf::Item item = first;
     std::vector<jf::Item> episodes;
+    std::vector<std::string> order;
     if (item.type == "Episode" && !item.series_id.empty()) {
         episodes = client.episodes(item.series_id, std::string());
-        if (shuffle) {
+        if (shuffle) {   /* each from its start, the first too (nor its version's resume point) */
             item.position_ticks = 0;
-            episodes = shuffled_episodes(std::move(episodes), item);
+            item.from_start = true;
+            order = shuffled_order(episodes, item);
         }
     }
     if (item.type == "Audio" && !item.album_id.empty())
         episodes = album_queue(client, &item, shuffle);
-    return play_chain(client, item, std::move(episodes), error);
+    return play_chain(client, item, std::move(episodes), error, std::move(order));
 }
 
 /* The queue as the player's episode list: one "season", numbered in play order. */
@@ -1301,7 +1315,8 @@ bool jelly5_play_theme(jf::Client &client, const jf::Item &song)
     return true;
 }
 
-static bool play_chain_tracks(jf::Client &client, jf::Item item, std::vector<jf::Item> episodes, std::string *error)
+static bool play_chain_tracks(jf::Client &client, jf::Item item, std::vector<jf::Item> episodes, std::string *error,
+                              std::vector<std::string> order)
 {
     if (item.type == "Audio" && !episodes.empty()) {   /* the music queue starts on this track */
         std::lock_guard<std::mutex> g(s_music.lock);
@@ -1423,7 +1438,7 @@ static bool play_chain_tracks(jf::Client &client, jf::Item item, std::vector<jf:
         ex.autoplay_idle = still_idle;
         ex.keep_audio = keep_audio;
         ex.keep_subtitle = keep_subtitle;
-        const std::string req = request_json(client, item, pb, episodes, ex);
+        const std::string req = request_json(client, item, pb, episodes, ex, order);
 
         jelly5_subs::new_title();
         s_session.client = &client;
