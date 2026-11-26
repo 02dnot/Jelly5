@@ -817,20 +817,17 @@ bool looks_like_image(const std::string &b)
 }
 } // namespace
 
-Client::Images Client::check_images(const std::string &poster)
+bool Client::image_works(const std::string &poster)
 {
-    tmdb_images_ = false;
-    if (poster.empty() || url_.empty())
-        return Images::None;   /* nothing to try: the cache, as before */
-    jf::HttpResponse r = jf::http_request("GET", image_url(poster, "w92"), {}, "", timeout_);
-    if (r.ok() && looks_like_image(r.body))
-        return Images::Cache;
-    tmdb_images_ = true;
-    r = jf::http_request("GET", image_url(poster, "w92"), {}, "", timeout_);
-    if (r.ok() && looks_like_image(r.body))
-        return Images::Tmdb;
-    tmdb_images_ = false;   /* neither: Seerr's cache, which may come back */
-    return Images::None;
+    const std::string url = image_url(poster, "w92");
+    if (url.empty())
+        return false;
+    for (int i = 0; i < 2; i++) {
+        const jf::HttpResponse r = jf::http_request("GET", url, {}, "", timeout_ < 10 ? 10 : timeout_);
+        if (r.ok() && looks_like_image(r.body))
+            return true;
+    }
+    return false;
 }
 
 } // namespace seerr

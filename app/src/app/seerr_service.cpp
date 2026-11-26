@@ -202,6 +202,7 @@ Stored load_stored(const std::string &server, const std::string &account)
      * Kept before the address was (no "cookiesUrl"): whose is not known, dropped. */
     if (str(acc, "cookiesUrl") == s.config.url)
         s.cookies = str(acc, "cookies");
+    s.config.tmdb_images = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(acc, "tmdbImages"));
     s.signed_out = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(acc, "signedOut"));
     s.quick_connect_url = str(acc, "quickConnectUrl");
     cJSON_Delete(root);
@@ -249,6 +250,7 @@ std::shared_ptr<seerr::Client> make_client(const Config &c, const std::string &c
     cl->set_timeout(local_address(c.url) ? 5 : 10);   /* on the home network an answer comes at once */
     cl->set_language(tmdb_language());
     cl->set_cookies(cookies);
+    cl->set_tmdb_images(c.tmdb_images);
     return cl;
 }
 
@@ -266,22 +268,6 @@ template <class F> void publish(unsigned epoch, F change)
         return;
     change(s_snap);
     s_gen++;
-}
-
-/* Signed in: whether Seerr's image cache gives pictures, with a trending poster
- * (blocking; before the session is published, so every URL follows the outcome). */
-std::string first_poster(seerr::Client &cl)
-{
-    for (const seerr::Title &t : cl.discover(seerr::Client::Shelf::Trending))
-        if (!t.poster.empty())
-            return t.poster;
-    return std::string();
-}
-
-void check_images(seerr::Client &cl)
-{
-    if (cl.check_images(first_poster(cl)) == seerr::Client::Images::Tmdb)
-        evo_bt("seerr: no pictures through Seerr's image cache: they come from TMDB itself");
 }
 
 /* A sign-in came to an end, one way or the other. */
@@ -305,6 +291,7 @@ void finish(unsigned epoch, const std::shared_ptr<seerr::Client> &cl, bool ok, c
         evo_bt("seerr: signed in, but Seerr's session cookie was not kept");
     }
     if (ok) {
+        cl->set_tmdb_images(s_stored.config.tmdb_images);   /* changed while it signed in */
         s_client = cl;
         s_seen_ready = true;
         s_snap.state = State::Ready;
@@ -423,8 +410,6 @@ void connect_worker(unsigned epoch)
             why = cl->last_status() == 403 ? Why::NotInSeerr : Why::AutoFailed;
             error = "Quick Connect: " + cl->last_error();
         }
-        if (ok)
-            check_images(*cl);
         finish(epoch, cl, ok, u, version, ps, why, error, had_session || lost);
         return;
     }
@@ -554,8 +539,12 @@ void set_config(const Config &c)
         cJSON *srv = child(child(root, "servers"), server.c_str());
         put_bool(srv, "enabled", n.enabled);
         put_str(srv, "url", n.url);
-        put_str(child(child(root, "accounts"), account.c_str()), "auth", kAuthNames[(int)n.auth]);
+        cJSON *acc = child(child(root, "accounts"), account.c_str());
+        put_str(acc, "auth", kAuthNames[(int)n.auth]);
+        put_bool(acc, "tmdbImages", n.tmdb_images);
     });
+    if (s_client)
+        s_client->set_tmdb_images(n.tmdb_images);   /* the pictures loaded from now on: no new sign-in */
     if (n.url != old.url && !s_stored.cookies.empty())
         write_session("", s_stored.signed_out);   /* the old address's session: never sent to the new one */
     if (c.enabled == old.enabled && seerr::Client::normalize(c.url) == old.url && c.auth == old.auth)
@@ -836,8 +825,6 @@ void sign_in(const std::string &user, const std::string &password)
             });
             return;
         }
-        if (ok)
-            check_images(*cl);
         /* 403: Seerr knows no such user (a Jellyfin user not imported, new sign-ins
          * off); else the name or the password. */
         finish(epoch, cl, ok, u, version, ps, cl->last_status() == 403 && !local ? Why::NotInSeerr : Why::WrongPassword,
@@ -896,14 +883,18 @@ void test()
             std::snprintf(buf, sizeof buf, T("Seerr %s svarer, men du er ikke pålogget"), version.c_str());
             line = buf;
         } else {
-            /* A poster as the pages will load them: through Seerr's image cache, else from TMDB. */
-            const seerr::Client::Images images = cl->check_images(first_poster(*cl));
+            /* A poster as the pages will load them (Seerr's image cache, or TMDB if chosen). */
+            std::string poster;
+            for (const seerr::Title &t : cl->discover(seerr::Client::Shelf::Trending))
+                if (poster.empty())
+                    poster = t.poster;
+            const bool images = cl->image_works(poster);
             std::snprintf(buf, sizeof buf, T("OK \xE2\x80\x93 Seerr %s, pålogget som %s"), version.c_str(),
                           u.name.c_str());
             line = buf;
-            if (images == seerr::Client::Images::Tmdb)
-                line += T(" \xE2\x80\x93 bildene hentes rett fra TMDB");
-            else if (images == seerr::Client::Images::None)
+            if (!images && !cl->tmdb_images())   /* what the viewer can do about it */
+                line += T(" \xE2\x80\x93 men bildene kommer ikke: prøv Bilder rett fra TMDB");
+            else if (!images)
                 line += T(" \xE2\x80\x93 men bildene kommer ikke");
         }
         evo_bt("seerr: test: %s", line.c_str());
@@ -917,12 +908,6 @@ void test()
         s_snap.testing = false;
         s_gen++;
     }
-}
-
-bool images_from_tmdb()
-{
-    std::lock_guard<std::mutex> g(s_lock);
-    return s_client && s_client->images_from_tmdb();
 }
 
 std::string image_url(const std::string &path, const char *size)

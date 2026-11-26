@@ -67,7 +67,7 @@ int section_of(int row)
 bool adjustable(int r)
 {
     return (r >= SettingsScreen::Quality && r <= SettingsScreen::SkipCommercial) || r == SettingsScreen::SeerrOn ||
-           r == SettingsScreen::SeerrAuth ||
+           r == SettingsScreen::SeerrAuth || r == SettingsScreen::SeerrImages ||
            (r >= SettingsScreen::AppLanguage && r <= SettingsScreen::Updates);
 }
 
@@ -117,6 +117,7 @@ const char *label_of(int row)
                                          T("Adresse"),
                                          T("P\xC3\xA5logging"),
                                          T("Seerr-konto"),
+                                         T("Bilder rett fra TMDB"),
                                          T("Test tilkoblingen"),
                                          T("Språk"),
                                          T("Bilder på Hjem"),
@@ -261,6 +262,7 @@ std::string SettingsScreen::value(Row r) const
         return u.empty() ? std::string(T("Ikke angitt")) : u;
     }
     case SeerrAuth: return auth_name(seerr_service::config().auth, m_client);
+    case SeerrImages: return seerr_service::config().tmdb_images ? T("P\xC3\xA5") : T("Av");
     case SeerrAccount: {
         using namespace seerr_service;
         const Snapshot sn = snapshot();
@@ -410,6 +412,12 @@ void SettingsScreen::change(Row r, int dir)
         seerr_service::set_config(c);
         break;
     }
+    case SeerrImages: {
+        seerr_service::Config c = seerr_service::config();
+        c.tmdb_images = !c.tmdb_images;
+        seerr_service::set_config(c);
+        break;
+    }
     case SeerrAuth: {
         seerr_service::Config c = seerr_service::config();
         /* From what the row shows; past Quick Connect where the server has none. */
@@ -520,8 +528,8 @@ void SettingsScreen::draw(double, float dt)
         T("Oppskalering gjør video med lavere oppløsning enn TV-en skarpere (ikke HDR). AI er laget for animasjon."),
         T("Språk følger PS5-en, eller velg her."),
         T("Jelly5 er fri programvare (GPL-3.0) og bygger på EVO Player og Nuvio PS5.")};
-    if (seerr_service::config().enabled && seerr_service::images_from_tmdb())
-        notes.push_back(T("Seerrs bildebuffer gir ingen bilder, så PS5-en henter plakatene rett fra TMDB."));
+    if (seerr_service::config().enabled && seerr_service::config().tmdb_images)
+        notes.push_back(T("Bilder rett fra TMDB: PS5-en henter Seerr-bildene fra TMDB, som da ser IP-adressen din."));
     else if (seerr_service::config().enabled)   /* only where it means something */
         notes.push_back(T("Seerr henter alt fra TMDB selv: PS5-en snakker bare med serveren din og Seerr."));
     if (seerr_service::config().enabled && !m_client.features().quick_connect &&   /* Emby: why a password */
