@@ -129,6 +129,7 @@ private:
     Anim m_scroll, m_nav;
     Lifts m_lifts;
     Drop m_src_drop, m_sort_drop;       /* the focus on the sources and the sorts */
+    Anim m_src_scroll;                  /* the sources, slid to keep the focused one in view */
     Drop m_filter_drop;                 /* ... and in the filter sheet */
     Filters m_filters;
     bool m_filter_open = false;

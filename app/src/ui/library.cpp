@@ -346,8 +346,18 @@ Action Library::input(uint32_t p)
     }
     if (m_in_pills) {
         if (p & (NUVIO_BTN_LEFT | NUVIO_BTN_RIGHT)) {
-            m_pill = (p & NUVIO_BTN_LEFT) ? std::max(0, m_pill - 1) : std::min(pill_count() - 1, m_pill + 1);
-            m_source_at = m_pill < ns && m_pill != m_source ? m_now + 0.35 : -1;   /* the library follows the focus */
+            /* Left/right go through the libraries only; the sort button is reached with Square,
+             * or Up from the grid's right half (with no grid, Right still reaches it, so a
+             * filter that matches nothing can be undone). From it, left goes back to the library. */
+            const int last = ns > 0 && m_pill < ns && count > 0 ? ns - 1 : pill_count() - 1;
+            const int to = m_pill == ns && ns > 0 && (p & NUVIO_BTN_LEFT) ? m_source
+                                                                          : m_pill + ((p & NUVIO_BTN_RIGHT) ? 1 : -1);
+            if (to < 0 || to > last) {
+                m_bump = true;   /* the end: a soft bump, as in the grid (a pending switch keeps its time) */
+            } else {
+                m_pill = to;
+                m_source_at = m_pill < ns && m_pill != m_source ? m_now + 0.35 : -1;   /* the library follows the focus */
+            }
         }
         else if (p & NUVIO_BTN_CROSS) {
             if (m_pill == ns) {   /* the sort & filter button: the sheet, on the current sort */
@@ -737,10 +747,67 @@ void Library::draw(double now, float dt)
             for (int i = 0; i < ns; i++)
                 labels.push_back(m_sources[i].label);
             const bool here = m_focused && m_in_pills && m_pill < ns;
-            /* The pane reaches 6 px past the pills on each side, so they start on the title's column;
-             * tw: the pills' own width, as the title's. */
-            tw = pill_bar(kPad - 6, hy - 50, labels, here ? m_pill : m_source, here, m_src_drop, dt, ha, &m_animating,
-                          0, hy) - 2 * 6;
+            const int on = std::max(0, std::min(ns - 1, here ? m_pill : m_source));
+            /* With more sources than fit, the glass bar keeps its size, short of the title count
+             * and the sort button, and the names slide inside it (as the seasons on the detail
+             * page): only as far as needed to keep the focused one in view with a peek of the
+             * next, fading out on the side where more lie beyond. The pane reaches 6 px past the
+             * pills on each side, so they start on the title's column. */
+            std::string sort_state = T(kSorts[m_sort].label);
+            if (active_filters() > 0)
+                sort_state += std::string("  \xC2\xB7  ") + TN(active_filters(), "%d filter", "%d filtre");
+            const float right = gfx::W - kPad - 66 - 18 - gfx::text_width(sort_state, {gfx::Medium, 22, 520}) - 40;
+            /* Room for a four-digit title count even while a library loads (the count is not
+             * known then), so the bar does not stretch out for that moment. */
+            const float count_w =
+                gfx::text_width(TN(std::max(total, 8888), "%d tittel", "%d titler"), {gfx::Medium, 24}) + 20;
+            const float x0 = kPad - 6, y0 = hy - 50, full = pill_bar_width(labels);
+            const float bar_w = std::min(full, std::max(300.f, right - count_w - x0));
+            const float span = full - bar_w;   /* how far the names can slide: 0 when they all fit */
+            const float l = pill_bar_offset(labels, on), r = pill_bar_offset(labels, on + 1) - 6;
+            const float peek = std::max(0.f, std::min(90.f, (bar_w - (r - l)) / 2));
+            float t = std::max(0.f, std::min(span, m_src_scroll.target));
+            if (l - peek < t)
+                t = l - peek;
+            if (r + peek > t + bar_w)
+                t = r + peek - bar_w;
+            if (r - l > bar_w)
+                t = l;   /* a name wider than the bar: its start stays in view */
+            t = std::max(0.f, std::min(span, t));
+            if (here) {
+                m_src_scroll.to(t);
+                if (m_src_scroll.step(dt, 12.f))
+                    m_animating = true;
+            } else {
+                m_src_scroll.snap(t);
+            }
+            const float sx = m_src_scroll.value;
+            const gfx::Rect bar{x0, y0, bar_w, 76};
+            glass_panel(bar, 38, ha, false);
+            /* The drop goes straight to where the focused name comes to rest (not where it is
+             * mid-slide), damped so it never runs past and swings back. */
+            m_src_drop.set_damping(33.f);
+            m_src_drop.to({x0 + l - t, y0 + 6, r - l, 64}, on, 0, hy);
+            m_src_drop.draw(dt, ha * (here ? 1.f : 0.4f), &m_animating);
+            if (span > 0) {
+                gfx::push_scissor(bar);
+                gfx::push_fade_mask(bar, 0, 0, edge_fade(sx, 64), edge_fade(span - sx, 64));
+            }
+            for (int i = 0; i < ns; i++) {
+                const float li = pill_bar_offset(labels, i), wi = pill_bar_offset(labels, i + 1) - 6 - li;
+                const float px = x0 + li - sx;
+                if (px > x0 + bar_w || px + wi < x0)
+                    continue;
+                gfx::TextStyle ts{gfx::Bold, 30};
+                ts.max_w = wi - 40;
+                marquee_text(px + wi / 2, y0 + 48, labels[i], ts, alpha(i == on ? kText : kText2, ha), here && i == on,
+                             1);
+            }
+            if (span > 0) {
+                gfx::pop_fade_mask();
+                gfx::pop_scissor();
+            }
+            tw = bar_w - 2 * 6;   /* the pills' own width, as the title's */
         }
         if (total >= 0) {
             gfx::text(kPad + tw + 20, hy, TN(total, "%d tittel", "%d titler"), {gfx::Medium, 24}, alpha(kText3, ha));
@@ -771,9 +838,12 @@ void Library::draw(double now, float dt)
         if (nf > 0)
             state += std::string("  \xC2\xB7  ") + TN(nf, "%d filter", "%d filtre");
         gfx::text(bx - 18, hy, state, {gfx::Medium, 22, 520}, alpha(here ? kText2 : kText3, ha), 2);
-        const float sw = gfx::text_width(state, {gfx::Medium, 22, 520});
-        if (by_name() && !m_in_pills) {   /* A-Å: the letter jump, shown where it works */
-            draw_pad_hints(bx - 18 - sw, hy + 44, {{PadButton::L2, ""}, {PadButton::R2, T("Hopp til bokstav")}}, 0, 22, ha);
+        {   /* Under the button: A-Å, the letter jump, where it works; Square for sort & filter. */
+            std::vector<PadHint> hints;
+            if (by_name() && !m_in_pills)
+                hints = {{PadButton::L2, ""}, {PadButton::R2, T("Hopp til bokstav")}};
+            hints.push_back({PadButton::Square, T("Sorter etter")});
+            draw_pad_hints(gfx::W - kPad, hy + 44, hints, 2, 22, ha);
         }
     }
 

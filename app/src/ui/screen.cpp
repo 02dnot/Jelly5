@@ -86,8 +86,9 @@ void Drop::draw(float dt, float a, bool *animating, float radius)
     }
     for (float left = std::min(dt, 0.05f); left > 0; left -= 1.f / 240) {   /* small steps: stable */
         const float h = std::min(left, 1.f / 240);
-        auto spring = [h](float &v, float &x, float to) {
-            v += (260.f * (to - x) - 19.f * v) * h;
+        const float damp = m_damp;
+        auto spring = [h, damp](float &v, float &x, float to) {
+            v += (260.f * (to - x) - damp * v) * h;
             x += v * h;
         };
         spring(m_vx, m_x, m_target.x);
