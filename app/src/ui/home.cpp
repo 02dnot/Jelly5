@@ -76,6 +76,51 @@ void Home::append(int shelf, int page, bool more, const std::vector<jf::Item> &i
     }
 }
 
+size_t append_new(HomeRow &row, const std::vector<jf::Item> &items)
+{
+    std::set<std::string> have;
+    for (const jf::Item &it : row.items) {
+        have.insert(it.id);
+        if (!it.series_id.empty())
+            have.insert(it.series_id);
+    }
+    size_t added = 0;
+    for (const jf::Item &it : items)
+        if (!have.count(it.id) && (it.series_id.empty() || !have.count(it.series_id))) {
+            have.insert(it.id);
+            if (!it.series_id.empty())
+                have.insert(it.series_id);
+            row.items.push_back(it);
+            added++;
+        }
+    return added;
+}
+
+bool Home::wants_more_latest(std::string *library, std::string *type, int *start) const
+{
+    if (m_discover || m_row < 0 || m_row >= (int)m_model.rows.size() || m_row >= (int)m_cols.size())
+        return false;
+    const HomeRow &row = m_model.rows[m_row];
+    /* As Seerr's rows: the page is there before the row's end is. */
+    if (!continues(row) || m_cols[m_row] < (int)row.items.size() - 15)
+        return false;
+    *library = row.library;
+    *type = row.library_type;
+    *start = row.next;
+    return true;
+}
+
+void Home::append_latest(const std::string &library, int start, bool more, const std::vector<jf::Item> &items)
+{
+    for (HomeRow &row : m_model.rows) {
+        if (row.library != library || row.next != start)
+            continue;
+        append_new(row, items);
+        row.next = start + (int)items.size();
+        row.more = more;
+    }
+}
+
 void Home::set_model(HomeModel model)
 {
     /* Keep focus on the same title where it survived the refresh. */
@@ -227,7 +272,7 @@ Action Home::input(uint32_t p)
             m_hero_button = 1;
         else if (m_cols[m_row] + 1 < (int)m_model.rows[m_row].items.size())
             m_cols[m_row]++;
-        else if (!(m_model.rows[m_row].shelf >= 0 && m_model.rows[m_row].more))
+        else if (!continues(m_model.rows[m_row]))
             m_bump = true;   /* the row's end (not while more of it is coming) */
     } else if (p & NUVIO_BTN_LEFT) {
         if (m_row < 0)
@@ -644,11 +689,12 @@ void Home::draw_rows(float dt)
 
         /* Horizontal: the focused card sits at the left edge, until the row ends. */
         const int col = m_cols[r];
-        /* More of a Seerr row coming: three glass cards where it will be (they become
-         * posters in place), and room to scroll to them. */
-        const int coming = m_discover && row.shelf >= 0 && row.more ? 3 : 0;
-        const float max_scroll = std::max(
-            0.f, (float)(row.items.size() + (coming ? 2 : 0)) * (cw + kCardGap) - kCardGap - (gfx::W - 2 * kPad));
+        /* More of the row coming: three glass cards where it will be (they become
+         * cards in place), and room to scroll to them. On Home only on the row with
+         * focus: a row is asked for more only then, and a small library has none. */
+        const int coming = continues(row) && (m_discover || (int)r == m_row) ? 3 : 0;
+        const float max_scroll = std::max(   /* (the room stays as focus leaves: the row does not shift) */
+            0.f, (float)(row.items.size() + (continues(row) ? 2 : 0)) * (cw + kCardGap) - kCardGap - (gfx::W - 2 * kPad));
         m_scroll[r].to(std::min(max_scroll, (float)col * (cw + kCardGap)));
         if (m_scroll[r].step(dt, 12.f))
             m_animating = true;

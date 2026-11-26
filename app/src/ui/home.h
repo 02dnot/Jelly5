@@ -36,7 +36,17 @@ struct HomeRow {
     int shelf = -1;         /* Seerr's tab: which of its lists, for the next page (-1: none) */
     int page = 1;           /* the pages loaded so far */
     bool more = true;       /* the list may go on */
+    /* "Nylig lagt til": its library (empty for other rows) and that library's type,
+     * and where the next page of the library's newest titles starts. */
+    std::string library, library_type;
+    int next = 0;
+    int first = 0;          /* how many of its titles came in the first answer (/Items/Latest) */
 };
+
+/* A next page of a "Nylig lagt til" row: the titles it does not show yet are
+ * appended (an episode or season in the row stands for its series). Returns how
+ * many were added. */
+size_t append_new(HomeRow &row, const std::vector<jf::Item> &items);
 
 struct HomeModel {
     std::vector<jf::Item> hero;
@@ -54,6 +64,11 @@ public:
     /* Seerr's tab: a next page for the row of `shelf`, added to it in place (no
      * copy of the whole model; focus and scroll stay). */
     void append(int shelf, int page, bool more, const std::vector<jf::Item> &items);
+    /* Home: a "Nylig lagt til" row whose focus is near its end, with more to come:
+     * its library, the library's type and where the next page starts, or false. */
+    bool wants_more_latest(std::string *library, std::string *type, int *start) const;
+    /* Home: the page of `library` that starts at `start`, added to its row in place. */
+    void append_latest(const std::string &library, int start, bool more, const std::vector<jf::Item> &items);
     bool empty() const { return m_model.hero.empty() && m_model.rows.empty(); }
     /* A change made here or on another screen, shown at once. */
     void apply(const UserDataChange &c);
@@ -84,6 +99,12 @@ private:
     /* Does this row show portrait posters (Seerr's tab; the library's rows when
      * Innstillinger asks for them) rather than wide cards? */
     bool posters(const HomeRow &row) const;
+    /* A row with more of it coming as the viewer nears its end (Seerr's lists;
+     * Home's "Nylig lagt til"). */
+    bool continues(const HomeRow &row) const
+    {
+        return row.more && (m_discover ? row.shelf >= 0 : !row.library.empty());
+    }
     /* A card's picture fetched before it scrolls into view (as it will be drawn). */
     void prefetch_card(const jf::Item &it, bool poster);
     std::string backdrop_url(const jf::Item &it) const;

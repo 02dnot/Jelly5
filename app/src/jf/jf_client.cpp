@@ -602,11 +602,13 @@ bool Client::validate()
         user_image_tag_ = str_of(j, "PrimaryImageTag");
         user_name_ = str_of(j, "Name");
         latest_excludes_.clear();
+        const cJSON *conf = cJSON_GetObjectItemCaseSensitive(j, "Configuration");
         const cJSON *ex;
-        cJSON_ArrayForEach(ex, cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(j, "Configuration"),
-                                                                "LatestItemsExcludes"))
+        cJSON_ArrayForEach(ex, cJSON_GetObjectItemCaseSensitive(conf, "LatestItemsExcludes"))
             if (cJSON_IsString(ex))
                 latest_excludes_.push_back(ex->valuestring);
+        /* (both servers' default is on: only an explicit false turns it off) */
+        hide_played_in_latest_ = !cJSON_IsFalse(cJSON_GetObjectItemCaseSensitive(conf, "HidePlayedInLatest"));
         const cJSON *policy = cJSON_GetObjectItemCaseSensitive(j, "Policy");
         is_admin_ = bool_of(policy, "IsAdministrator");
         manages_subtitles_ = is_admin_ || bool_of(policy, "EnableSubtitleManagement");
@@ -776,6 +778,21 @@ std::vector<Item> Client::latest(const std::string &parent_id, int limit, std::s
     if (raw)
         *raw = body;
     return items_of(body);
+}
+
+Page Client::latest_page(const std::string &parent_id, const std::string &collection_type, int start, int limit)
+{
+    const std::string &t = collection_type;
+    const char *types = t == "movies"        ? "Movie"
+                        : t == "tvshows"     ? "Series"
+                        : t == "musicvideos" ? "MusicVideo"
+                        : t == "homevideos"  ? "Video"
+                                             : "Movie,Series,Video";
+    /* A series' DateCreated is when it was first added; DateLastContentAdded is
+     * its newest episode, as /Items/Latest orders it. Movies have no such date. */
+    /* The user's "hide played in latest" holds for the pages too, as for the first answer. */
+    return library(parent_id, types, t == "tvshows" ? "DateLastContentAdded,SortName" : "DateCreated,SortName",
+                   true, start, limit, hide_played_in_latest_ ? "&IsPlayed=false" : "");
 }
 
 std::vector<Item> Client::episodes(const std::string &series_id, const std::string &season_id)

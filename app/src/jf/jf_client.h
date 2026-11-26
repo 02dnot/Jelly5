@@ -305,6 +305,10 @@ public:
     /* The same from a response saved earlier (the hero is cached between launches). */
     std::vector<Item> featured_from(const std::string &raw, int limit);
     std::vector<Item> latest(const std::string &parent_id, int limit, std::string *raw = nullptr);
+    /* "Nylig lagt til" past what latest() gives (/Items/Latest has no pages): a
+     * library's titles newest first, from `start`. collection_type is the
+     * library's ("movies", "tvshows", ...); series go by their newest episode. */
+    Page latest_page(const std::string &parent_id, const std::string &collection_type, int start, int limit);
     std::vector<Item> episodes(const std::string &series_id, const std::string &season_id);
     /* A library page: types e.g. "Movie" or "Series"; sort_by e.g. "DateCreated,SortName". */
     /* filter: extra query, e.g. "&AlbumArtistIds=<id>" (an artist's albums). */
@@ -489,6 +493,7 @@ private:
     bool is_admin_ = false, manages_subtitles_ = false, subtitle_search_ = false;
     bool can_record_ = false, live_tv_access_ = false;
     std::vector<std::string> latest_excludes_;
+    bool hide_played_in_latest_ = true;   /* the user's "hide played in latest" (validate) */
     void set_error(std::string e) { std::lock_guard<std::mutex> g(error_lock_); error_ = std::move(e); }
     std::string error_;
     mutable std::mutex error_lock_;
