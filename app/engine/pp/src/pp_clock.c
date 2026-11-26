@@ -32,6 +32,7 @@ void pp_clock_start(pp_clock *c, int64_t first_pts_us)
     c->paused = 0;
     c->pause_host_us = 0;
     c->media_at_pause_us = 0;
+    c->last_present_host_us = c->host_start_us;
 }
 
 int64_t pp_clock_media_us(const pp_clock *c)
@@ -154,6 +155,37 @@ int pp_clock_wait_or_drop(pp_clock *c, int64_t pts_us)
     media = pp_clock_media_us(c);
     lag = media - pts_us;
 
+    /*
+     * This is a wall-clock timeline behind an audio-master
+     * gate (decode_next_video_frame): the gate waits for the sound before it
+     * hands a frame over, so a frame that arrives here is due or late by the
+     * sound's reckoning. Two cases where this timeline, not the frame, is the
+     * one that is off:
+     *  - the frame is EARLY by more than the pacing window: the gate skipped
+     *    ahead to the sound (a timestamp jump, a catch-up) and this timeline
+     *    stayed behind. Sleeping max_early for every frame throttled the decode
+     *    loop, the gate answered by skipping more frames, and the picture ran
+     *    at ~10 fps with every second frame missing (77 of 125 frames a
+     *    second). Re-anchor on the frame and show it.
+     *  - the frame is LATE by more than max_late and nothing has been shown
+     *    for longer than that: a rebuffer hold, a stall, a reconnect. This
+     *    timeline ran on while nothing was pushed; dropping the next 20 frames
+     *    (0.8 s of picture) before re-anchoring was the old recovery.
+     * Within the window nothing changes: small jitter is still paced here.
+     */
+    {
+        const uint64_t now = now_us();
+        const int idle = c->last_present_host_us != 0 &&
+                         (int64_t)(now - c->last_present_host_us) > c->max_late_us;
+        if ((lag < 0 && -lag > c->max_early_us) || (lag > c->max_late_us && idle)) {
+            pp_clock_reanchor(c, pts_us);
+            c->last_present_host_us = now;
+            note_lag(c, 0);
+            c->stats.on_time_presents++;
+            return PP_CLOCK_PRESENT;
+        }
+    }
+
     if (lag > c->max_late_us) {
         note_lag(c, lag);
         c->stats.late_drops++;
@@ -184,6 +216,7 @@ int pp_clock_wait_or_drop(pp_clock *c, int64_t pts_us)
 
     note_lag(c, lag);
     c->stats.on_time_presents++;
+    c->last_present_host_us = now_us();
     return PP_CLOCK_PRESENT;
 }
 

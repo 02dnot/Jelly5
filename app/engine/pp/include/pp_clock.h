@@ -38,6 +38,7 @@ typedef struct pp_clock {
     int64_t max_late_us;
     int64_t max_early_us;
     double speed;                /* Jelly5: media time per host time (0 = 1x) */
+    uint64_t last_present_host_us; /* when a frame last went through */
     pp_clock_stats stats;
 } pp_clock;
 
