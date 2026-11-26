@@ -429,6 +429,7 @@ struct Session {
     double wd_since = 0;              /* hardware decoder watchdog */
     int wd_frames = -1;
     int wd_consumed = 0;
+    long long wd_keys = 0;            /* keyframes handed over when the watch began */
         double vq_empty_since = 0;        /* underrun watch */
     int rebuffers = 0;
     double last_rebuffer_at = -1e9;
@@ -1469,10 +1470,18 @@ extern "C" void nuvio_player_run(const char *json)
                     s.wd_frames = dbg_video_frames;
                     s.wd_consumed = consumed;
                     s.wd_since = now;
+                    s.wd_keys = evo_pb_video_keys_sent();
                 }
+                /* A decoder given no keyframe since its last picture is waiting, not
+                 * silent: a reconnect lands in the middle of a GOP, and on a feed that
+                 * keeps pausing the next keyframe can be more than 6 s away (each
+                 * reopen restarted the channel from zero for the viewer). So 6 s counts
+                 * only after a keyframe went in; 20 s, for a stream that never marks
+                 * its keyframes, reopens regardless. */
                 if (!g_vdec_force_ffmpeg && evo_pb_active_backend() == EVO_VDEC_BACKEND_NATIVE &&
                     (evo_pb_decode_fatal() ||
-                     (watch && now - s.wd_since > 6.0 && consumed - s.wd_consumed > 36))) {
+                     (watch && now - s.wd_since > 6.0 && consumed - s.wd_consumed > 36 &&
+                      (evo_pb_video_keys_sent() > s.wd_keys || now - s.wd_since > 20.0)))) {
                     reopen_software(s, evo_pb_decode_fatal() ? "gave up" : "returns no pictures");
                     continue;
                 }
