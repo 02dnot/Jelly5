@@ -347,15 +347,17 @@ Action Library::input(uint32_t p)
     if (m_in_pills) {
         if (p & (NUVIO_BTN_LEFT | NUVIO_BTN_RIGHT)) {
             /* Left/right go through the libraries only; the sort button is reached with Square,
-             * or Up from the grid's right half. From it, left goes back to the library. */
-            const int last = ns > 0 && m_pill < ns ? ns - 1 : pill_count() - 1;
+             * or Up from the grid's right half (with no grid, Right still reaches it, so a
+             * filter that matches nothing can be undone). From it, left goes back to the library. */
+            const int last = ns > 0 && m_pill < ns && count > 0 ? ns - 1 : pill_count() - 1;
             const int to = m_pill == ns && ns > 0 && (p & NUVIO_BTN_LEFT) ? m_source
                                                                           : m_pill + ((p & NUVIO_BTN_RIGHT) ? 1 : -1);
-            if (to < 0 || to > last)
-                m_bump = true;   /* the end: a soft bump, as in the grid */
-            else
+            if (to < 0 || to > last) {
+                m_bump = true;   /* the end: a soft bump, as in the grid (a pending switch keeps its time) */
+            } else {
                 m_pill = to;
-            m_source_at = m_pill < ns && m_pill != m_source ? m_now + 0.35 : -1;   /* the library follows the focus */
+                m_source_at = m_pill < ns && m_pill != m_source ? m_now + 0.35 : -1;   /* the library follows the focus */
+            }
         }
         else if (p & NUVIO_BTN_CROSS) {
             if (m_pill == ns) {   /* the sort & filter button: the sheet, on the current sort */
@@ -769,6 +771,8 @@ void Library::draw(double now, float dt)
                 t = l - peek;
             if (r + peek > t + bar_w)
                 t = r + peek - bar_w;
+            if (r - l > bar_w)
+                t = l;   /* a name wider than the bar: its start stays in view */
             t = std::max(0.f, std::min(span, t));
             if (here) {
                 m_src_scroll.to(t);
