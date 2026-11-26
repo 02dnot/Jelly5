@@ -1854,10 +1854,17 @@ void PlayerUi::previous_track(const NuvioStatus &st, std::vector<OsdCommand> &ou
         if (m_req->episodes[i].season == m_req->season && m_req->episodes[i].episode == m_req->episode)
             here = (int)i;
     /* Music: the queue's play order decides which track is before (the album's
-     * list lacks what a phone queued); the chain steps back in it. */
-    const bool before = m_music ? jelly5_music_has_previous(here > 0) : here > 0;
+     * list lacks what a phone queued); the chain steps back in it. A shuffled
+     * run of episodes names the one that played before. */
+    const bool before = m_music ? jelly5_music_has_previous(here > 0) : m_req->has_previous || here > 0;
     if (st.position > 3.0 || !before) {
         out.push_back({OsdCmd::SeekTo, 0.0});
+    } else if (!m_music && m_req->has_previous) {
+        OsdCommand c{OsdCmd::PlayEpisode};
+        c.season = m_req->previous.season;
+        c.episode = m_req->previous.episode;
+        c.video_id = m_req->previous.video_id;
+        out.push_back(c);
     } else {
         OsdCommand c{OsdCmd::PlayEpisode};
         c.season = here > 0 ? m_req->episodes[here - 1].season : m_req->season;
