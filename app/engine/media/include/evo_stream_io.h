@@ -71,6 +71,10 @@ int evo_stream_io_url_is_playlist(const char *url);
  * (see the .c). Public so the policy can be tested without a network.
  */
 void evo_stream_io_apply_network_options(AVDictionary **opts, const char *url);
+/* Make every connection a demuxer opens by itself (HLS segments,
+ * playlist refreshes) carry recv_buffer_size too. Safe to call more than once. */
+struct AVFormatContext;
+void evo_stream_io_install_io_open(struct AVFormatContext *fmt);
 
 /**
  * Open a media stream with High-Throughput I/O ring buffering and direct memory.
