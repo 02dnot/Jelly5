@@ -193,7 +193,7 @@ Limits of the platform, not of Jelly5:
 
 ## Privacy
 
-Jelly5 talks to your Jellyfin or Emby server and, if you turn it on, your Seerr server, and nothing else. It never contacts TMDB, YouTube or other services: posters come through Seerr's image cache, and trailers are a QR code your phone opens. The only exceptions are opt-in: with *Check for updates* on, it asks GitHub once per launch whether there's a newer release, and with *Pictures straight from TMDB* on, it loads Seerr's posters from TMDB's image server, as Seerr's own web page does. It keeps its accounts, settings, Seerr session (never a password) and a 96 MB image cache in its own folder, and release builds send no logs anywhere.
+Jelly5 talks to your Jellyfin or Emby server and, if you turn it on, your Seerr server, and nothing else. It doesn't contact TMDB, YouTube or other services on its own: posters come through Seerr's image cache, and trailers are a QR code your phone opens. The only exceptions are opt-in: with *Check for updates* on, it asks GitHub once per launch whether there's a newer release, and with *Pictures straight from TMDB* on, it loads Seerr's posters from TMDB's image server, as Seerr's own web page does. It keeps its accounts, settings, Seerr session (never a password) and a 96 MB image cache in its own folder, and release builds send no logs anywhere.
 
 ## Building
 

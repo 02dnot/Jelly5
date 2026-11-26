@@ -2634,6 +2634,7 @@ int main()
     unsigned frames = 0;
     unsigned lang_gen = i18n::generation();
     unsigned seerr_gen = seerr_service::generation();
+    unsigned seerr_images = seerr_service::images_generation();
     [[maybe_unused]] bool waited = true;   /* the loop chose to wait since the last frame (nothing moved; read by
                                             * the development builds' frame timing) */
     for (;;) {
@@ -2766,6 +2767,10 @@ int main()
         seerr_service::poll();
         const bool seerr_moved = seerr_gen != seerr_service::generation();
         seerr_gen = seerr_service::generation();
+        if (seerr_images != seerr_service::images_generation() && phase == Phase::Home) {
+            seerr_images = seerr_service::images_generation();
+            refresh_discover(0, true);   /* its rows carry the other pictures' URLs */
+        }
         if (seerr_moved && seerr_service::take_sign_in_notice())   /* else Discover just goes */
             notify(T("Seerr: logg inn igjen under Innstillinger → Seerr"));
         /* Seerr's tab comes and goes with it (and it may have come before the home rows). */

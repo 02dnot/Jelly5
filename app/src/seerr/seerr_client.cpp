@@ -826,6 +826,8 @@ bool Client::image_works(const std::string &poster)
         const jf::HttpResponse r = jf::http_request("GET", url, {}, "", timeout_ < 10 ? 10 : timeout_);
         if (r.ok() && looks_like_image(r.body))
             return true;
+        if (r.status != 0)   /* an answer, not a picture: no better the second time */
+            return false;
     }
     return false;
 }

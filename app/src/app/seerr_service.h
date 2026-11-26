@@ -93,6 +93,9 @@ void set_config(const Config &c);
 Snapshot snapshot();
 /* Bumped on every change of snapshot(): the screens showing it redraw. */
 unsigned generation();
+/* Bumped when the pictures' source (Config::tmdb_images) changes: the Seerr
+ * titles already listed carry the other image URLs and are loaded again. */
+unsigned images_generation();
 /* Once: the account's saved Seerr session stopped working and could not be
  * renewed without the viewer (a password to type, an approval). */
 bool take_sign_in_notice();

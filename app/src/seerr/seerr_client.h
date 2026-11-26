@@ -281,7 +281,8 @@ public:
     void set_tmdb_images(bool on) { tmdb_images_ = on; }
     bool tmdb_images() const { return tmdb_images_; }
     /* Whether a poster (a TMDB path) comes back as a picture from where image_url
-     * points (blocking; tried twice: a cold cache fetches it from TMDB first). */
+     * points (blocking; tried again after no answer: a cold cache fetches it
+     * from TMDB first). */
     bool image_works(const std::string &poster);
 
 private:

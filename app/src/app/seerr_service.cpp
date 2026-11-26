@@ -44,6 +44,7 @@ std::atomic<bool> s_sign_in_notice{false};   /* see take_sign_in_notice; set and
 std::string s_server, s_account;        /* its Jellyfin server; "server|user id" */
 unsigned s_epoch = 0;                   /* bumped when the account or the settings change */
 Snapshot s_snap;
+std::atomic<unsigned> s_images_gen{0};  /* Config::tmdb_images changed: lists made before point elsewhere */
 std::shared_ptr<seerr::Client> s_client;
 std::atomic<unsigned> s_gen{0};
 bool s_seen_ready = false;              /* signed in once since the account or settings changed */
@@ -543,8 +544,13 @@ void set_config(const Config &c)
         put_str(acc, "auth", kAuthNames[(int)n.auth]);
         put_bool(acc, "tmdbImages", n.tmdb_images);
     });
-    if (s_client)
-        s_client->set_tmdb_images(n.tmdb_images);   /* the pictures loaded from now on: no new sign-in */
+    if (n.tmdb_images != old.tmdb_images) {
+        if (s_client)
+            s_client->set_tmdb_images(n.tmdb_images);   /* the pictures loaded from now on: no new sign-in */
+        s_images_gen++;
+        s_snap.test.clear();   /* a test of the other setting */
+        s_gen++;
+    }
     if (n.url != old.url && !s_stored.cookies.empty())
         write_session("", s_stored.signed_out);   /* the old address's session: never sent to the new one */
     if (c.enabled == old.enabled && seerr::Client::normalize(c.url) == old.url && c.auth == old.auth)
@@ -603,6 +609,8 @@ Snapshot snapshot()
 }
 
 unsigned generation() { return s_gen; }
+
+unsigned images_generation() { return s_images_gen; }
 
 bool take_sign_in_notice() { return s_sign_in_notice.exchange(false); }
 
@@ -892,7 +900,9 @@ void test()
             std::snprintf(buf, sizeof buf, T("OK \xE2\x80\x93 Seerr %s, pålogget som %s"), version.c_str(),
                           u.name.c_str());
             line = buf;
-            if (!images && !cl->tmdb_images())   /* what the viewer can do about it */
+            if (poster.empty())   /* no title to try a picture with: not the pictures' fault */
+                line += T(" \xE2\x80\x93 men bildene kommer ikke");
+            else if (!images && !cl->tmdb_images())   /* what the viewer can do about it */
                 line += T(" \xE2\x80\x93 men bildene kommer ikke: prøv Bilder rett fra TMDB");
             else if (!images)
                 line += T(" \xE2\x80\x93 men bildene kommer ikke");
@@ -900,7 +910,9 @@ void test()
         evo_bt("seerr: test: %s", line.c_str());
         publish(epoch, [&](Snapshot &s) {
             s.testing = false;
-            s.test = line;
+            /* (The pictures' setting changed meanwhile: this line is about the old one.) */
+            if (s_stored.config.tmdb_images == st.config.tmdb_images)
+                s.test = line;
         });
     });
     if (!started) {
