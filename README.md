@@ -225,6 +225,7 @@ Jelly5 stands on the work of others in the PS5 scene and beyond:
 
 - **[Nuvio PS5](https://github.com/theghostonline/Nuvio-PS5)** by Husam Osman: the native player, its session and subtitle handling, and the app packaging toolkit
 - **[EVO Player](https://github.com/sainsaji/EVO-PLAYER-PS5)**: the media engine (demuxing, `sceVideodec2`, the AGC renderer, audio, HDR), shader tooling and much of what is known about the PS5's GPU from user space
+- **[Emby5](https://github.com/bornaradusin/Emby5)** by bornaradusin: room for 4K hardware decode when the idle decoders hold the memory
 - **[ps5-payload-dev SDK](https://github.com/ps5-payload-dev/sdk)** by John Törnblom and contributors, plus the pacbrew sysroot
 - **[Jelly5-Seerr](https://github.com/viviandsx/Jelly5-Seer)** by [@viviandsx](https://github.com/viviandsx): the Seerr integration (client, search, requests, Discover) and the Linux build. Thank you!
 - **[Switchfin](https://github.com/dragonflylee/switchfin)**, a reference for the Jellyfin API

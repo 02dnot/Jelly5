@@ -862,6 +862,81 @@ static void probe_slot(nat_codec c, int w, int h, int required, unsigned sm)
     slot_teardown(s);
 }
 
+/*
+ * Room for a 4K slot that can't get its memory.
+ *
+ * The resident decoders stay up between files, each at its boot size, so a
+ * 4K picture that needs its slot grown competes with the others for direct
+ * memory: with four 1080p decoders resident, a 4K HEVC Main10 frame pool was
+ * refused (0x80020023, out of memory) and the title fell back from hardware
+ * decode (a UHD Blu-ray image). Only then - when the
+ * grow has already failed - the other resident decoders nobody is using are
+ * taken down, the grow tried again, and they come back at their boot size
+ * when the 4K stream closes. While they are down their codecs decode with
+ * FFmpeg, as a slot that is in use would make them (a poster during
+ * playback). A grow that works as it is never gets here.
+ */
+static unsigned char    g_evicted[NAT_CODEC_COUNT];
+static struct dec_slot *g_evict_owner;
+/* The player and the poster extractor open and close from their own threads. */
+static pthread_mutex_t  g_evict_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static int evict_idle_slots(const struct dec_slot *keep)
+{
+    int n = 0;
+    pthread_mutex_lock(&g_evict_lock);
+    for (int i = 0; i < NAT_CODEC_COUNT; i++) {
+        struct dec_slot *s = &g_dec[i];
+        int idle = 0;
+        if (s == keep || !s->ready || g_evicted[i])
+            continue;
+        /* Claim it first, so an opener (the poster extractor) can't take it
+         * while it goes down; it stays claimed until it is back. */
+        if (!__atomic_compare_exchange_n((int *)&s->owned, &idle, 1, 0,
+                                         __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+            continue;
+        note("EVO vdec native: %s idle slot %ux%u taken down for room", g_codec[i].tag,
+             s->max_w, s->max_h);
+        slot_teardown(s);
+        s->owned = 1;
+        g_evicted[i] = 1;
+        n++;
+    }
+    pthread_mutex_unlock(&g_evict_lock);
+    return n;
+}
+
+/* own: the slot whose grow they made room for, or NULL - restored only when it
+ * is the one that owns the eviction now (its close), or nobody does. */
+static void restore_evicted_slots(const struct dec_slot *own)
+{
+    pthread_mutex_lock(&g_evict_lock);
+    if (g_evict_owner && g_evict_owner != own) {
+        pthread_mutex_unlock(&g_evict_lock);
+        return;
+    }
+    g_evict_owner = NULL;
+    for (int i = 0; i < NAT_CODEC_COUNT; i++) {
+        struct dec_slot *s = &g_dec[i];
+        const char *stage = "?";
+        if (!g_evicted[i])
+            continue;
+        if (s->boot_w > 0 && s->boot_h > 0 &&
+            slot_bringup(s, &g_codec[i], (int)s->boot_w, (int)s->boot_h, &stage) == 0) {
+            s->ready = 1;
+            g_evicted[i] = 0;
+            s->owned = 0;
+            note("EVO vdec native: %s slot back at %ux%u", g_codec[i].tag, s->boot_w, s->boot_h);
+        } else {
+            /* Left claimed and marked: the next open tries again. */
+            note("EVO vdec native: %s slot not back yet, failed at [%s]", g_codec[i].tag, stage);
+            slot_teardown(s);
+            s->owned = 1;
+        }
+    }
+    pthread_mutex_unlock(&g_evict_lock);
+}
+
 int evo_vdec_native_probe(void)
 {
     if (g_boot_tried)
@@ -1837,6 +1912,8 @@ evo_vdec_native *evo_vdec_native_open(const evo_vdec_open_params *p)
 {
     if (evo_vdec_native_hung() || !evo_vdec_native_probe())
         return NULL;
+    /* Slots an earlier restore couldn't bring back try again (none: nothing). */
+    restore_evicted_slots(NULL);
     if (!p || p->backend != EVO_VDEC_BACKEND_NATIVE || !p->avctx_params)
         return NULL;
 
@@ -1926,6 +2003,18 @@ evo_vdec_native *evo_vdec_native_open(const evo_vdec_open_params *p)
             rc = slot_bringup(slot, d, w, h, &stage);
         }
         s_depth_override = 0;
+        if (rc != 0 && evict_idle_slots(slot) > 0) {
+            note("EVO vdec native: %s %dx%d failed at [%s] rc=0x%08x - retrying with the idle slots down",
+                 d->tag, w, h, stage, (unsigned)rc);
+            slot_teardown(slot);
+            stage = "?";
+            rc = slot_bringup(slot, d, w, h, &stage);
+            if (rc == 0) {
+                pthread_mutex_lock(&g_evict_lock);
+                g_evict_owner = slot;
+                pthread_mutex_unlock(&g_evict_lock);
+            }
+        }
         if (rc == 0) {
             slot->ready = 1;
             note("EVO vdec native: on-demand resize %s to %dx%d OK", d->tag, w, h);
@@ -1936,6 +2025,7 @@ evo_vdec_native *evo_vdec_native_open(const evo_vdec_open_params *p)
             stage = "?";
             if (slot_bringup(slot, d, (int)old_w, (int)old_h, &stage) == 0)
                 slot->ready = 1;
+            restore_evicted_slots(NULL);
             return NULL;
         }
     }
@@ -2207,6 +2297,7 @@ void evo_vdec_native_close(evo_vdec_native *v)
             (void)sceKernelAvailableFlexibleMemorySize(&flex_after);
             note("EVO vdec native: flex after %s returned to boot size = %zuMB",
                  v->desc->tag, flex_after >> 20);
+            restore_evicted_slots(slot);
         } else {
             if (v->dec) {
                 const int64_t wd = nwd_enter("Reset (close)", NWD_RESET_MS);
