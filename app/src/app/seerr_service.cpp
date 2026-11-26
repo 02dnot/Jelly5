@@ -5,7 +5,6 @@
 #include "app/seerr_service.h"
 #include "app/spawn.h"
 #include "app/i18n.h"
-#include "jf/jf_http.h"
 
 #include "evo_boot_trace.h"
 
@@ -45,6 +44,7 @@ std::atomic<bool> s_sign_in_notice{false};   /* see take_sign_in_notice; set and
 std::string s_server, s_account;        /* its Jellyfin server; "server|user id" */
 unsigned s_epoch = 0;                   /* bumped when the account or the settings change */
 Snapshot s_snap;
+std::atomic<unsigned> s_images_gen{0};  /* Config::tmdb_images changed: lists made before point elsewhere */
 std::shared_ptr<seerr::Client> s_client;
 std::atomic<unsigned> s_gen{0};
 bool s_seen_ready = false;              /* signed in once since the account or settings changed */
@@ -203,6 +203,7 @@ Stored load_stored(const std::string &server, const std::string &account)
      * Kept before the address was (no "cookiesUrl"): whose is not known, dropped. */
     if (str(acc, "cookiesUrl") == s.config.url)
         s.cookies = str(acc, "cookies");
+    s.config.tmdb_images = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(acc, "tmdbImages"));
     s.signed_out = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(acc, "signedOut"));
     s.quick_connect_url = str(acc, "quickConnectUrl");
     cJSON_Delete(root);
@@ -250,6 +251,7 @@ std::shared_ptr<seerr::Client> make_client(const Config &c, const std::string &c
     cl->set_timeout(local_address(c.url) ? 5 : 10);   /* on the home network an answer comes at once */
     cl->set_language(tmdb_language());
     cl->set_cookies(cookies);
+    cl->set_tmdb_images(c.tmdb_images);
     return cl;
 }
 
@@ -290,6 +292,7 @@ void finish(unsigned epoch, const std::shared_ptr<seerr::Client> &cl, bool ok, c
         evo_bt("seerr: signed in, but Seerr's session cookie was not kept");
     }
     if (ok) {
+        cl->set_tmdb_images(s_stored.config.tmdb_images);   /* changed while it signed in */
         s_client = cl;
         s_seen_ready = true;
         s_snap.state = State::Ready;
@@ -537,8 +540,17 @@ void set_config(const Config &c)
         cJSON *srv = child(child(root, "servers"), server.c_str());
         put_bool(srv, "enabled", n.enabled);
         put_str(srv, "url", n.url);
-        put_str(child(child(root, "accounts"), account.c_str()), "auth", kAuthNames[(int)n.auth]);
+        cJSON *acc = child(child(root, "accounts"), account.c_str());
+        put_str(acc, "auth", kAuthNames[(int)n.auth]);
+        put_bool(acc, "tmdbImages", n.tmdb_images);
     });
+    if (n.tmdb_images != old.tmdb_images) {
+        if (s_client)
+            s_client->set_tmdb_images(n.tmdb_images);   /* the pictures loaded from now on: no new sign-in */
+        s_images_gen++;
+        s_snap.test.clear();   /* a test of the other setting */
+        s_gen++;
+    }
     if (n.url != old.url && !s_stored.cookies.empty())
         write_session("", s_stored.signed_out);   /* the old address's session: never sent to the new one */
     if (c.enabled == old.enabled && seerr::Client::normalize(c.url) == old.url && c.auth == old.auth)
@@ -597,6 +609,8 @@ Snapshot snapshot()
 }
 
 unsigned generation() { return s_gen; }
+
+unsigned images_generation() { return s_images_gen; }
 
 bool take_sign_in_notice() { return s_sign_in_notice.exchange(false); }
 
@@ -877,22 +891,28 @@ void test()
             std::snprintf(buf, sizeof buf, T("Seerr %s svarer, men du er ikke pålogget"), version.c_str());
             line = buf;
         } else {
-            /* A poster through Seerr's image cache, as the pages will load them. */
+            /* A poster as the pages will load them (Seerr's image cache, or TMDB if chosen). */
             std::string poster;
             for (const seerr::Title &t : cl->discover(seerr::Client::Shelf::Trending))
                 if (poster.empty())
                     poster = t.poster;
-            const jf::HttpResponse r = jf::http_request("GET", cl->image_url(poster, "w92"), {}, "", 8);
+            const bool images = cl->image_works(poster);
             std::snprintf(buf, sizeof buf, T("OK \xE2\x80\x93 Seerr %s, pålogget som %s"), version.c_str(),
                           u.name.c_str());
             line = buf;
-            if (poster.empty() || !r.ok() || r.body.empty())
+            if (poster.empty())   /* no title to try a picture with: not the pictures' fault */
+                line += T(" \xE2\x80\x93 men bildene kommer ikke");
+            else if (!images && !cl->tmdb_images())   /* what the viewer can do about it */
+                line += T(" \xE2\x80\x93 men bildene kommer ikke: prøv Bilder rett fra TMDB");
+            else if (!images)
                 line += T(" \xE2\x80\x93 men bildene kommer ikke");
         }
         evo_bt("seerr: test: %s", line.c_str());
         publish(epoch, [&](Snapshot &s) {
             s.testing = false;
-            s.test = line;
+            /* (The pictures' setting changed meanwhile: this line is about the old one.) */
+            if (s_stored.config.tmdb_images == st.config.tmdb_images)
+                s.test = line;
         });
     });
     if (!started) {

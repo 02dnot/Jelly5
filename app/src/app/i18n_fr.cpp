@@ -355,6 +355,9 @@ const std::unordered_map<std::string, const char *> &french_table()
         {"Seerr %s svarer, men du er ikke pålogget", "Seerr %s répond, mais vous n'êtes pas connecté"},
         {"OK – Seerr %s, pålogget som %s", "OK – Seerr %s, connecté en tant que %s"},
         {" – men bildene kommer ikke", " – mais les images n'arrivent pas"},
+        {"Bilder rett fra TMDB", "Images directement depuis TMDB"},
+        {" – men bildene kommer ikke: prøv Bilder rett fra TMDB", " – mais les images n'arrivent pas : essayez Images directement depuis TMDB"},
+        {"Bilder rett fra TMDB: PS5-en henter Seerr-bildene fra TMDB, som da ser IP-adressen din.", "Images directement depuis TMDB : la PS5 charge les images de Seerr depuis TMDB, qui voit alors votre adresse IP."},
         /* Seerr: where a title stands, search */
         {"Venter på godkjenning", "En attente d'approbation"},
         {"Venter", "En attente"},

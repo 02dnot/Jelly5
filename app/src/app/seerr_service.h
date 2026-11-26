@@ -53,6 +53,7 @@ struct Config {
     bool enabled = false;           /* for this Jellyfin server */
     std::string url;
     Auth auth = Auth::QuickConnect; /* for this account */
+    bool tmdb_images = false;       /* for this account: pictures from image.tmdb.org, not Seerr's cache */
 };
 
 struct Snapshot {
@@ -92,6 +93,9 @@ void set_config(const Config &c);
 Snapshot snapshot();
 /* Bumped on every change of snapshot(): the screens showing it redraw. */
 unsigned generation();
+/* Bumped when the pictures' source (Config::tmdb_images) changes: the Seerr
+ * titles already listed carry the other image URLs and are loaded again. */
+unsigned images_generation();
 /* Once: the account's saved Seerr session stopped working and could not be
  * renewed without the viewer (a password to type, an approval). */
 bool take_sign_in_notice();
@@ -136,7 +140,8 @@ void set_language();
 /* TMDB's genre names, for to_item (blocking: call from a worker; kept per language). */
 void load_genres();
 
-/* A TMDB picture as the console may load it: through Seerr's image cache. */
+/* A TMDB picture as the console may load it: through Seerr's image cache, or
+ * from TMDB itself when the viewer chose that (Config::tmdb_images). */
 std::string image_url(const std::string &path, const char *size);
 
 /* A Seerr title as the app's screens draw it: a jf::Item with ext filled in

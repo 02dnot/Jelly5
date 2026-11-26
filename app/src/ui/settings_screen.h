@@ -5,7 +5,7 @@
  * Settings, opened from the avatar in the top bar: account (switch user,
  * sign out), playback (quality cap, audio and subtitle language, subtitle
  * mode, autoplay, what to do at each kind of segment: intro, credits ...), Seerr (on, its address, how it
- * signs in, the session, the network, a connection test), the server, and
+ * signs in, the session, where its pictures come from, a connection test), the server, and
  * about. A list in the Apple TV style: value on the right, Left/Right or
  * Cross changes it. Seerr's rows other than "on" show only when it is on.
  */
@@ -25,7 +25,7 @@ public:
         Quality, Version, Upscale, Buffer, AudioLang, SubMode, SubLang, SubSize, SubBackground, Autoplay, StillWatching, AudioDelay, NightMode, Bitstream,
         ThemeMusic,
         SkipIntro, SkipOutro, SkipRecap, SkipPreview, SkipCommercial,   /* "Hopp over": in segments::Type order */
-        SeerrOn, SeerrUrl, SeerrAuth, SeerrAccount, SeerrTest,
+        SeerrOn, SeerrUrl, SeerrAuth, SeerrAccount, SeerrImages, SeerrTest,
         AppLanguage, HomePosters, Refresh, Updates, Together, ServerInfo, About, RowCount
     };
     explicit SettingsScreen(jf::Client &client) : m_client(client) {}

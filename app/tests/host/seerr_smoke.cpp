@@ -222,12 +222,19 @@ int main(int argc, char **argv)
     check(!mg.empty() && !tg.empty(), "genres", std::to_string(mg.size()) + " for films, " + std::to_string(tg.size()) +
                                                     " for series" + (mg.count(878) ? ", 878 = " + mg.at(878) : ""));
 
-    /* Artwork through Seerr's cache (what the console shows, never TMDB itself). */
+    /* Artwork through Seerr's cache (what the console shows unless TMDB images are on). */
     if (!poster.empty()) {
         const std::string img = c.image_url(poster, "w342");
         const jf::HttpResponse r = jf::http_request("GET", img, {}, "", 10);
         check(r.ok() && looks_like_image(r.body), "poster through /imageproxy/tmdb",
               img + " -> " + std::to_string(r.status) + ", " + std::to_string(r.body.size()) + " bytes");
+        check(c.image_works(poster), "image_works (Seerr's cache)", "");
+        /* Pictures straight from TMDB, when the viewer turns it on. */
+        c.set_tmdb_images(true);
+        const std::string direct = c.image_url(poster, "w342");
+        check(direct == "https://image.tmdb.org/t/p/w342" + poster, "image_url with TMDB images", direct);
+        check(c.image_works(poster), "image_works (TMDB)", "");
+        c.set_tmdb_images(false);
     }
 
     /* A film's and a series' pages. */

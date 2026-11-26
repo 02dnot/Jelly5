@@ -187,13 +187,13 @@ Limits of the platform, not of Jelly5:
 | The receiver shows PCM, not Dolby or Atmos | Turn on *Settings → HDMI bitstream* (and night mode off). TrueHD and DTS-HD MA always play as PCM: see *Formats and limits*. |
 | Seerr isn't answering | Use Seerr's local address (port 5055 by default) and check it with *Test connection*. |
 | Seerr's automatic sign-in fails | Seerr is older than 3.4, Quick Connect is off in Jellyfin, or your user isn't in Seerr. Use your password instead, or import the user. |
-| Seerr shows no pictures | Seerr fetches them from TMDB, so the Seerr server needs internet access. |
+| Seerr shows no pictures | Jelly5 loads them through Seerr's image cache, so the Seerr server needs to reach image.tmdb.org and write its cache, and a reverse proxy must pass `/imageproxy` as well as `/api`. *Test connection* shows whether they come through. Or turn on *Pictures straight from TMDB*. |
 
 **Reporting a problem:** open an issue with your firmware, your server and its version, what you did and what happened. For playback problems, the L3 playback info helps a lot.
 
 ## Privacy
 
-Jelly5 talks to your Jellyfin or Emby server and, if you turn it on, your Seerr server, and nothing else. It never contacts TMDB, YouTube or other services: posters come through Seerr's image cache, and trailers are a QR code your phone opens. The only exception is opt-in: with *Check for updates* on, it asks GitHub once per launch whether there's a newer release. It keeps its accounts, settings, Seerr session (never a password) and a 96 MB image cache in its own folder, and release builds send no logs anywhere.
+Jelly5 talks to your Jellyfin or Emby server and, if you turn it on, your Seerr server, and nothing else. It doesn't contact TMDB, YouTube or other services on its own: posters come through Seerr's image cache, and trailers are a QR code your phone opens. The only exceptions are opt-in: with *Check for updates* on, it asks GitHub once per launch whether there's a newer release, and with *Pictures straight from TMDB* on, it loads Seerr's posters from TMDB's image server, as Seerr's own web page does. It keeps its accounts, settings, Seerr session (never a password) and a 96 MB image cache in its own folder, and release builds send no logs anywhere.
 
 ## Building
 

@@ -328,6 +328,9 @@ const std::unordered_map<std::string, const char *> &spanish_table()
         {"  ·  %lld GB ledig", "  ·  %lld GB libres"},
         {" – bruk den lokale adressen", " – usa su dirección local"},
         {" – men bildene kommer ikke", " – pero las imágenes no llegan"},
+        {"Bilder rett fra TMDB", "Imágenes directamente de TMDB"},
+        {" – men bildene kommer ikke: prøv Bilder rett fra TMDB", " – pero las imágenes no llegan: prueba Imágenes directamente de TMDB"},
+        {"Bilder rett fra TMDB: PS5-en henter Seerr-bildene fra TMDB, som da ser IP-adressen din.", "Imágenes directamente de TMDB: la PS5 carga las imágenes de Seerr desde TMDB, que entonces ve tu dirección IP."},
         {"%d av %d forespørsler brukt (siste %d dager)", "%d de %d solicitudes usadas (últimos %d días)"},
         
         {"Adresse", "Dirección"},
