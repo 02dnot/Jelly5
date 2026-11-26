@@ -124,6 +124,9 @@ public:
      * group and moves with it rigidly. */
     void to(const gfx::Rect &r, int key, float ox = 0, float oy = 0);
     void hide() { m_shown = false; }
+    /* The spring's damping: 19 (the default) overshoots a little and swings back;
+     * about 33 (near critical) settles on the target without passing it. */
+    void set_damping(float d) { m_damp = d; }
     /* Steps the springs (sets *animating while it moves) and draws the drop. */
     void draw(float dt, float opacity, bool *animating, float radius = -1.f);
     /* Where it is drawn now, for a label that rides on it. */
@@ -135,6 +138,7 @@ private:
     gfx::Rect m_target{0, 0, 0, 0}, m_drawn{0, 0, 0, 0};   /* m_target: within the group */
     float m_ox = 0, m_oy = 0;
     int m_key = -1;
+    float m_damp = 19.f;
     bool m_shown = false, m_placed = false;
 };
 
