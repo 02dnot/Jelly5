@@ -63,72 +63,110 @@ static size_t utf8_next(const unsigned char *s, size_t n, uint32_t *cp)
     return len;
 }
 
-/* The font an override block leaves in effect: its last \fn, or the style's
- * after \r. */
-static void scan_block(const char *s, size_t n, const char **font, size_t *font_n)
+/* Marks that belong to the character before them: a run keeps them, so a
+ * symbol and its variation selector or combining mark stay in one font. */
+static int is_mark(uint32_t cp)
+{
+    return (cp >= 0x0300 && cp <= 0x036f) || (cp >= 0x20d0 && cp <= 0x20ff) ||
+           (cp >= 0xfe00 && cp <= 0xfe0f) || cp == 0x200d;
+}
+
+typedef struct {
+    const char *font;   /* the font in effect; empty: the event's style */
+    size_t font_n;
+} state;
+
+/* The font an override block leaves in effect: its last \fn, or the style a
+ * \r names. */
+static void scan_block(const char *s, size_t n, state *st, sub_symbols_style_font_fn style_font,
+                       void *ctx)
 {
     for (size_t i = 0; i < n; i++) {
         if (s[i] != '\\')
             continue;
+        size_t a, e;
         if (i + 2 < n && s[i + 1] == 'f' && s[i + 2] == 'n') {
-            size_t a = i + 3, e = a;
-            while (e < n && s[e] != '\\')
-                e++;
-            *font = s + a;
-            *font_n = e - a;
+            a = i + 3;
         } else if (i + 1 < n && s[i + 1] == 'r') {
-            *font = "";
-            *font_n = 0;
+            a = i + 2;
+        } else {
+            continue;
         }
+        e = a;
+        while (e < n && s[e] != '\\')
+            e++;
+        if (s[i + 1] == 'f') {
+            st->font = s + a;
+            st->font_n = e - a;
+            continue;
+        }
+        while (a < e && (s[a] == ' ' || s[a] == '\t'))
+            a++;
+        size_t z = e;
+        while (z > a && (s[z - 1] == ' ' || s[z - 1] == '\t'))
+            z--;
+        const char *f = (z > a && style_font) ? style_font(s + a, z - a, ctx) : NULL;
+        st->font = f ? f : "";
+        st->font_n = f ? strlen(f) : 0;
     }
 }
 
 char *sub_symbols_wrap(const char *text, const char *family, sub_symbols_covered_fn covered,
-                       void *ctx)
+                       sub_symbols_style_font_fn style_font, void *ctx)
 {
     if (!text || !family || !covered)
         return NULL;
     const size_t len = strlen(text);
     const size_t fam_n = strlen(family);
-    const char *font = "";            /* empty: the style's own font */
-    size_t font_n = 0;
+    state st = {"", 0};
     buf b = {0};
     int in_run = 0, changed = 0;
     size_t i = 0;
     while (i < len) {
-        if (text[i] == '{') {
-            const char *close = memchr(text + i, '}', len - i);
-            if (!close) {
-                free(b.p);
-                return NULL;          /* a tag inserted after it would close it */
-            }
-            const size_t bn = (size_t)(close - text) + 1 - i;
+        /* \{ and \} are drawn as braces, not override blocks. */
+        if (text[i] == '\\' && i + 1 < len && (text[i + 1] == '{' || text[i + 1] == '}')) {
             if (in_run) {
-                put_fn(&b, font, font_n);
+                put_fn(&b, st.font, st.font_n);
                 in_run = 0;
             }
-            scan_block(text + i + 1, bn - 2, &font, &font_n);
+            put(&b, text + i, 2);
+            i += 2;
+            continue;
+        }
+        if (text[i] == '{') {
+            if (in_run) {
+                put_fn(&b, st.font, st.font_n);
+                in_run = 0;
+            }
+            const char *close = memchr(text + i, '}', len - i);
+            if (!close) {
+                /* A tag inserted after it would close it: the rest as it is. */
+                put(&b, text + i, len - i);
+                break;
+            }
+            const size_t bn = (size_t)(close - text) + 1 - i;
+            scan_block(text + i + 1, bn - 2, &st, style_font, ctx);
             put(&b, text + i, bn);
             i += bn;
             continue;
         }
         uint32_t cp = 0;
         size_t n = utf8_next((const unsigned char *)text + i, len - i, &cp);
-        const int sym = n > 0 && cp >= 0x80 && covered(cp, ctx);
+        const int sym = n > 0 && cp >= 0x80 && (covered(cp, ctx) || (in_run && is_mark(cp)));
         if (n == 0)
             n = 1;
         if (sym && !in_run) {
             put_fn(&b, family, fam_n);
             in_run = changed = 1;
         } else if (!sym && in_run) {
-            put_fn(&b, font, font_n);
+            put_fn(&b, st.font, st.font_n);
             in_run = 0;
         }
         put(&b, text + i, n);
         i += n;
     }
     if (in_run)
-        put_fn(&b, font, font_n);
+        put_fn(&b, st.font, st.font_n);
     if (!changed || b.oom) {
         free(b.p);
         return NULL;
