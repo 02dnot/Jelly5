@@ -871,12 +871,20 @@ std::vector<std::string> Client::home_sections(bool *ok)
     }
     cJSON *j = cJSON_Parse(body.c_str());
     const cJSON *prefs = cJSON_GetObjectItemCaseSensitive(j, "CustomPrefs");
+    /* An unset slot takes the server's default for that place, as jellyfin-web
+     * reads it; stopping at the first gap hid every section after it. None set
+     * at all stays empty: the default order. */
+    static const char *const k_defaults[10] = {"smalllibrarytiles", "resume", "resumeaudio", "resumebook", "livetv",
+                                               "nextup", "latestmedia", "none", "none", "none"};
+    bool any = false;
     for (int i = 0; i < 10; i++) {
         const cJSON *v = cJSON_GetObjectItemCaseSensitive(prefs, ("homesection" + std::to_string(i)).c_str());
-        if (!cJSON_IsString(v) || !v->valuestring)
-            break;
-        out.push_back(v->valuestring);
+        const bool set = cJSON_IsString(v) && v->valuestring && *v->valuestring;
+        any = any || set;
+        out.push_back(set ? v->valuestring : k_defaults[i]);
     }
+    if (!any)
+        out.clear();
     cJSON_Delete(j);
     return out;
 }
