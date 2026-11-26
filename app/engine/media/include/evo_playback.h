@@ -43,6 +43,7 @@ double evo_pb_duration_s(void);
 double evo_pb_audio_clock_s(void);
 void   evo_pb_set_av_offset(double seconds);  /* Jelly5: audio delay, s (>0: sound arrives late) */
 double evo_pb_video_clock_s(void);    /* raw video presentation clock (s)    */
+long long evo_pb_video_keys_sent(void); /* keyframes handed to the decoder */
 double evo_pb_video_fps(void);        /* 0 until a stream is open            */
 void   evo_pb_queue_depth(int *vpkts, int *apkts, int *ablocks);  /* debug overlay */
 int    evo_pb_active_backend(void);   /* evo_vdec_backend of the live decoder */

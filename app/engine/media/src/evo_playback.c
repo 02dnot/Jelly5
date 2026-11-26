@@ -72,6 +72,9 @@ pp_aspect_mode prospero_view_mode_to_aspect(void);
  * ------------------------------------------------------------------------ */
 double first_video_pts_seconds = -1.0;
 double video_clock_seconds = 0.0;
+/* Keyframes handed to the decoder: a silent hardware decoder that has not
+ * been given one yet is waiting, not broken. */
+volatile long long video_keys_sent = 0;
 double video_fps = 60.0;
 int    video_decode_ready = 0;
 int    video_decode_done = 0;
@@ -753,6 +756,8 @@ int decode_next_video_frame(void)
                                      video_video_pending_pkt->size, send_pts_us);
 
         if (send_ret == 0) {
+            if (video_video_pending_pkt->flags & AV_PKT_FLAG_KEY)
+                video_keys_sent++;
             av_packet_free(&video_video_pending_pkt);
             continue;
         }
@@ -820,6 +825,7 @@ volatile double evo_av_offset_s = 0.0;
 void evo_pb_set_av_offset(double seconds) { evo_av_offset_s = seconds; }
 double evo_pb_audio_clock_s(void)   { return (double)audio_clock_seconds; }
 double evo_pb_video_clock_s(void)   { return video_clock_seconds; }
+long long evo_pb_video_keys_sent(void) { return video_keys_sent; }
 double evo_pb_video_fps(void)       { return video_fps; }
 int evo_pb_active_backend(void)     { return (int)evo_vdec_active(g_vdec); }
 
