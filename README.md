@@ -37,7 +37,7 @@ Jelly5 brings your Jellyfin or Emby library to the PS5 as a real app: a fast, sh
 
 **Browsing**
 - Home with a hero, *Continue watching*, *Next up*, *Recently added*, recommendations and genres
-- Title pages with logo art, cast, seasons and episodes, trailers, extras and theme music
+- Title pages with logo art, cast, seasons and episodes, trailers, extras and theme music, and *Tilfeldig* (shuffle) on a series: a random episode, then the rest of the series in random order
 - Movie, TV and music libraries with sorting, filters and A–Z jumping, and search across everything
 - Several users and servers, a screensaver from your own backdrops, and a liquid-glass look throughout
 - In all 27 of the PS5's system languages, following the PS5's language (or a choice in Settings): English, Norwegian, German, French, Spanish, Italian, Portuguese, Dutch, Swedish, Danish, Finnish, Polish, Czech, Hungarian, Romanian, Greek, Russian, Ukrainian, Turkish, Arabic, Japanese, Korean, Chinese (Traditional and Simplified), Thai, Vietnamese and Indonesian
@@ -65,7 +65,7 @@ Jelly5 brings your Jellyfin or Emby library to the PS5 as a real app: a fast, sh
 
 **Made for the PS5**
 - DualSense adaptive triggers for scrubbing, and a light bar that takes the colour of what's playing
-- A 120 Hz interface where the TV supports it, and TV-remote control over HDMI-CEC
+- A 120 Hz interface where the TV supports it, the PlayStation Media Remote, and TV-remote control over HDMI-CEC
 - *Watch together* (Jellyfin SyncPlay) and remote control from other Jellyfin or Emby apps
 
 **Requests with Seerr** (optional)
@@ -218,6 +218,7 @@ Tests run on the build machine (they need libcurl's headers: `libcurl4-openssl-d
 - `app/tests/host/run.sh`: the client against your Jellyfin server (`JF_URL`, `JF_USER`, `JF_PASS` in `.env.local`); `run.sh emby` against Emby (`EMBY_URL`, `EMBY_USER`, `EMBY_PASS`)
 - `app/tests/host/seerr.sh`: the Seerr client (`SEERR_URL`); it sends no request unless given `--for-real`
 - `app/tests/host/routes.sh`: no server needed; checks that every Jellyfin request is the same as on `main`
+- `app/tests/host/home_sections.sh`: no server needed; how Jellyfin's home-screen order is read
 
 ## Credits
 
@@ -225,6 +226,7 @@ Jelly5 stands on the work of others in the PS5 scene and beyond:
 
 - **[Nuvio PS5](https://github.com/theghostonline/Nuvio-PS5)** by Husam Osman: the native player, its session and subtitle handling, and the app packaging toolkit
 - **[EVO Player](https://github.com/sainsaji/EVO-PLAYER-PS5)**: the media engine (demuxing, `sceVideodec2`, the AGC renderer, audio, HDR), shader tooling and much of what is known about the PS5's GPU from user space
+- **[Jelly5-IPTV](https://github.com/TheUnwelcomed/Jelly5-IPTV)** by TheUnwelcomed: a larger TCP receive buffer for streams, and the sound and picture clocks kept in step across gaps and timestamp jumps
 - **[ps5-payload-dev SDK](https://github.com/ps5-payload-dev/sdk)** by John Törnblom and contributors, plus the pacbrew sysroot
 - **[Jelly5-Seerr](https://github.com/viviandsx/Jelly5-Seer)** by [@viviandsx](https://github.com/viviandsx): the Seerr integration (client, search, requests, Discover) and the Linux build. Thank you!
 - **[Switchfin](https://github.com/dragonflylee/switchfin)**, a reference for the Jellyfin API
