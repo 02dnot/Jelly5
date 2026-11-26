@@ -1081,12 +1081,34 @@ static bool play_chain(jf::Client &client, jf::Item item, std::vector<jf::Item> 
     return ok;
 }
 
+/* A series' episodes for Bland: this one first, then the series' other numbered
+ * episodes (no specials) in random order, each from its start. They keep their
+ * own season and episode numbers; the player's next is the next in the list. */
+static std::vector<jf::Item> shuffled_episodes(std::vector<jf::Item> all, const jf::Item &first)
+{
+    std::vector<jf::Item> eps{first};
+    for (jf::Item &e : all)
+        if (!e.id.empty() && e.id != first.id && e.parent_index > 0 && e.index > 0)
+            eps.push_back(std::move(e));
+    std::srand((unsigned)time(nullptr));
+    for (size_t i = eps.size() - 1; i > 1; i--)
+        std::swap(eps[i], eps[1 + std::rand() % i]);
+    for (jf::Item &e : eps)
+        e.position_ticks = 0;
+    return eps;
+}
+
 bool jelly5_play(jf::Client &client, const jf::Item &first, std::string *error, bool shuffle)
 {
     jf::Item item = first;
     std::vector<jf::Item> episodes;
-    if (item.type == "Episode" && !item.series_id.empty())
+    if (item.type == "Episode" && !item.series_id.empty()) {
         episodes = client.episodes(item.series_id, std::string());
+        if (shuffle) {
+            item.position_ticks = 0;
+            episodes = shuffled_episodes(std::move(episodes), item);
+        }
+    }
     if (item.type == "Audio" && !item.album_id.empty())
         episodes = album_queue(client, &item, shuffle);
     return play_chain(client, item, std::move(episodes), error);
