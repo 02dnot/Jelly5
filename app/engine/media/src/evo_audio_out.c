@@ -12,6 +12,7 @@
 #include "evo_audio_out.h"
 
 #include <math.h>
+#include <time.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -27,6 +28,7 @@
 #include "evo_adec.h"
 #include "pp_playback.h"
 #include "evo_boot_log.h"
+#include "evo_boot_trace.h"
 #include "evo_speaker_cal.h"
 #include "jelly5_tempo.h"
 #include "jelly5_bitstream.h"
@@ -103,6 +105,19 @@ volatile int audio_queue_read = 0;
 volatile int audio_queue_write = 0;
 volatile int audio_queue_count = 0;
 volatile long long audio_samples_played = 0;
+/*
+ * The sound's clock follows the sound's timestamps across a gap.
+ * The clock counts the samples played; a jump in the sound's timestamps (a live
+ * stream picked up again at its edge after a dropped connection: everything in
+ * between is skipped; or a stretch of it sent twice) left it on the old count while
+ * the picture, timed by its timestamps, sat seconds "early" and was shown one frame
+ * per 1.5 s until the clock caught up (7–14 s of frozen picture with the sound
+ * running, after each drop). audio_clock_shift is the sum of those jumps
+ * in samples, added to the count: the clock jumps with the sound and the picture
+ * stays with it. Set by the decode thread, read by the output thread; reset with
+ * the count at open and seek.
+ */
+volatile long long audio_clock_shift = 0;
 volatile long long audio_samples_decoded = 0;
 volatile double audio_clock_seconds = 0.0;
 volatile double audio_pts_seconds = 0.0;
@@ -354,7 +369,7 @@ void *audio_output_thread(void *arg) {
                 if (grain) {
                     sceAudioOutOutput(audio_handle, grain);
                     audio_samples_played += jelly5_bs_media_samples();
-                    audio_clock_seconds = (double)audio_samples_played / 48000.0;
+                    audio_clock_seconds = (double)(audio_samples_played + audio_clock_shift) / 48000.0;
                 } else {
                     sceAudioOutOutput(audio_handle, jelly5_bs_silence());
                 }
@@ -384,7 +399,7 @@ void *audio_output_thread(void *arg) {
                     frac = adv - (double)whole;
                     audio_samples_played += whole;
                 }
-                audio_clock_seconds = (double)audio_samples_played / 48000.0;
+                audio_clock_seconds = (double)(audio_samples_played + audio_clock_shift) / 48000.0;
             } else {
                 /*
                  * Soft underrun: silence without advancing media clock.
@@ -784,6 +799,37 @@ void *audio_decode_thread_func(void *arg) {
             jelly5_bs_feed(pkt->data, pkt->size, &audio_decode_thread_running);
             av_packet_free(&pkt);
             continue;
+        }
+
+        /*
+         * A jump in this packet's timestamp against the run of the
+         * ones before it (the usual step between packets is learned as it goes; AAC in
+         * a TS is 21 ms, several frames in one PES up to ~0.2 s) moves the clock by the
+         * same amount. Below 0.3 s nothing moves (jitter, the splice fix's holes); past
+         * 120 s it is a new timeline (a wrap, a restart) and is left to the anchors.
+         */
+        if (pkt->pts != AV_NOPTS_VALUE && play_fmt && audio_stream_index >= 0) {
+            static double s_gap_last = -1.0, s_gap_typ = 0.0;
+            const double p = pkt->pts * av_q2d(play_fmt->streams[audio_stream_index]->time_base);
+            if (first_audio_pts_seconds < 0.0) {   /* the first packet after an open or seek */
+                s_gap_last = -1.0;
+                s_gap_typ = 0.0;
+                audio_clock_shift = 0;
+            }
+            if (s_gap_last >= 0.0) {
+                const double d = p - s_gap_last;
+                if (d > 0.0 && d < 0.25) {
+                    if (s_gap_typ <= 0.0 || d < s_gap_typ)
+                        s_gap_typ = d;   /* the smallest step seen: one packet */
+                } else if (s_gap_typ > 0.0 && fabs(d) < 120.0 && fabs(d - s_gap_typ) > 0.3) {
+                    const double gap = d - s_gap_typ;
+                    audio_clock_shift += (long long)(gap * 48000.0);
+                    evo_bt("nuvio: utc=%lld sound timestamps jump %+.2f s (at sound %.1f s) - the clock moves with them; "
+                           "shift now %+.2f s", (long long)time(NULL), gap, p,
+                           (double)audio_clock_shift / 48000.0);
+                }
+            }
+            s_gap_last = p;
         }
 
         /*
