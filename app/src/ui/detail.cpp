@@ -51,7 +51,7 @@ std::string runtime_label(int64_t ticks)
     return b;
 }
 
-/* An episode Bland may play: numbered, no specials (jelly5_play mixes the same). */
+/* An episode Tilfeldig may play: numbered, no specials (jelly5_play mixes the same). */
 bool shufflable(const jf::Item &e)
 {
     return !e.id.empty() && e.parent_index > 0 && e.index > 0;
@@ -383,7 +383,7 @@ std::vector<Detail::Button> Detail::buttons() const
         b.push_back(PlayButton);
     if (m_view.have_target && m_view.target.position_ticks > 0)
         b.push_back(RestartButton);
-    if (t == "Series") {   /* Bland: two episodes to mix at least (counted, not copied: every frame) */
+    if (t == "Series") {   /* Tilfeldig: two episodes to mix at least (counted, not copied: every frame) */
         int n = 0;
         for (const jf::Item &e : m_view.all_episodes)
             if (shufflable(e) && ++n >= 2) {
@@ -773,7 +773,7 @@ void Detail::draw_top(float y0, float dt)
         if (bs[i] == RestartButton)
             w = gfx::text_width(T("Fra start"), st) + 64;
         if (bs[i] == ShuffleButton)
-            w = gfx::text_width(T("Bland"), st) + 64;
+            w = gfx::text_width(T("Tilfeldig"), st) + 64;
         if (bs[i] == TrailerButton)
             w = gfx::text_width("Trailer", st) + 64;
         if (bs[i] == PlayButton)
@@ -812,7 +812,7 @@ void Detail::draw_top(float y0, float dt)
         } else if (bs[i] == RestartButton) {
             gfx::text(r.x + r.w / 2, cy + 9, T("Fra start"), st, fg, 1);
         } else if (bs[i] == ShuffleButton) {
-            gfx::text(r.x + r.w / 2, cy + 9, T("Bland"), st, fg, 1);
+            gfx::text(r.x + r.w / 2, cy + 9, T("Tilfeldig"), st, fg, 1);
         } else if (bs[i] == TrailerButton) {
             gfx::text(r.x + r.w / 2, cy + 9, "Trailer", st, fg, 1);
         } else if (bs[i] == WatchedButton) {

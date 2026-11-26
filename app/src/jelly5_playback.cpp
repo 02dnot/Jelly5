@@ -1081,7 +1081,7 @@ static bool play_chain(jf::Client &client, jf::Item item, std::vector<jf::Item> 
     return ok;
 }
 
-/* A series' episodes for Bland: this one first, then the series' other numbered
+/* A series' episodes for Tilfeldig: this one first, then the series' other numbered
  * episodes (no specials) in random order, each from its start. They keep their
  * own season and episode numbers; the player's next is the next in the list. */
 static std::vector<jf::Item> shuffled_episodes(std::vector<jf::Item> all, const jf::Item &first)

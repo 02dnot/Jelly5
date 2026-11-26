@@ -139,7 +139,7 @@ const std::unordered_map<std::string, const char *> &vietnamese_table()
         {" i biblioteket.", " trong thư viện."},
         {"Spilleliste", "Danh sách phát"},
         
-        {"Bland", "Phát ngẫu nhiên"},
+        {"Tilfeldig", "Phát ngẫu nhiên"},
         {"Miks", "Trộn lẫn nhanh"},
         {"Fjern fra Min liste", "Xóa khỏi Danh sách của tôi"},
         {"Legg til i Min liste", "Thêm vào Danh sách của tôi"},

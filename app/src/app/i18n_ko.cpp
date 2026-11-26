@@ -139,7 +139,7 @@ const std::unordered_map<std::string, const char *> &korean_table()
         {" i biblioteket.", " 관련 작품이 없습니다."},
         {"Spilleliste", "재생목록"},
         
-        {"Bland", "셔플"},
+        {"Tilfeldig", "셔플"},
         {"Miks", "인스턴트 믹스"},
         {"Fjern fra Min liste", "내가 찜한 콘텐츠에서 삭제"},
         {"Legg til i Min liste", "내가 찜한 콘텐츠에 추가"},

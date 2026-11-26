@@ -139,7 +139,7 @@ const std::unordered_map<std::string, const char *> &russian_table()
         {" i biblioteket.", " в медиатеке."},
         {"Spilleliste", "Плейлист"},
         
-        {"Bland", "Перемешать"},
+        {"Tilfeldig", "Перемешать"},
         {"Miks", "Автомикс"},
         {"Fjern fra Min liste", "Удалить из «Моего списка»"},
         {"Legg til i Min liste", "Добавить в «Мой список»"},

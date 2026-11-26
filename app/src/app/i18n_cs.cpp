@@ -139,7 +139,7 @@ const std::unordered_map<std::string, const char *> &czech_table()
         {" i biblioteket.", " v knihovně."},
         {"Spilleliste", "Playlist"},
         
-        {"Bland", "Náhodně"},
+        {"Tilfeldig", "Náhodně"},
         {"Miks", "Mix"},
         {"Fjern fra Min liste", "Odebrat z Mého seznamu"},
         {"Legg til i Min liste", "Přidat do Mého seznamu"},

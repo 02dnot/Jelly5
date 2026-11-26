@@ -78,7 +78,7 @@ private:
     static Content fetch(jf::Client &client, const jf::Item &base);
     std::vector<Zone> zones() const;
     std::vector<Button> buttons() const;
-    std::vector<jf::Item> shuffle_episodes() const;   /* what Bland mixes: numbered episodes, no specials */
+    std::vector<jf::Item> shuffle_episodes() const;   /* what Tilfeldig mixes: numbered episodes, no specials */
     void sync_button();
     bool can_ask_seerr() const;   /* Seerr has seasons of this series to ask for (a menu entry) */
     std::vector<jf::Version> versions() const;   /* what Play plays, when it is this title: its versions */

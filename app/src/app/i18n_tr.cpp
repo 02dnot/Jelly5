@@ -139,7 +139,7 @@ const std::unordered_map<std::string, const char *> &turkish_table()
         {" i biblioteket.", " ile ilgili yapım yok."},
         {"Spilleliste", "Çalma listesi"},
         
-        {"Bland", "Karıştır"},
+        {"Tilfeldig", "Karıştır"},
         {"Miks", "Miks"},
         {"Fjern fra Min liste", "Listemden Kaldır"},
         {"Legg til i Min liste", "Listeme Ekle"},

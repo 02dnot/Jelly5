@@ -139,7 +139,7 @@ const std::unordered_map<std::string, const char *> &chinese_traditional_table()
         {" i biblioteket.", " 的作品。"},
         {"Spilleliste", "播放清單"},
         
-        {"Bland", "隨機播放"},
+        {"Tilfeldig", "隨機播放"},
         {"Miks", "即時混音"},
         {"Fjern fra Min liste", "從我的片單移除"},
         {"Legg til i Min liste", "加入我的片單"},

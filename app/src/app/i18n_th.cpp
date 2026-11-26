@@ -139,7 +139,7 @@ const std::unordered_map<std::string, const char *> &thai_table()
         {" i biblioteket.", " ในคลังสื่อ"},
         {"Spilleliste", "เพลย์ลิสต์"},
         
-        {"Bland", "สุ่ม"},
+        {"Tilfeldig", "สุ่ม"},
         {"Miks", "มิกซ์"},
         {"Fjern fra Min liste", "ลบออกจากรายการของฉัน"},
         {"Legg til i Min liste", "เพิ่มในรายการของฉัน"},

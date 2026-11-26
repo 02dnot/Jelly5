@@ -139,7 +139,7 @@ const std::unordered_map<std::string, const char *> &hungarian_table()
         {" i biblioteket.", " a médiatárban."},
         {"Spilleliste", "Lejátszási lista"},
         
-        {"Bland", "Keverés"},
+        {"Tilfeldig", "Keverés"},
         {"Miks", "Mix"},
         {"Fjern fra Min liste", "Eltávolítás a Saját listáról"},
         {"Legg til i Min liste", "Hozzáadás a Saját listához"},

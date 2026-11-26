@@ -139,7 +139,7 @@ const std::unordered_map<std::string, const char *> &polish_table()
         {" i biblioteket.", " w bibliotece."},
         {"Spilleliste", "Playlista"},
         
-        {"Bland", "Losowo"},
+        {"Tilfeldig", "Losowo"},
         {"Miks", "Miks"},
         {"Fjern fra Min liste", "Usuń z Mojej listy"},
         {"Legg til i Min liste", "Dodaj do Mojej listy"},

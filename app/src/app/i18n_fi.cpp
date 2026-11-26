@@ -139,7 +139,7 @@ const std::unordered_map<std::string, const char *> &finnish_table()
         {" i biblioteket.", " on mukana."},
         {"Spilleliste", "Soittolista"},
         
-        {"Bland", "Satunnaistoisto"},
+        {"Tilfeldig", "Satunnaistoisto"},
         {"Miks", "Pikasekoitus"},
         {"Fjern fra Min liste", "Poista omalta listalta"},
         {"Legg til i Min liste", "Lisää omalle listalle"},

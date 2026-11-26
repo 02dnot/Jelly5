@@ -123,7 +123,7 @@ const std::unordered_map<std::string, const char *> &english_table()
         {"Mer som dette", "More Like This"}, {"Født ", "Born "}, 
         {"Ingen biografi.", "No biography."}, {"Ingen titler med ", "No titles with "},
         {" i biblioteket.", " in the library."}, {"Spilleliste", "Playlist"}, 
-        {"Bland", "Shuffle"}, {"Miks", "Mix"},
+        {"Tilfeldig", "Shuffle"}, {"Miks", "Mix"},
         /* options sheet */
         {"Fjern fra Min liste", "Remove from My List"}, {"Legg til i Min liste", "Add to My List"},
         {"Merk som usett", "Mark as Unwatched"}, {"Fjern fra Fortsett å se", "Remove from Continue Watching"},

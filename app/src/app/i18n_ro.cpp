@@ -139,7 +139,7 @@ const std::unordered_map<std::string, const char *> &romanian_table()
         {" i biblioteket.", " în bibliotecă."},
         {"Spilleliste", "Playlist"},
         
-        {"Bland", "Amestecă"},
+        {"Tilfeldig", "Amestecă"},
         {"Miks", "Mix"},
         {"Fjern fra Min liste", "Elimină din Lista mea"},
         {"Legg til i Min liste", "Adaugă în Lista mea"},

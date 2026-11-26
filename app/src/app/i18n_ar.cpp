@@ -139,7 +139,7 @@ const std::unordered_map<std::string, const char *> &arabic_table()
         {" i biblioteket.", " في المكتبة."},
         {"Spilleliste", "قائمة تشغيل"},
         
-        {"Bland", "تشغيل عشوائي"},
+        {"Tilfeldig", "تشغيل عشوائي"},
         {"Miks", "مزيج"},
         {"Fjern fra Min liste", "إزالة من قائمتي"},
         {"Legg til i Min liste", "إضافة إلى قائمتي"},

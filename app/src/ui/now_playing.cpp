@@ -134,7 +134,7 @@ void NowPlaying::draw(double now, float dt)
         jelly5_music_state(&up, &idx, &cur, &sh, &rep);
         std::string mode;
         if (sh)
-            mode = T("Bland");
+            mode = T("Tilfeldig");
         if (rep)
             mode += std::string(mode.empty() ? "" : "  \xC2\xB7  ") + (rep == 2 ? T("Gjenta én") : T("Gjenta alle"));
         /* △ the queue, □ stop (the music ends, and with it the mini player). */
@@ -181,7 +181,7 @@ void NowPlaying::queue_input(uint32_t p)
     }
 }
 
-/* The queue: a glass sheet on the right - Bland and Gjenta, then what plays next. */
+/* The queue: a glass sheet on the right - Tilfeldig and Gjenta, then what plays next. */
 void NowPlaying::draw_queue(float dt)
 {
     m_qa.step(dt, 12.f);
@@ -200,7 +200,7 @@ void NowPlaying::draw_queue(float dt)
     glass_panel(r, 28, a);
     gfx::text(r.x + 44, r.y + 70, T("Kø"), {gfx::Bold, 36}, alpha(kText, a));
     /* The toggles. */
-    const std::string shuffle = T("Bland");
+    const std::string shuffle = T("Tilfeldig");
     const std::string repeat = rep == 2 ? T("Gjenta én") : rep == 1 ? T("Gjenta alle") : T("Gjenta");
     const gfx::TextStyle ts{gfx::SemiBold, 23};
     const float tw0 = gfx::text_width(shuffle, ts) + 64, tw1 = gfx::text_width(repeat, ts) + 64, ty = r.y + 104;
@@ -222,7 +222,7 @@ void NowPlaying::draw_queue(float dt)
     else
         m_qdrop.hide();
     const gfx::Rect q_view{r.x, lt - 4, w, view_h + 8};
-    if (m_qrow == 0)   /* on Bland / Gjenta: above the list, so outside its clip */
+    if (m_qrow == 0)   /* on Tilfeldig / Gjenta: above the list, so outside its clip */
         m_qdrop.draw(dt, a, &moving, 28.f);
     gfx::push_scissor(q_view);
     if (m_qrow != 0)
