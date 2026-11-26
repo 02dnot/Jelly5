@@ -493,6 +493,7 @@ private:
     bool is_admin_ = false, manages_subtitles_ = false, subtitle_search_ = false;
     bool can_record_ = false, live_tv_access_ = false;
     std::vector<std::string> latest_excludes_;
+    bool hide_played_in_latest_ = true;   /* the user's "hide played in latest" (validate) */
     void set_error(std::string e) { std::lock_guard<std::mutex> g(error_lock_); error_ = std::move(e); }
     std::string error_;
     mutable std::mutex error_lock_;

@@ -40,6 +40,7 @@ struct HomeRow {
      * and where the next page of the library's newest titles starts. */
     std::string library, library_type;
     int next = 0;
+    int first = 0;          /* how many of its titles came in the first answer (/Items/Latest) */
 };
 
 /* A next page of a "Nylig lagt til" row: the titles it does not show yet are

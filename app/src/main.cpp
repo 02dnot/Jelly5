@@ -585,6 +585,7 @@ ui::HomeModel build_home(jf::Client &c, const HomeRaw &raw, std::vector<jf::Item
                                   ui::HomeRow::Latest};
                     r.library = v.id;   /* (it goes on as the viewer scrolls: load_more_latest) */
                     r.library_type = v.collection_type;
+                    r.first = (int)r.items.size();
                     latest.push_back(std::move(r));
                 }
 
@@ -648,7 +649,8 @@ ui::HomeModel build_home(jf::Client &c, const HomeRaw &raw, std::vector<jf::Item
 
 /* A refresh brings each "Nylig lagt til" row's first answer again: the pages the
  * viewer had scrolled into stay after it, so a return from playback keeps the place.
- * Caller holds s_state.lock. */
+ * Only the pages: what the old first answer had and the new one has not (watched
+ * since, deleted) is gone. Caller holds s_state.lock. */
 void keep_latest_pages(ui::HomeModel &m, const ui::HomeModel &old)
 {
     for (ui::HomeRow &r : m.rows) {
@@ -656,7 +658,8 @@ void keep_latest_pages(ui::HomeModel &m, const ui::HomeModel &old)
             continue;
         for (const ui::HomeRow &o : old.rows)
             if (o.library == r.library && o.next > 0) {
-                ui::append_new(r, o.items);
+                const size_t from = std::min(o.items.size(), (size_t)std::max(0, o.first));
+                ui::append_new(r, std::vector<jf::Item>(o.items.begin() + from, o.items.end()));
                 r.next = o.next;
                 r.more = o.more;
             }

@@ -88,6 +88,8 @@ size_t append_new(HomeRow &row, const std::vector<jf::Item> &items)
     for (const jf::Item &it : items)
         if (!have.count(it.id) && (it.series_id.empty() || !have.count(it.series_id))) {
             have.insert(it.id);
+            if (!it.series_id.empty())
+                have.insert(it.series_id);
             row.items.push_back(it);
             added++;
         }
@@ -688,10 +690,11 @@ void Home::draw_rows(float dt)
         /* Horizontal: the focused card sits at the left edge, until the row ends. */
         const int col = m_cols[r];
         /* More of the row coming: three glass cards where it will be (they become
-         * cards in place), and room to scroll to them. */
-        const int coming = continues(row) ? 3 : 0;
-        const float max_scroll = std::max(
-            0.f, (float)(row.items.size() + (coming ? 2 : 0)) * (cw + kCardGap) - kCardGap - (gfx::W - 2 * kPad));
+         * cards in place), and room to scroll to them. On Home only on the row with
+         * focus: a row is asked for more only then, and a small library has none. */
+        const int coming = continues(row) && (m_discover || (int)r == m_row) ? 3 : 0;
+        const float max_scroll = std::max(   /* (the room stays as focus leaves: the row does not shift) */
+            0.f, (float)(row.items.size() + (continues(row) ? 2 : 0)) * (cw + kCardGap) - kCardGap - (gfx::W - 2 * kPad));
         m_scroll[r].to(std::min(max_scroll, (float)col * (cw + kCardGap)));
         if (m_scroll[r].step(dt, 12.f))
             m_animating = true;
