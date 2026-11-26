@@ -20,7 +20,6 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
-#include <ctime>
 #include <future>
 #include <list>
 #include <map>
@@ -50,12 +49,6 @@ std::string runtime_label(int64_t ticks)
     else
         std::snprintf(b, sizeof b, "%d min", min);
     return b;
-}
-
-/* An episode Tilfeldig may play: numbered, with a file, no specials (shuffled_order takes the same). */
-bool shufflable(const jf::Item &e)
-{
-    return !e.id.empty() && !e.missing && e.parent_index > 0 && e.index > 0;
 }
 
 std::string ep_code(const jf::Item &e)
@@ -389,7 +382,7 @@ std::vector<Detail::Button> Detail::buttons() const
     if (t == "Series" && !syncplay::active()) {
         int n = 0;
         for (const jf::Item &e : m_view.all_episodes)
-            if (shufflable(e) && ++n >= 2) {
+            if (jelly5_shufflable(e) && ++n >= 2) {
                 b.push_back(ShuffleButton);
                 break;
             }
@@ -406,7 +399,7 @@ std::vector<jf::Item> Detail::shuffle_episodes() const
 {
     std::vector<jf::Item> eps;
     for (const jf::Item &e : m_view.all_episodes)
-        if (shufflable(e))
+        if (jelly5_shufflable(e))
             eps.push_back(e);
     return eps;
 }
@@ -597,12 +590,12 @@ Action Detail::input(uint32_t p)
                 a.kind = Action::PlayFromStart;
                 a.item = m_view.trailer;
             } else if (btn == ShuffleButton) {
-                /* A random episode first; playback mixes the rest after it. */
+                /* A random episode first; playback mixes the rest after it. The
+                 * server's best version: no version menu, whatever ask_version says. */
                 const std::vector<jf::Item> eps = shuffle_episodes();
                 if (!eps.empty()) {
-                    std::srand((unsigned)time(nullptr));
                     a.kind = Action::PlayShuffled;
-                    a.item = eps[(size_t)std::rand() % eps.size()];
+                    a.item = eps[jelly5_random_below(eps.size())];
                     a.item.position_ticks = 0;
                 }
             } else if (m_view.have_target) {

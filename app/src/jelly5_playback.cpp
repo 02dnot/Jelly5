@@ -451,14 +451,16 @@ std::string request_json(jf::Client &c, const jf::Item &it, const jf::Playback &
                 cJSON_AddItemToArray(eps, episode_json(c, episodes[i]));
         }
         cJSON_AddItemToObject(o, "episodes", eps);
+        /* In a shuffled run the next in its order; an episode picked from the
+         * player's list that is not in it (a special) goes on in the list's order. */
         const jf::Item *next = here + 1 < episodes.size() ? &episodes[here + 1] : nullptr;
-        if (!order.empty()) {
+        const auto at = std::find(order.begin(), order.end(), it.id);
+        if (at != order.end()) {
             next = nullptr;
-            for (size_t i = 0; i + 1 < order.size() && !next; i++)
-                if (order[i] == it.id)
-                    for (const jf::Item &e : episodes)
-                        if (!next && e.id == order[i + 1])
-                            next = &e;
+            if (at + 1 != order.end())
+                for (const jf::Item &e : episodes)
+                    if (!next && e.id == *(at + 1))
+                        next = &e;
         }
         if (next)
             cJSON_AddItemToObject(o, "nextEpisode", episode_json(c, *next));
@@ -1095,6 +1097,21 @@ static bool play_chain(jf::Client &client, jf::Item item, std::vector<jf::Item> 
     return ok;
 }
 
+bool jelly5_shufflable(const jf::Item &e)
+{
+    return !e.id.empty() && !e.missing && e.parent_index > 0 && e.index > 0;
+}
+
+size_t jelly5_random_below(size_t n)
+{
+    static bool seeded = false;
+    if (!seeded) {
+        std::srand((unsigned)time(nullptr));
+        seeded = true;
+    }
+    return n ? (size_t)std::rand() % n : 0;
+}
+
 /* The play order for Tilfeldig, as ids: this episode first, then the series'
  * other numbered episodes that have a file (no specials) in random order. The
  * episodes themselves stay in the series' order for the player's list. */
@@ -1102,11 +1119,10 @@ static std::vector<std::string> shuffled_order(const std::vector<jf::Item> &all,
 {
     std::vector<std::string> ids{first.id};
     for (const jf::Item &e : all)
-        if (!e.id.empty() && e.id != first.id && !e.missing && e.parent_index > 0 && e.index > 0)
+        if (e.id != first.id && jelly5_shufflable(e))
             ids.push_back(e.id);
-    std::srand((unsigned)time(nullptr));
     for (size_t i = ids.size() - 1; i > 1; i--)
-        std::swap(ids[i], ids[1 + std::rand() % i]);
+        std::swap(ids[i], ids[1 + jelly5_random_below(i)]);
     return ids;
 }
 
