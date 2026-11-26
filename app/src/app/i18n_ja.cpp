@@ -139,7 +139,7 @@ const std::unordered_map<std::string, const char *> &japanese_table()
         {" i biblioteket.", " の作品がありません。"},
         {"Spilleliste", "プレイリスト"},
         
-        {"Bland", "シャッフル"},
+        {"Tilfeldig", "シャッフル"},
         {"Miks", "インスタントミックス"},
         {"Fjern fra Min liste", "マイリストから削除"},
         {"Legg til i Min liste", "マイリストに追加"},

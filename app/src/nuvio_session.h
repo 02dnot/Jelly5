@@ -138,6 +138,9 @@ struct NuvioRequest {
     std::vector<NuvioEpisode> episodes;
     bool has_next = false;
     NuvioEpisode next;
+    bool has_previous = false;    /* Jelly5: what Previous plays when it is not the list's (Tilfeldig) */
+    bool shuffled_run = false;    /* Jelly5: a Tilfeldig run - no previous means none, not the list's */
+    NuvioEpisode previous;
     std::vector<NuvioSkip> skips;
     std::vector<NuvioChapter> chapters;
     std::vector<NuvioLyric> lyrics;

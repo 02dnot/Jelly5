@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * An album or a playlist (Apple Music on tvOS): the cover on the left over its
- * colours, the title, artist and year; Spill av, Bland, Miks (Jellyfin's
+ * colours, the title, artist and year; Spill av, Tilfeldig, Miks (Jellyfin's
  * Instant Mix) and the artist's page; the track list. Cross on a track plays
  * on from there; Circle goes back to the buttons, then off the page.
  */

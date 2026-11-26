@@ -185,6 +185,7 @@ Item item_of(const cJSON *o)
     it.year = int_of(o, "ProductionYear", 0);
     it.community_rating = num_of(o, "CommunityRating", 0);
     it.runtime_ticks = i64_of(o, "RunTimeTicks", 0);
+    it.missing = str_of(o, "LocationType") == "Virtual";
     const cJSON *ud = cJSON_GetObjectItemCaseSensitive(o, "UserData");
     it.position_ticks = i64_of(ud, "PlaybackPositionTicks", 0);
     it.played_percent = num_of(ud, "PlayedPercentage", 0);

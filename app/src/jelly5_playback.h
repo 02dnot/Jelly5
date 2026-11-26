@@ -17,6 +17,11 @@
  * false with *error when the item could not be started. A music track plays
  * on through its album; shuffle: the album in random order from this track. */
 bool jelly5_play(jf::Client &client, const jf::Item &item, std::string *error, bool shuffle = false);
+/* An episode Tilfeldig may play: numbered, with a file, no specials. A series whose
+ * episodes carry no numbers has none, so no Tilfeldig. */
+bool jelly5_shufflable(const jf::Item &episode);
+/* A random index below n, from one generator seeded once (Tilfeldig's picks). */
+size_t jelly5_random_below(size_t n);
 /* The stop report goes to the server in the background after playback; this
  * waits (up to max_ms) until it has landed, before reading positions back. */
 void jelly5_wait_reports(int max_ms);

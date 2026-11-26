@@ -139,7 +139,7 @@ const std::unordered_map<std::string, const char *> &dutch_table()
         {" i biblioteket.", " in de bibliotheek."},
         {"Spilleliste", "Afspeellijst"},
         
-        {"Bland", "Shuffle"},
+        {"Tilfeldig", "Shuffle"},
         {"Miks", "Mix"},
         {"Fjern fra Min liste", "Verwijderen uit Mijn lijst"},
         {"Legg til i Min liste", "Toevoegen aan Mijn lijst"},

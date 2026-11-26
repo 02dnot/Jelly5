@@ -139,7 +139,7 @@ const std::unordered_map<std::string, const char *> &indonesian_table()
         {" i biblioteket.", " di pustaka."},
         {"Spilleliste", "Daftar putar"},
         
-        {"Bland", "Acak"},
+        {"Tilfeldig", "Acak"},
         {"Miks", "Mix"},
         {"Fjern fra Min liste", "Hapus dari Daftar Saya"},
         {"Legg til i Min liste", "Tambahkan ke Daftar Saya"},

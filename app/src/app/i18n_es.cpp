@@ -154,7 +154,7 @@ const std::unordered_map<std::string, const char *> &spanish_table()
         {" i biblioteket.", " en la biblioteca."},
         {"Spilleliste", "Lista de reproducción"},
         
-        {"Bland", "Aleatorio"},
+        {"Tilfeldig", "Aleatorio"},
         {"Miks", "Mezcla"},
         {"Fjern fra Min liste", "Quitar de Mi lista"},
         {"Legg til i Min liste", "Añadir a Mi lista"},

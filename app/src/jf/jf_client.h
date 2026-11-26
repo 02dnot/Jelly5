@@ -58,6 +58,7 @@ struct Item {
     std::string tmdb_id, tvdb_id;             /* ProviderIds (search and item ask for them) */
     std::string media_source_id;              /* Play: this version (chosen in Options); empty: the best */
     bool from_start = false;                  /* Play: from the beginning (no version's resume point either) */
+    bool missing = false;                     /* LocationType Virtual: listed, but no file to play */
 
     /* Live TV. A channel (TvChannel): its number and, with AddCurrentProgram, what
      * is on now. A programme (Program): its channel, when it airs (Unix seconds,

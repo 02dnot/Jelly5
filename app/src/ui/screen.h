@@ -41,7 +41,7 @@ struct Action {
         None,
         Play,       /* play item (a series plays its next episode) */
         PlayFromStart,
-        PlayShuffled, /* music: item first, the rest of its album in random order */
+        PlayShuffled, /* item first, then the rest of its album (music) or its series (an episode) in random order */
         PlayMix,      /* music: Jellyfin's Instant Mix from item */
         Open,       /* open item's detail page */
         ToNav,      /* focus moves up into the tab bar */

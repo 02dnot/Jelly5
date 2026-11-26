@@ -204,7 +204,7 @@ void Album::draw(double now, float dt)
     }
     gfx::text(x, kTop + 168, meta, {gfx::Medium, 24}, alpha(kText3, m_content.value));
 
-    /* Spill av, Bland, Miks, the artist. */
+    /* Spill av, Tilfeldig, Miks, the artist. */
     /* Glass buttons, the focus drop, then the labels. */
     const std::vector<Button> bs = buttons();
     if (m_in_tracks)
@@ -217,7 +217,7 @@ void Album::draw(double now, float dt)
             const bool focus = !m_in_tracks && m_button == i;
             const gfx::TextStyle st{gfx::Bold, 26};
             const std::string label = bs[i] == PlayAll   ? T("Spill av")
-                                      : bs[i] == Shuffle ? T("Bland")
+                                      : bs[i] == Shuffle ? T("Tilfeldig")
                                       : bs[i] == Mix     ? T("Miks")
                                                          : m_album.album_artist + " \xE2\x80\xBA";
             /* The artist's button takes what is left of the row (a long language, a long name). */

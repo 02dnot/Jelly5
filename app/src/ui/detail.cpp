@@ -11,6 +11,7 @@
 #include "app/i18n.h"
 #include "app/seerr_service.h"
 #include "app/settings.h"
+#include "app/syncplay.h"
 
 #include "gfx/art.h"
 #include "nuvio_input.h"
@@ -376,12 +377,34 @@ std::vector<Detail::Button> Detail::buttons() const
         b.push_back(PlayButton);
     if (m_view.have_target && m_view.target.position_ticks > 0)
         b.push_back(RestartButton);
+    /* Tilfeldig: two episodes to mix at least (counted, not copied: every frame). Not in a
+     * SyncPlay group: the group plays one title, not the chain after it. */
+    if (t == "Series" && !syncplay::active() && !m_view.have_detail) {
+        b.push_back(ShuffleButton);   /* (as Play: the row keeps its place while the page loads; a
+                                       * series with under two episodes then loses it) */
+    } else if (t == "Series" && !syncplay::active()) {
+        int n = 0;
+        for (const jf::Item &e : m_view.all_episodes)
+            if (jelly5_shufflable(e) && ++n >= 2) {
+                b.push_back(ShuffleButton);
+                break;
+            }
+    }
     if (m_view.have_trailer)
         b.push_back(TrailerButton);
     if (m_view.item.type != "BoxSet")
         b.push_back(WatchedButton);
     b.push_back(FavouriteButton);
     return b;
+}
+
+std::vector<jf::Item> Detail::shuffle_episodes() const
+{
+    std::vector<jf::Item> eps;
+    for (const jf::Item &e : m_view.all_episodes)
+        if (jelly5_shufflable(e))
+            eps.push_back(e);
+    return eps;
 }
 
 /* The focus stays on the same button when the row changes under it; when that
@@ -569,6 +592,15 @@ Action Detail::input(uint32_t p)
             } else if (btn == TrailerButton) {
                 a.kind = Action::PlayFromStart;
                 a.item = m_view.trailer;
+            } else if (btn == ShuffleButton) {
+                /* A random episode first; playback mixes the rest after it. The
+                 * server's best version: no version menu, whatever ask_version says. */
+                const std::vector<jf::Item> eps = shuffle_episodes();
+                if (!eps.empty() && !syncplay::active()) {
+                    a.kind = Action::PlayShuffled;
+                    a.item = eps[jelly5_random_below(eps.size())];
+                    a.item.position_ticks = 0;
+                }
             } else if (m_view.have_target) {
                 a.kind = btn == RestartButton ? Action::PlayFromStart : Action::Play;
                 a.item = m_view.target;
@@ -739,6 +771,8 @@ void Detail::draw_top(float y0, float dt)
             w = gfx::text_width(m_view.item.played ? T("Sett") : T("Merk som sett"), st) + 64 + 34;
         if (bs[i] == RestartButton)
             w = gfx::text_width(T("Fra start"), st) + 64;
+        if (bs[i] == ShuffleButton)
+            w = gfx::text_width(T("Tilfeldig"), st) + 64;
         if (bs[i] == TrailerButton)
             w = gfx::text_width("Trailer", st) + 64;
         if (bs[i] == PlayButton)
@@ -776,6 +810,8 @@ void Detail::draw_top(float y0, float dt)
             }
         } else if (bs[i] == RestartButton) {
             gfx::text(r.x + r.w / 2, cy + 9, T("Fra start"), st, fg, 1);
+        } else if (bs[i] == ShuffleButton) {
+            gfx::text(r.x + r.w / 2, cy + 9, T("Tilfeldig"), st, fg, 1);
         } else if (bs[i] == TrailerButton) {
             gfx::text(r.x + r.w / 2, cy + 9, "Trailer", st, fg, 1);
         } else if (bs[i] == WatchedButton) {

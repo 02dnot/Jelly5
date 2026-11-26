@@ -139,7 +139,7 @@ const std::unordered_map<std::string, const char *> &swedish_table()
         {" i biblioteket.", " i biblioteket."},
         {"Spilleliste", "Spellista"},
         
-        {"Bland", "Blanda"},
+        {"Tilfeldig", "Blanda"},
         {"Miks", "Mix"},
         {"Fjern fra Min liste", "Ta bort från Min lista"},
         {"Legg til i Min liste", "Lägg till i Min lista"},

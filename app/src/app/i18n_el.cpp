@@ -139,7 +139,7 @@ const std::unordered_map<std::string, const char *> &greek_table()
         {" i biblioteket.", " στη βιβλιοθήκη."},
         {"Spilleliste", "Λίστα αναπαραγωγής"},
         
-        {"Bland", "Τυχαία σειρά"},
+        {"Tilfeldig", "Τυχαία σειρά"},
         {"Miks", "Μίξη"},
         {"Fjern fra Min liste", "Αφαίρεση από τη λίστα μου"},
         {"Legg til i Min liste", "Προσθήκη στη λίστα μου"},
