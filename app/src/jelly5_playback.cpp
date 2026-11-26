@@ -298,10 +298,12 @@ struct Extras {
 
 /* next_id / prev_id: what Next and Previous play when it is not the list's
  * neighbour (Tilfeldig's run); the player's episode list stays in the series'
- * own order either way. Empty: the list's order. */
+ * own order either way. Empty: the list's order, unless `run` (Tilfeldig):
+ * then empty is none - the run is over, or Previous restarts its first one. */
 std::string request_json(jf::Client &c, const jf::Item &it, const jf::Playback &pb,
                          const std::vector<jf::Item> &episodes, const Extras &ex,
-                         const std::string &next_id = std::string(), const std::string &prev_id = std::string())
+                         const std::string &next_id = std::string(), const std::string &prev_id = std::string(),
+                         bool run = false)
 {
     const std::vector<jf::Segment> &segs = ex.segments;
     const bool episode = it.type == "Episode", audio = it.type == "Audio";
@@ -458,13 +460,15 @@ std::string request_json(jf::Client &c, const jf::Item &it, const jf::Playback &
                     return &e;
             return nullptr;
         };
-        const jf::Item *next = !next_id.empty() ? by_id(next_id)
-                               : here + 1 < episodes.size() ? &episodes[here + 1]
-                                                            : nullptr;
+        const jf::Item *next = !next_id.empty()                   ? by_id(next_id)
+                               : !run && here + 1 < episodes.size() ? &episodes[here + 1]
+                                                                    : nullptr;
         if (next)
             cJSON_AddItemToObject(o, "nextEpisode", episode_json(c, *next));
         if (const jf::Item *prev = !prev_id.empty() ? by_id(prev_id) : nullptr)
             cJSON_AddItemToObject(o, "previousEpisode", episode_json(c, *prev));
+        if (run)
+            cJSON_AddBoolToObject(o, "shuffledRun", true);
     }
 
     /* Segments come from the server's detection (Intro Skipper), which can be
@@ -1104,11 +1108,8 @@ bool jelly5_shufflable(const jf::Item &e)
 
 size_t jelly5_random_below(size_t n)
 {
-    static bool seeded = false;
-    if (!seeded) {
-        std::srand((unsigned)time(nullptr));
-        seeded = true;
-    }
+    static const bool seeded = (std::srand((unsigned)time(nullptr)), true);   /* once, thread-safe */
+    (void)seeded;
     return n ? (size_t)std::rand() % n : 0;
 }
 
@@ -1186,7 +1187,7 @@ void reorder_locked(int current)
     if (s_music.shuffle && n > 1) {   /* the current track first, the rest shuffled */
         std::swap(s_music.order[0], s_music.order[std::max(0, std::min(current, n - 1))]);
         for (int i = n - 1; i > 1; i--)
-            std::swap(s_music.order[i], s_music.order[1 + std::rand() % i]);
+            std::swap(s_music.order[i], s_music.order[1 + jelly5_random_below(i)]);
         s_music.pos = 0;
     } else {
         s_music.pos = std::max(0, std::min(current, n - 1));
@@ -1477,7 +1478,7 @@ static bool play_chain_tracks(jf::Client &client, jf::Item item, std::vector<jf:
             if (run_pos > 0)
                 prev_id = order[run_pos - 1];
         }
-        const std::string req = request_json(client, item, pb, episodes, ex, next_id, prev_id);
+        const std::string req = request_json(client, item, pb, episodes, ex, next_id, prev_id, !order.empty());
 
         jelly5_subs::new_title();
         s_session.client = &client;
@@ -1576,7 +1577,7 @@ static bool play_chain_tracks(jf::Client &client, jf::Item item, std::vector<jf:
                 if (++s_music.pos >= (int)s_music.order.size()) {
                     if (s_music.repeat != 1)
                         return true;   /* the end of the queue */
-                    reorder_locked(s_music.shuffle ? std::rand() % std::max(1, n) : 0);
+                    reorder_locked(s_music.shuffle ? (int)jelly5_random_below((size_t)std::max(1, n)) : 0);
                     s_music.pos = 0;
                 }
                 next_index = s_music.order[s_music.pos];

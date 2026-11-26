@@ -252,6 +252,7 @@ bool nuvio_request_parse(const char *json, NuvioRequest &r)
         /* Jelly5: or by its id (episodes without numbers are all 0) */
         r.has_next = r.next.season > 0 || r.next.episode > 0 || !r.next.video_id.empty();
     }
+    r.shuffled_run = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(root, "shuffledRun"));
     const cJSON *prev = cJSON_GetObjectItemCaseSensitive(root, "previousEpisode");
     if (cJSON_IsObject(prev)) {
         r.previous = episode_of(prev);

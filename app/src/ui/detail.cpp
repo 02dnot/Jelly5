@@ -380,7 +380,8 @@ std::vector<Detail::Button> Detail::buttons() const
     /* Tilfeldig: two episodes to mix at least (counted, not copied: every frame). Not in a
      * SyncPlay group: the group plays one title, not the chain after it. */
     if (t == "Series" && !syncplay::active() && !m_view.have_detail) {
-        b.push_back(ShuffleButton);   /* (as Play: so the row does not shift when the page loads) */
+        b.push_back(ShuffleButton);   /* (as Play: the row keeps its place while the page loads; a
+                                       * series with under two episodes then loses it) */
     } else if (t == "Series" && !syncplay::active()) {
         int n = 0;
         for (const jf::Item &e : m_view.all_episodes)

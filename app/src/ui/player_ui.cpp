@@ -1856,7 +1856,9 @@ void PlayerUi::previous_track(const NuvioStatus &st, std::vector<OsdCommand> &ou
     /* Music: the queue's play order decides which track is before (the album's
      * list lacks what a phone queued); the chain steps back in it. A shuffled
      * run of episodes names the one that played before. */
-    const bool before = m_music ? jelly5_music_has_previous(here > 0) : m_req->has_previous || here > 0;
+    const bool before = m_music             ? jelly5_music_has_previous(here > 0)
+                        : m_req->shuffled_run ? m_req->has_previous
+                                              : here > 0;
     if (st.position > 3.0 || !before) {
         out.push_back({OsdCmd::SeekTo, 0.0});
     } else if (!m_music && m_req->has_previous) {
